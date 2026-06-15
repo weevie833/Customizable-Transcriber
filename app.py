@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import cgi
 import html
+import json
 import re
 import threading
 import urllib.parse
@@ -41,6 +42,10 @@ TOOLS = {
         "prompt": PROJECT_DIR / "prompts" / "generic.md",
     },
 }
+MODELS = {
+    "gemini-3.5-flash": "Gemini 3.5 Flash - faster / lower cost",
+    "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - higher accuracy",
+}
 
 state = {
     "running": False,
@@ -48,8 +53,13 @@ state = {
     "output": "",
     "download": "",
     "summary": "",
+    "tool": "",
+    "model": DEFAULT_MODEL,
+    "delay": "2",
+    "order": "newest",
 }
 lock = threading.Lock()
+stop_event = threading.Event()
 
 
 def add_log(message: str) -> None:
@@ -79,6 +89,24 @@ def destination_output_file(tool: str) -> Path:
     return PROJECT_DIR / "outputs" / f"{tool}-{output_stem()}.docx"
 
 
+def selected_model(form: cgi.FieldStorage) -> str:
+    model = form.getfirst("model", DEFAULT_MODEL) or DEFAULT_MODEL
+    if model not in MODELS:
+        raise RuntimeError("Select a Gemini model before running transcription.")
+    return model
+
+
+def status_payload() -> dict[str, object]:
+    with lock:
+        return {
+            "running": bool(state["running"]),
+            "log": "\n".join(state["log"]),
+            "output": str(state["output"]),
+            "download": bool(state["download"]),
+            "summary": str(state["summary"]),
+        }
+
+
 def page() -> str:
     with lock:
         running = bool(state["running"])
@@ -86,13 +114,26 @@ def page() -> str:
         output = str(state["output"])
         download = str(state["download"])
         summary = str(state["summary"])
+        selected = str(state["tool"])
+        model = str(state["model"])
+        delay = str(state["delay"])
+        order = str(state["order"])
 
     disabled = "disabled" if running else ""
+    stop_disabled = "" if running else "disabled"
     escaped_log = html.escape(log)
     escaped_output = html.escape(output)
     escaped_summary = html.escape(summary)
+    escaped_delay = html.escape(delay)
+    checked = {key: "checked" if selected == key else "" for key in TOOLS}
+    model_options = "\n".join(
+        f'<option value="{html.escape(model_id)}" {"selected" if model == model_id else ""}>{html.escape(label)}</option>'
+        for model_id, label in MODELS.items()
+    )
+    newest_checked = "checked" if order != "oldest" else ""
+    oldest_checked = "checked" if order == "oldest" else ""
     download_link = (
-        f'<a class="download" href="/download" download>Download Document</a>'
+        '<a id="download-link" class="download" href="/download" download>Download Document</a>'
         if download
         else ""
     )
@@ -103,6 +144,33 @@ def page() -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Transcription Bot</title>
+  <script>
+    async function refreshStatus() {{
+      const response = await fetch("/status", {{ cache: "no-store" }});
+      if (!response.ok) return;
+      const status = await response.json();
+      document.getElementById("summary").textContent = status.summary || "";
+      document.getElementById("output").textContent = "Output: " + (status.output || "");
+      document.getElementById("log").textContent = status.log || "";
+      document.getElementById("run-button").disabled = status.running;
+      document.getElementById("stop-button").disabled = !status.running;
+
+      const downloadWrap = document.getElementById("download-wrap");
+      downloadWrap.innerHTML = status.download
+        ? '<a id="download-link" class="download" href="/download" download>Download Document</a>'
+        : "";
+
+      if (status.running) {{
+        window.setTimeout(refreshStatus, 1500);
+      }}
+    }}
+
+    window.addEventListener("DOMContentLoaded", () => {{
+      if ({str(running).lower()}) {{
+        window.setTimeout(refreshStatus, 1500);
+      }}
+    }});
+  </script>
   <style>
     :root {{
       color-scheme: light dark;
@@ -135,7 +203,7 @@ def page() -> str:
       font-weight: 650;
       margin-top: 14px;
     }}
-    input[type="text"], input[type="number"] {{
+    input[type="text"], input[type="number"], select {{
       box-sizing: border-box;
       width: 100%;
       margin-top: 6px;
@@ -226,6 +294,21 @@ def page() -> str:
       font-weight: 700;
       cursor: pointer;
     }}
+    .actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }}
+    .actions form {{
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }}
+    .danger {{
+      background: #a33a2b;
+    }}
     .button-label, .download {{
       display: inline-block;
       margin-top: 0;
@@ -273,10 +356,10 @@ def page() -> str:
   <form method="post" action="/run">
     <label>Transcription tool</label>
     <div class="tool-grid">
-      <label><input type="radio" name="tool" value="morti" required><span>Morti</span></label>
-      <label><input type="radio" name="tool" value="battisme" required><span>Battisme</span></label>
-      <label><input type="radio" name="tool" value="matrimoni" required><span>Matrimoni</span></label>
-      <label><input type="radio" name="tool" value="generic" required><span>Generic</span></label>
+      <label><input type="radio" name="tool" value="morti" required {checked["morti"]}><span>Morti</span></label>
+      <label><input type="radio" name="tool" value="battisme" required {checked["battisme"]}><span>Battisme</span></label>
+      <label><input type="radio" name="tool" value="matrimoni" required {checked["matrimoni"]}><span>Matrimoni</span></label>
+      <label><input type="radio" name="tool" value="generic" required {checked["generic"]}><span>Generic</span></label>
     </div>
     <div class="path-control">
       <label>Source folder
@@ -285,23 +368,34 @@ def page() -> str:
     </div>
     <div class="row">
       <label>Gemini model
-        <input type="text" name="model" value="{DEFAULT_MODEL}">
+        <select name="model">
+          {model_options}
+        </select>
       </label>
       <label>Delay between images
-        <input type="number" name="delay" value="2" min="0" step="0.5">
+        <input type="number" name="delay" value="{escaped_delay}" min="0" step="0.5">
       </label>
     </div>
-    <label class="check">
-      <input type="checkbox" name="reverse"> Process in reverse chronological order
-    </label>
-    <button type="submit" {disabled}>Run transcription</button>
+    <label>Process order</label>
+    <div class="tool-grid">
+      <label><input type="radio" name="order" value="newest" required {newest_checked}><span>Newest-to-oldest</span></label>
+      <label><input type="radio" name="order" value="oldest" required {oldest_checked}><span>Oldest-to-newest</span></label>
+    </div>
+    <div class="actions">
+      <button id="run-button" type="submit" {disabled}>Run transcription</button>
+    </div>
   </form>
   <section class="panel">
-    <div class="summary">{escaped_summary}</div>
-    <p>Output: {escaped_output}</p>
+    <div id="summary" class="summary">{escaped_summary}</div>
+    <div class="actions">
+      <form method="post" action="/stop">
+        <button id="stop-button" class="danger" type="submit" {stop_disabled}>Stop</button>
+      </form>
+    </div>
+    <p id="output">Output: {escaped_output}</p>
     <p><a href="/">Refresh Status</a></p>
-    {download_link}
-    <pre>{escaped_log}</pre>
+    <div id="download-wrap">{download_link}</div>
+    <pre id="log">{escaped_log}</pre>
   </section>
 </main>
 </body>
@@ -374,15 +468,23 @@ def run_job(form: cgi.FieldStorage, output_file: Path, tool: str) -> None:
             image_folder=image_folder,
             output_file=markdown_file,
             prompt_file=prompt_file,
-            model=form.getfirst("model", DEFAULT_MODEL) or DEFAULT_MODEL,
+            model=selected_model(form),
             delay_seconds=delay,
-            reverse_order="reverse" in form.keys(),
+            reverse_order=form.getfirst("order", "newest") != "oldest",
         )
-        results = run_batch(config, PROJECT_DIR, progress=add_log)
+        results = run_batch(
+            config,
+            PROJECT_DIR,
+            progress=add_log,
+            cancel_requested=stop_event.is_set,
+        )
         write_docx(output_file, markdown_file.read_text(encoding="utf-8"))
         failures = count_failures(results)
         with lock:
-            state["summary"] = f"Processed {len(results)} image(s), {failures} failure(s)."
+            if stop_event.is_set():
+                state["summary"] = f"Stopped after {len(results)} image(s), {failures} failure(s)."
+            else:
+                state["summary"] = f"Processed {len(results)} image(s), {failures} failure(s)."
             state["download"] = str(output_file)
     except Exception as exc:
         add_log(f"Fatal error: {exc}")
@@ -396,6 +498,10 @@ def run_job(form: cgi.FieldStorage, output_file: Path, tool: str) -> None:
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/status":
+            self.status()
+            return
+
         if parsed.path == "/download":
             self.download()
             return
@@ -407,6 +513,10 @@ class Handler(BaseHTTPRequestHandler):
         self.respond(page())
 
     def do_POST(self) -> None:
+        if self.path == "/stop":
+            self.stop_job()
+            return
+
         if self.path != "/run":
             self.send_error(404)
             return
@@ -437,16 +547,46 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         output_file = destination_output_file(tool)
+        model = selected_model(form)
+        delay = form.getfirst("delay", "2") or "2"
+        order = form.getfirst("order", "newest")
+        if order not in {"newest", "oldest"}:
+            order = "newest"
         with lock:
+            stop_event.clear()
             state["running"] = True
             state["log"] = []
             state["output"] = str(output_file)
             state["download"] = ""
             state["summary"] = f"Running {TOOLS[tool]['label']}..."
+            state["tool"] = tool
+            state["model"] = model
+            state["delay"] = delay
+            state["order"] = order
 
         thread = threading.Thread(target=run_job, args=(form, output_file, tool), daemon=True)
         thread.start()
         self.respond(page())
+
+    def stop_job(self) -> None:
+        with lock:
+            if state["running"]:
+                stop_event.set()
+                state["summary"] = "Stopping after the current image finishes..."
+                state["log"].append("Stop requested.")
+                state["log"] = state["log"][-300:]
+            else:
+                state["summary"] = "No transcription is running."
+        self.respond(page())
+
+    def status(self) -> None:
+        data = json.dumps(status_payload()).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def download(self) -> None:
         with lock:

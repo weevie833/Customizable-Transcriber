@@ -14,7 +14,7 @@ from google.genai import types
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "gemini-3.5-flash"
 USER_INSTRUCTION = "Transcribe and translate this document word-for-word."
 MONTHS = {
     "jan": 1,
@@ -176,8 +176,42 @@ def transcribe_image(
     return response.text or ""
 
 
+def collapse_source_line_breaks(text: str) -> str:
+    paragraphs: list[str] = []
+    current: list[str] = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if current:
+                paragraphs.append(" ".join(current))
+                current = []
+            continue
+
+        if line.endswith(":") and current:
+            paragraphs.append(" ".join(current))
+            current = [line]
+            continue
+
+        current.append(line)
+
+    if current:
+        paragraphs.append(" ".join(current))
+
+    return "\n\n".join(paragraphs)
+
+
+def strip_model_record_headers(text: str) -> str:
+    lines = text.splitlines()
+    while lines and re.match(r"^\s*-{3,}\s*START OF RECORD:.*-{3,}\s*$", lines[0], re.IGNORECASE):
+        lines = lines[1:]
+        while lines and not lines[0].strip():
+            lines = lines[1:]
+    return "\n".join(lines)
+
+
 def render_entry(filename: str, text: str) -> str:
-    clean_text = text.strip()
+    clean_text = collapse_source_line_breaks(strip_model_record_headers(text))
     return f"\n\n--- START OF RECORD: {filename} ---\n\n{clean_text}\n"
 
 
@@ -185,6 +219,7 @@ def run_batch(
     config: TranscriptionConfig,
     project_dir: Path,
     progress: Callable[[str], None] | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> list[ImageResult]:
     prompt = config.prompt_file.read_text(encoding="utf-8")
     files = image_files(config.image_folder, config.reverse_order)
@@ -202,6 +237,10 @@ def run_batch(
         output.write(f"# Transcription Output\n\nSource folder: {config.image_folder}\n")
 
         for index, image_path in enumerate(files, start=1):
+            if cancel_requested and cancel_requested():
+                log("Stopped before next image.")
+                break
+
             name = display_name(image_path, config.image_folder)
             log(f"[{index}/{len(files)}] Processing {name}")
             try:
@@ -224,9 +263,21 @@ def run_batch(
                 log(f"Failed {name}: {exc}")
 
             if config.delay_seconds > 0 and index < len(files):
-                time.sleep(config.delay_seconds)
+                remaining_delay = config.delay_seconds
+                while remaining_delay > 0:
+                    if cancel_requested and cancel_requested():
+                        log("Stopped during delay before next image.")
+                        break
+                    sleep_time = min(0.25, remaining_delay)
+                    time.sleep(sleep_time)
+                    remaining_delay -= sleep_time
+                if cancel_requested and cancel_requested():
+                    break
 
-    log(f"Done. Output: {config.output_file}")
+    if cancel_requested and cancel_requested():
+        log(f"Stopped. Partial output: {config.output_file}")
+    else:
+        log(f"Done. Output: {config.output_file}")
     return results
 
 

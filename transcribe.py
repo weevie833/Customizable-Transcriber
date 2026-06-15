@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reverse",
         action="store_true",
-        help="Process files in reverse alphabetical order.",
+        help="Process files in reverse chronological order.",
     )
     parser.add_argument(
         "--include-thoughts",
@@ -51,7 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
     output_file = Path(args.output).expanduser() if args.output else default_output_file(PROJECT_DIR)
 
     config = TranscriptionConfig(

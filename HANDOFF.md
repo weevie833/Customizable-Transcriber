@@ -1,4 +1,4 @@
-# Transcription Bot Handoff
+# Customizable Transcription Interface Handoff
 
 ## Current State
 
@@ -20,62 +20,56 @@ The app uses Gemini to transcribe local archival images from this hardcoded sour
 /Users/stevecovello/Desktop/MM/Transcription Sources
 ```
 
-It creates a new timestamped `.docx` file for each run in:
+It creates timestamped `.docx` output in `outputs/` and also writes an intermediate timestamped `.md` file.
 
-```text
-/Users/stevecovello/Documents/Codex/Transcription Bot/outputs
-```
+## Current Workflow
 
-It also writes an intermediate `.md` file beside the `.docx`.
+The former top-level mode buttons have been removed. Runs are now driven by saved prompt profiles in `profiles/`. The Rendi profiles were migrated from the old `.md` prompts into JSON files and behave like user-created custom profiles.
 
-## App Modes
+Current saved profiles include:
 
-The web interface requires one transcription mode before running:
+- `profiles/rendi-battesimi.json`
+- `profiles/rendi-morti.json`
+- `profiles/rendi-matrimoni.json`
+- `profiles/rendi-generic.json`
 
-- `Morti`
-- `Battisme`
-- `Matrimoni`
-- `Generic`
+`profiles/settings.json` stores the last selected profile and is ignored by git.
 
-Each mode uses a separate prompt file:
+Each profile has these editable plain-text sections:
 
-```text
-prompts/morti.md
-prompts/battesimi.md
-prompts/matrimoni.md
-prompts/generic.md
-```
+- `role_context`: Role plus tone/style/local context.
+- `reference_context`: Ground truth, taxonomy, names, places, formulas, dictionaries, and other reference material.
+- `output_format`: Output structure plus transcription/translation examples.
 
-`Generic` outputs only:
+The UI shows these sections as plain text, not raw JSON. The app handles JSON escaping and formatting when saving, so brackets, quotes, commas, and long pasted text do not break profile-file syntax.
 
-- Italian Transcription
-- English Translation
+## Profile Saving
 
-All prompts now:
+The UI has a `Save Profile` button beside `Save new custom profile as`.
 
-- Avoid duplicate filename or `START OF RECORD` headers, because the app adds the source-relative record header.
-- Avoid matching source line breaks; output uses continuous paragraphs.
-- Preserve abbreviations in the Italian transcription, such as `Ant:o`.
-- Expand clear abbreviations in the English translation, such as `Ant:o` as `Antonio`.
+- If the profile name field is blank, `Save Profile` updates the selected profile.
+- If a new name is entered, `Save Profile` creates a new reusable profile.
+- If the entered name matches an existing profile, the browser prompts the user to replace the existing profile or create a renamed new version.
+- Backend save logic also supports explicit replacement so direct POSTs behave predictably.
+
+If edited profile boxes are submitted with `Run transcription`, the app still prompts the user to update the selected profile or save a new named version before running.
+
+## API Key Handling
+
+The web UI now includes a `Gemini API key` field under the model dropdown. A user can paste their own key for a run. The pasted key is used as a runtime override and is not saved to project files.
+
+Private local use can still rely on `.env`, but `.env` is ignored by git and should not be committed.
 
 ## Source File Ordering
 
-The source scanner was updated in `transcription_bot/core.py` to:
+The source scanner in `transcription_bot/core.py` recursively scans image files in subdirectories, parses date folder names like `1786 December 2`, sorts chronologically, and includes relative source paths in output record headers.
 
-- Recursively scan image files in subdirectories.
-- Parse date folder names like `1786 December 2`, `1790 May 23`, `1790 July 14`, and `1791 Aug 18`.
-- Sort chronologically by parsed date folder.
-- Sort image files within each date folder by filename.
-- Include relative source paths in the output record headers.
+The web app has process-order controls:
 
-The web app now has process-order radio buttons:
+- `Newest-to-oldest`: default; most recent record appears first in the output document.
+- `Oldest-to-newest`: oldest record appears first in the output document.
 
-```text
-Newest-to-oldest
-Oldest-to-newest
-```
-
-`Newest-to-oldest` is selected by default.
+The UI shows a small explanatory hint that changes when the user selects either order.
 
 ## Model Selection
 
@@ -84,66 +78,37 @@ The web app uses a Gemini model dropdown:
 - `gemini-3.5-flash`: default, faster/lower cost.
 - `gemini-3.1-pro-preview`: higher accuracy.
 
-`gemini-3-flash-preview` was removed from the dropdown after comparing it with the stable Flash model family.
-
 ## Run Control
 
-The web page now polls `/status` while a run is active, so the log and summary update automatically without manual refresh.
+The web page polls `/status` while a run is active, so the log and summary update automatically.
 
-A `Stop` button requests cooperative cancellation:
-
-- Stops before the next image.
-- Stops during the delay between images.
-- If Gemini is already processing an image, the current request is allowed to finish.
-- A partial `.docx` is generated from the `.md` content already written.
+A `Stop` button requests cooperative cancellation. If Gemini is already processing an image, the current request is allowed to finish. A partial `.docx` is generated from the `.md` content already written.
 
 ## Key Files
 
-- `app.py`: local web app, mode selector, model dropdown, order selector, stop/status/download flow, `.docx` generation.
-- `transcription_bot/core.py`: Gemini client, recursive image discovery, date-aware sorting, cancellable batch transcription, output cleanup.
-- `prompts/`: mode-specific system prompts.
+- `app.py`: local web app, profile dropdown/editor, profile saving, API key field, model dropdown, order selector, stop/status/download flow, `.docx` generation.
+- `transcription_bot/core.py`: Gemini client, runtime API key override, recursive image discovery, date-aware sorting, cancellable batch transcription, output cleanup.
+- `profiles/`: saved JSON prompt profiles.
 - `README.md`: setup and usage notes.
-- `.env`: local Gemini API key. This is intentionally ignored by git.
+- `.env`: local Gemini API key, ignored by git.
 - `.env.example`: template for the API key.
 
-## Current Source Folder Structure Observed
+## To-Do For Next Session
 
-The source folder currently contains one project folder with date subfolders:
+Add a profile-assistant feature that can take raw pasted ground-truth material, such as a long unformatted list of names, and transform it into structured profile content before saving. The current app saves pasted ground truth safely as plain text inside JSON, but it does not parse or convert the content into structured JSON dictionaries automatically.
 
-```text
-Transcription Sources/
-  20. Mazziotta, Francesco Antonio - 1786-1814/
-    1786 December 2/
-    1787 November 3/
-    1790 May 23/
-    1790 July 14/
-    ...
-```
+Possible design:
 
-The scanner found `160` image files during testing.
-
-## Known Decisions
-
-- Source content does not need to live in the app folder.
-- The source folder path is hardcoded for now.
-- The app no longer copies source images into `uploads/`.
-- The app no longer asks for an existing destination Word document.
-- A new `.docx` is created every run.
-- The page polls status automatically while a run is active.
-- New records append to the bottom of the `.md` in processing order.
-
-## Next Recommended Work
-
-Potential follow-up:
-
-- Add a source-folder selector or config field later.
-- Improve `.docx` formatting with headings and page breaks.
-- Replace the deprecated Python `cgi` module before moving to Python 3.13.
+- Add a `Structure Ground Truth` or `Format Reference Material` button near the Ground Truth panel.
+- Let the user choose a target type such as surnames, given names, place names, abbreviations, formulas, or mixed reference notes.
+- Convert raw lines into a predictable structured text or JSON-like dictionary inside the plain-text panel.
+- Preview the structured result before replacing the Ground Truth panel content.
+- Keep the saved profile JSON syntax protected by app-side serialization.
 
 ## Prompt For Next Session
 
 Use this prompt to continue:
 
 ```text
-We are continuing work on the local Transcription Bot app at /Users/stevecovello/Documents/Codex/Transcription Bot. Read HANDOFF.md first. The app has four modes (Morti, Battisme, Matrimoni, Generic), recursive chronological image scanning from /Users/stevecovello/Desktop/MM/Transcription Sources, model selection, newest/oldest process-order controls, automatic status updates, a stop button, incremental `.md` output, and timestamped `.docx` output. Please inspect the current code and continue from the handoff.
+We are continuing work on the local Customizable Transcription Interface app at /Users/stevecovello/Documents/Codex/Transcription Bot. Read HANDOFF.md first. The app uses saved JSON prompt profiles, recursive chronological image scanning from /Users/stevecovello/Desktop/MM/Transcription Sources, model selection, a per-run Gemini API key field, newest/oldest process-order controls with explanatory hints, automatic status updates, a stop button, incremental `.md` output, and timestamped `.docx` output. Next task: add a user-friendly feature to transform raw pasted ground-truth material, such as a long unformatted list of names, into structured profile reference content before saving. Please inspect the current code and continue from the handoff.
 ```

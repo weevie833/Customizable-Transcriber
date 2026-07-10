@@ -54,6 +54,8 @@ class TranscriptionConfig:
     delay_seconds: float = 2.0
     reverse_order: bool = False
     include_thoughts: bool = False
+    system_prompt: str | None = None
+    api_key_override: str | None = None
 
 
 @dataclass(frozen=True)
@@ -148,8 +150,9 @@ def default_output_file(project_dir: Path) -> Path:
     return project_dir / "outputs" / f"transcription-{stamp}.md"
 
 
-def make_client(project_dir: Path) -> genai.Client:
-    return genai.Client(api_key=api_key(project_dir))
+def make_client(project_dir: Path, api_key_override: str | None = None) -> genai.Client:
+    key = (api_key_override or "").strip() or api_key(project_dir)
+    return genai.Client(api_key=key)
 
 
 def transcribe_image(
@@ -221,7 +224,7 @@ def run_batch(
     progress: Callable[[str], None] | None = None,
     cancel_requested: Callable[[], bool] | None = None,
 ) -> list[ImageResult]:
-    prompt = config.prompt_file.read_text(encoding="utf-8")
+    prompt = config.system_prompt or config.prompt_file.read_text(encoding="utf-8")
     files = image_files(config.image_folder, config.reverse_order)
     config.output_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -230,7 +233,7 @@ def run_batch(
             progress(message)
 
     log(f"Found {len(files)} image(s).")
-    client = make_client(project_dir)
+    client = make_client(project_dir, config.api_key_override)
     results: list[ImageResult] = []
 
     with config.output_file.open("w", encoding="utf-8") as output:

@@ -4,7 +4,7 @@ import mimetypes
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
@@ -13,7 +13,17 @@ from google import genai
 from google.genai import types
 
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
+FILE_TYPE_EXTENSIONS = {
+    "jpeg": frozenset({".jpg", ".jpeg"}),
+    "png": frozenset({".png"}),
+    "pdf": frozenset({".pdf"}),
+}
+SUPPORTED_SOURCE_EXTENSIONS = frozenset(
+    extension
+    for extensions in FILE_TYPE_EXTENSIONS.values()
+    for extension in extensions
+)
+IMAGE_EXTENSIONS = SUPPORTED_SOURCE_EXTENSIONS
 DEFAULT_MODEL = "gemini-3.5-flash"
 USER_INSTRUCTION = "Transcribe and translate this document word-for-word."
 MONTHS = {
@@ -56,6 +66,7 @@ class TranscriptionConfig:
     include_thoughts: bool = False
     system_prompt: str | None = None
     api_key_override: str | None = None
+    source_extensions: frozenset[str] = field(default_factory=lambda: SUPPORTED_SOURCE_EXTENSIONS)
 
 
 @dataclass(frozen=True)
@@ -130,19 +141,53 @@ def display_name(path: Path, root: Path) -> str:
         return path.name
 
 
-def image_files(folder: Path, reverse_order: bool = False) -> list[Path]:
+def source_files(folder: Path, extensions: Iterable[str], reverse_order: bool = False) -> list[Path]:
     if not folder.exists():
-        raise FileNotFoundError(f"Image folder does not exist: {folder}")
+        raise FileNotFoundError(f"Source folder does not exist: {folder}")
     if not folder.is_dir():
-        raise NotADirectoryError(f"Image folder is not a directory: {folder}")
+        raise NotADirectoryError(f"Source folder is not a directory: {folder}")
 
+    allowed_extensions = {extension.lower() for extension in extensions}
     files = sorted(
-        (path for path in folder.rglob("*") if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS),
+        (
+            path
+            for path in folder.rglob("*")
+            if path.is_file() and path.suffix.lower() in allowed_extensions
+        ),
         key=lambda path: image_sort_key(path, folder),
     )
     if reverse_order:
         files.reverse()
     return files
+
+
+def image_files(folder: Path, reverse_order: bool = False) -> list[Path]:
+    return source_files(folder, IMAGE_EXTENSIONS, reverse_order)
+
+
+def extensions_for_file_type(file_type: str) -> frozenset[str]:
+    try:
+        return FILE_TYPE_EXTENSIONS[file_type]
+    except KeyError as exc:
+        raise RuntimeError("Select JPEG, PNG, or PDF as the source file type.") from exc
+
+
+def count_source_files_by_type(folder: Path) -> dict[str, int]:
+    if not folder.exists():
+        raise FileNotFoundError(f"Source folder does not exist: {folder}")
+    if not folder.is_dir():
+        raise NotADirectoryError(f"Source folder is not a directory: {folder}")
+
+    counts = {file_type: 0 for file_type in FILE_TYPE_EXTENSIONS}
+    for path in folder.rglob("*"):
+        if not path.is_file():
+            continue
+        suffix = path.suffix.lower()
+        for file_type, extensions in FILE_TYPE_EXTENSIONS.items():
+            if suffix in extensions:
+                counts[file_type] += 1
+                break
+    return counts
 
 
 def default_output_file(project_dir: Path) -> Path:
@@ -154,6 +199,16 @@ def make_client(project_dir: Path, api_key_override: str | None = None) -> genai
     key = (api_key_override or "").strip() or api_key(project_dir)
     return genai.Client(api_key=key)
 
+
+
+
+def validate_api_key(project_dir: Path, model: str, api_key_override: str | None = None) -> None:
+    client = make_client(project_dir, api_key_override)
+    client.models.generate_content(
+        model=model,
+        contents="Reply with OK.",
+        config=types.GenerateContentConfig(max_output_tokens=4),
+    )
 
 def transcribe_image(
     client: genai.Client,
@@ -225,14 +280,14 @@ def run_batch(
     cancel_requested: Callable[[], bool] | None = None,
 ) -> list[ImageResult]:
     prompt = config.system_prompt or config.prompt_file.read_text(encoding="utf-8")
-    files = image_files(config.image_folder, config.reverse_order)
+    files = source_files(config.image_folder, config.source_extensions, config.reverse_order)
     config.output_file.parent.mkdir(parents=True, exist_ok=True)
 
     def log(message: str) -> None:
         if progress:
             progress(message)
 
-    log(f"Found {len(files)} image(s).")
+    log(f"Found {len(files)} source file(s).")
     client = make_client(project_dir, config.api_key_override)
     results: list[ImageResult] = []
 

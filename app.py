@@ -13,10 +13,14 @@ from xml.etree import ElementTree
 
 from transcription_bot.core import (
     DEFAULT_MODEL,
+    FILE_TYPE_EXTENSIONS,
     TranscriptionConfig,
     count_failures,
+    count_source_files_by_type,
     default_output_file,
+    extensions_for_file_type,
     run_batch,
+    validate_api_key,
 )
 
 
@@ -28,6 +32,12 @@ DEFAULT_PROFILE_ID = "rendi-battesimi"
 PROFILES_DIR = PROJECT_DIR / "profiles"
 PROFILE_SETTINGS_FILE = PROFILES_DIR / "settings.json"
 SOURCE_FOLDER = Path("/Users/stevecovello/Desktop/MM/Transcription Sources")
+DOWNLOAD_HELP_TEXT = "The DOCX file will be downloaded to wherever your browser saves downloaded files. Check your browser's Downloads button for download history."
+FILE_TYPE_LABELS = {
+    "jpeg": "JPEG (.jpg, .jpeg)",
+    "png": "PNG (.png)",
+    "pdf": "PDF (.pdf)",
+}
 MODELS = {
     "gemini-3.5-flash": "Gemini 3.5 Flash - faster / lower cost",
     "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - higher accuracy",
@@ -40,8 +50,9 @@ state = {
     "download": "",
     "summary": "",
     "model": DEFAULT_MODEL,
-    "order": "newest",
-    "profile_id": DEFAULT_PROFILE_ID,
+    "order": "oldest",
+    "file_type": "jpeg",
+    "profile_id": "",
     "new_profile_name": "",
     "role_context": "",
     "reference_context": "",
@@ -65,6 +76,23 @@ def safe_filename(value: str) -> str:
 
 def output_stem() -> str:
     return default_output_file(PROJECT_DIR).stem
+
+
+def reset_ui_state() -> None:
+    with lock:
+        state["running"] = False
+        state["log"] = []
+        state["output"] = ""
+        state["download"] = ""
+        state["summary"] = ""
+        state["model"] = DEFAULT_MODEL
+        state["order"] = "oldest"
+        state["file_type"] = "jpeg"
+        state["profile_id"] = ""
+        state["new_profile_name"] = ""
+        state["role_context"] = ""
+        state["reference_context"] = ""
+        state["output_format"] = ""
 
 
 class FormData:
@@ -107,6 +135,34 @@ def selected_model(form: FormData) -> str:
     if model not in MODELS:
         raise RuntimeError("Select a Gemini model before running transcription.")
     return model
+
+
+def selected_file_type(form: FormData) -> str:
+    file_type = form.getfirst("file_type", "jpeg") or "jpeg"
+    if file_type not in FILE_TYPE_EXTENSIONS:
+        raise RuntimeError("Select JPEG, PNG, or PDF as the source file type.")
+    return file_type
+
+
+def file_type_display(file_type: str) -> str:
+    return FILE_TYPE_LABELS.get(file_type, file_type.upper())
+
+
+def preflight_source_file_type(source_folder: Path, file_type: str) -> int:
+    counts = count_source_files_by_type(source_folder)
+    selected_count = counts.get(file_type, 0)
+    if selected_count:
+        return selected_count
+    available = [
+        f"{file_type_display(kind)}: {count}"
+        for kind, count in counts.items()
+        if count
+    ]
+    if available:
+        detail = " Available source files: " + ", ".join(available) + "."
+    else:
+        detail = " No JPEG, PNG, or PDF source files were found."
+    raise RuntimeError(f"No {file_type_display(file_type)} files were found in the source folder.{detail}")
 
 
 def pasted_value(form: FormData, name: str) -> str:
@@ -235,6 +291,30 @@ def load_custom_profiles() -> list[dict[str, str]]:
     return profiles
 
 
+
+
+def profile_version_suffix(profile_id: str) -> str:
+    match = re.search(r"-(\d+)$", profile_id)
+    if match:
+        return f"Version {match.group(1)}"
+    return "Original"
+
+
+def profiles_with_display_labels() -> list[dict[str, str]]:
+    profiles = load_custom_profiles()
+    label_counts: dict[str, int] = {}
+    for profile in profiles:
+        key = profile["label"].strip().casefold()
+        label_counts[key] = label_counts.get(key, 0) + 1
+
+    for profile in profiles:
+        key = profile["label"].strip().casefold()
+        if label_counts.get(key, 0) > 1:
+            profile["display_label"] = f"{profile['label']} ({profile_version_suffix(profile['id'])})"
+        else:
+            profile["display_label"] = profile["label"]
+    return profiles
+
 def load_profile(profile_id: str) -> dict[str, str]:
     for profile in load_custom_profiles():
         if profile["id"] == profile_id:
@@ -289,18 +369,38 @@ def update_profile(profile_id: str, role_context: str, reference_context: str, o
     write_profile(profile)
     return profile
 
+
+def delete_profile(profile_id: str) -> dict[str, str]:
+    profile = load_profile(profile_id)
+    path = custom_profile_path(profile_id)
+    if not path.exists():
+        raise RuntimeError("Select a valid prompt profile before deleting.")
+    path.unlink()
+    if PROFILE_SETTINGS_FILE.exists():
+        try:
+            settings = json.loads(PROFILE_SETTINGS_FILE.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            settings = {}
+        if settings.get("selected_profile_id") == profile_id:
+            PROFILE_SETTINGS_FILE.unlink(missing_ok=True)
+    return profile
+
+
 def selected_profile_id(form: FormData) -> str:
-    profile_id = form.getfirst("profile_id", DEFAULT_PROFILE_ID) or DEFAULT_PROFILE_ID
+    profile_id = form.getfirst("profile_id", "") or ""
+    if not profile_id:
+        raise RuntimeError("Select a prompt profile before running transcription.")
     if custom_profile_path(profile_id).exists():
         return profile_id
-    return DEFAULT_PROFILE_ID
+    raise RuntimeError("Select a valid prompt profile before running transcription.")
 
 
 def profile_options_html(selected_profile: str) -> str:
-    options = []
-    for profile in load_custom_profiles():
+    placeholder_selected = "selected" if not selected_profile else ""
+    options = [f'<option value="" disabled {placeholder_selected}>Select a Profile</option>']
+    for profile in profiles_with_display_labels():
         profile_id = html.escape(profile["id"])
-        label = html.escape(profile["label"])
+        label = html.escape(profile["display_label"])
         selected = "selected" if selected_profile == profile["id"] else ""
         options.append(f'<option value="{profile_id}" {selected}>{label}</option>')
     return "\n".join(options)
@@ -310,12 +410,13 @@ def profiles_for_browser() -> dict[str, dict[str, str]]:
     return {
         profile["id"]: {
             "id": profile["id"],
-            "label": profile["label"],
+            "label": profile.get("display_label", profile["label"]),
+            "profile_label": profile["label"],
             "role_context": profile.get("role_context", ""),
             "reference_context": profile.get("reference_context", ""),
             "output_format": profile.get("output_format", ""),
         }
-        for profile in load_custom_profiles()
+        for profile in profiles_with_display_labels()
     }
 
 def resolve_profile_for_run(form: FormData) -> dict[str, str]:
@@ -412,6 +513,15 @@ def build_system_prompt(tool: str, profile: dict[str, str]) -> str:
     return "\n\n".join(sections)
 
 
+
+def output_status_text() -> str:
+    if state["download"]:
+        return "DOCX document ready."
+    if state["running"] and state["output"]:
+        return "DOCX document is being prepared."
+    return ""
+
+
 def status_payload() -> dict[str, object]:
     with lock:
         return {
@@ -419,6 +529,7 @@ def status_payload() -> dict[str, object]:
             "log": "\n".join(state["log"]),
             "output": str(state["output"]),
             "download": bool(state["download"]),
+            "completed": bool(state["download"]) and not bool(state["running"]),
             "summary": str(state["summary"]),
         }
 
@@ -427,22 +538,24 @@ def page() -> str:
     with lock:
         running = bool(state["running"])
         log = "\n".join(state["log"])
-        output = str(state["output"])
+        output = output_status_text()
         download = str(state["download"])
         summary = str(state["summary"])
         model = str(state["model"])
         order = str(state["order"])
+        file_type = str(state["file_type"])
         profile_id = str(state["profile_id"])
         new_profile_name = str(state["new_profile_name"])
         role_context = str(state["role_context"])
         reference_context = str(state["reference_context"])
         output_format = str(state["output_format"])
 
-    active_profile = load_profile(profile_id)
-    if active_profile.get("kind") == "custom" and not any((role_context, reference_context, output_format)):
-        role_context = active_profile.get("role_context", "")
-        reference_context = active_profile.get("reference_context", "")
-        output_format = active_profile.get("output_format", "")
+    if profile_id:
+        active_profile = load_profile(profile_id)
+        if active_profile.get("kind") == "custom" and not any((role_context, reference_context, output_format)):
+            role_context = active_profile.get("role_context", "")
+            reference_context = active_profile.get("reference_context", "")
+            output_format = active_profile.get("output_format", "")
 
     disabled = "disabled" if running else ""
     stop_disabled = "" if running else "disabled"
@@ -453,19 +566,20 @@ def page() -> str:
     escaped_role_context = html.escape(role_context)
     escaped_reference_context = html.escape(reference_context)
     escaped_output_format = html.escape(output_format)
+    escaped_download_help = html.escape(DOWNLOAD_HELP_TEXT)
     model_options = "\n".join(
         f'<option value="{html.escape(model_id)}" {"selected" if model == model_id else ""}>{html.escape(label)}</option>'
         for model_id, label in MODELS.items()
     )
-    newest_checked = "checked" if order != "oldest" else ""
-    oldest_checked = "checked" if order == "oldest" else ""
+    newest_checked = "checked" if order == "newest" else ""
+    oldest_checked = "checked" if order != "newest" else ""
+    jpeg_checked = "checked" if file_type == "jpeg" else ""
+    png_checked = "checked" if file_type == "png" else ""
+    pdf_checked = "checked" if file_type == "pdf" else ""
     profile_options = profile_options_html(profile_id)
     profile_data_json = json.dumps(profiles_for_browser()).replace("</", "<\\/")
-    download_link = (
-        '<a id="download-link" class="download" href="/download" download>Download Document</a>'
-        if download
-        else ""
-    )
+    download_disabled_class = "" if download else " disabled-link"
+    download_aria_disabled = "false" if download else "true"
 
     return f"""<!doctype html>
 <html lang="en">
@@ -481,13 +595,14 @@ def page() -> str:
       document.getElementById("summary").textContent = status.summary || "";
       document.getElementById("output").textContent = "Output: " + (status.output || "");
       document.getElementById("log").textContent = status.log || "";
-      document.getElementById("run-button").disabled = status.running;
+      updateRunButton(status.running);
+      updateRunStatus(status.running);
       document.getElementById("stop-button").disabled = !status.running;
+      updateDownloadControl(status.download);
 
-      const downloadWrap = document.getElementById("download-wrap");
-      downloadWrap.innerHTML = status.download
-        ? '<a id="download-link" class="download" href="/download" download>Download Document</a>'
-        : "";
+      if (status.completed) {{
+        showCompletionAlert();
+      }}
 
       if (status.running) {{
         window.setTimeout(refreshStatus, 1500);
@@ -496,6 +611,25 @@ def page() -> str:
 
     const profiles = {profile_data_json};
     let originalProfileFields = null;
+    let runConfirmed = false;
+    let preflightComplete = false;
+    let completionAlertShown = false;
+
+    const downloadHelpText = "The DOCX file will be downloaded to wherever your browser saves downloaded files. Check your browser's Downloads button for download history.";
+
+    function updateDownloadControl(available) {{
+      const link = document.getElementById("download-link");
+      if (!link) return;
+      link.classList.toggle("disabled-link", !available);
+      link.setAttribute("aria-disabled", available ? "false" : "true");
+      link.tabIndex = available ? 0 : -1;
+    }}
+
+    function showCompletionAlert() {{
+      if (completionAlertShown) return;
+      completionAlertShown = true;
+      showSettingsAlert("Batch completed. Scroll down and review the the Progress Console and click the Download Document button.");
+    }}
 
     function profileFields() {{
       return {{
@@ -507,7 +641,17 @@ def page() -> str:
 
     function setProfileFields(profileId) {{
       const profile = profiles[profileId];
-      if (!profile) return;
+      if (!profile) {{
+        document.querySelector('[name="role_context"]').value = "";
+        document.querySelector('[name="reference_context"]').value = "";
+        document.querySelector('[name="output_format"]').value = "";
+        document.querySelector('[name="new_profile_name"]').value = "";
+        document.querySelector('[name="profile_action"]').value = "use";
+        originalProfileFields = profileFields();
+        updateRunButton(false);
+        updateDeleteButton(false);
+        return;
+      }}
       document.querySelector('[name="role_context"]').value = profile.role_context || "";
       document.querySelector('[name="reference_context"]').value = profile.reference_context || "";
       document.querySelector('[name="output_format"]').value = profile.output_format || "";
@@ -516,6 +660,8 @@ def page() -> str:
       const duplicateAction = document.querySelector('[name="duplicate_profile_action"]');
       if (duplicateAction) duplicateAction.value = "";
       originalProfileFields = profileFields();
+      updateRunButton(false);
+      updateDeleteButton(false);
     }}
 
     function normalizeProfileName(name) {{
@@ -573,6 +719,146 @@ def page() -> str:
       );
     }}
 
+
+    function canRun() {{
+      const profileSelected = Boolean(document.querySelector('[name="profile_id"]').value);
+      const apiKeyEntered = Boolean(document.querySelector('[name="gemini_api_key"]').value.trim());
+      return profileSelected && apiKeyEntered;
+    }}
+
+    function playAlertSound() {{
+      try {{
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const context = new AudioContext();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(660, context.currentTime);
+        gain.gain.setValueAtTime(0.001, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.28);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.3);
+      }} catch (error) {{
+        return;
+      }}
+    }}
+
+    function showSettingsAlert(message) {{
+      const alert = document.getElementById("settings-alert");
+      const messageNode = document.getElementById("settings-alert-message");
+      if (!alert || !messageNode) return;
+      messageNode.textContent = message;
+      alert.hidden = false;
+      playAlertSound();
+      const closeButton = document.getElementById("settings-alert-close");
+      if (closeButton) closeButton.focus();
+    }}
+
+    function hideSettingsAlert() {{
+      const alert = document.getElementById("settings-alert");
+      if (alert) alert.hidden = true;
+    }}
+
+    function missingRunSettingMessage() {{
+      const missing = [];
+      if (!document.querySelector('[name="gemini_api_key"]').value.trim()) {{
+        missing.push("paste a Gemini API key");
+      }}
+      if (!document.querySelector('[name="profile_id"]').value) {{
+        missing.push("select a prompt profile");
+      }}
+      if (!missing.length) return "";
+      if (missing.length === 1) return `Before running transcription, please ${{missing[0]}}.`;
+      return "Before running transcription, please paste a Gemini API key and select a prompt profile.";
+    }}
+
+    function updateRunButton(running) {{
+      const runButton = document.getElementById("run-button");
+      if (!runButton) return;
+      const confirmButton = document.getElementById("confirm-run-button");
+      const profileSelected = Boolean(document.querySelector('[name="profile_id"]').value);
+      const apiKeyEntered = Boolean(document.querySelector('[name="gemini_api_key"]').value.trim());
+      runButton.disabled = Boolean(running);
+      if (confirmButton && running) confirmButton.disabled = true;
+      if (running) {{
+        runButton.title = "A transcription process is already running.";
+      }} else if (!apiKeyEntered) {{
+        runButton.title = "Paste your Gemini API key before running transcription.";
+      }} else if (!profileSelected) {{
+        runButton.title = "Select a prompt profile before running transcription.";
+      }} else {{
+        runButton.title = "Check selected settings before transcription.";
+      }}
+    }}
+
+    function resetPreflight() {{
+      runConfirmed = false;
+      preflightComplete = false;
+      const confirmButton = document.getElementById("confirm-run-button");
+      const runButton = document.getElementById("run-button");
+      const settings = document.getElementById("run-confirmation-settings");
+      if (confirmButton) confirmButton.disabled = true;
+      if (runButton) runButton.disabled = false;
+      if (settings) settings.hidden = true;
+    }}
+
+    function selectedRunSettings() {{
+      const selectedOrder = document.querySelector('[name="order"]:checked');
+      const selectedFileType = document.querySelector('[name="file_type"]:checked');
+      const profileId = document.querySelector('[name="profile_id"]').value;
+      const profile = profiles[profileId];
+      const orderLabel = selectedOrder && selectedOrder.value === "oldest" ? "Oldest-to-newest" : "Newest-to-oldest";
+      const fileTypeLabel = selectedFileType ? selectedFileType.value.toUpperCase() : "Not selected";
+      const profileLabel = profile ? profile.profile_label || profile.label : "Select a Profile";
+      return {{ orderLabel, fileTypeLabel, profileLabel }};
+    }}
+
+    function runPreflightCheck() {{
+      const panel = document.getElementById("run-confirmation");
+      if (!panel) return;
+      const settings = selectedRunSettings();
+      document.getElementById("confirm-order").textContent = settings.orderLabel;
+      document.getElementById("confirm-file-type").textContent = settings.fileTypeLabel;
+      document.getElementById("confirm-profile").textContent = settings.profileLabel;
+      const settingsWrap = document.getElementById("run-confirmation-settings");
+      const confirmButton = document.getElementById("confirm-run-button");
+      const runButton = document.getElementById("run-button");
+      if (settingsWrap) settingsWrap.hidden = false;
+      if (confirmButton) confirmButton.disabled = false;
+      if (runButton) runButton.disabled = true;
+      preflightComplete = true;
+    }}
+
+    function updateRunStatus(running) {{
+      const status = document.getElementById("run-status");
+      const settings = document.getElementById("run-confirmation-settings");
+      const title = document.querySelector("#run-confirmation .run-confirmation-title");
+      if (!status) return;
+      status.hidden = !running;
+      if (settings && running) settings.hidden = true;
+      if (title) title.textContent = running ? "Progress:" : "Confirm settings:";
+    }}
+
+    function updateDeleteButton(running) {{
+      const deleteButton = document.getElementById("profile-delete-button");
+      if (!deleteButton) return;
+      deleteButton.disabled = Boolean(running) || !document.querySelector('[name="profile_id"]').value;
+    }}
+
+    function confirmProfileDelete(event) {{
+      if (!event.submitter || event.submitter.id !== "profile-delete-button") return;
+      const profileId = document.querySelector('[name="profile_id"]').value;
+      const profile = profiles[profileId];
+      const label = profile ? profile.label : "the selected profile";
+      if (!window.confirm(`${{label}} will be permanently deleted. This cannot be undone.`)) {{
+        event.preventDefault();
+      }}
+    }}
+
     function setOrderHint() {{
       const selectedOrder = document.querySelector('[name="order"]:checked');
       const hint = document.getElementById("order-hint");
@@ -583,11 +869,54 @@ def page() -> str:
     }}
 
     function handleProfileEditsBeforeSubmit(event) {{
+      if (event.submitter && event.submitter.id === "reset-button") return;
+      if (event.submitter && event.submitter.id === "profile-delete-button") return;
+      if (event.submitter && event.submitter.id === "run-button") {{
+        const missingMessage = missingRunSettingMessage();
+        if (missingMessage) {{
+          event.preventDefault();
+          resetPreflight();
+          showSettingsAlert(missingMessage);
+          return;
+        }}
+        event.preventDefault();
+        runPreflightCheck();
+        return;
+      }}
+      if (event.submitter && event.submitter.id === "confirm-run-button" && !preflightComplete) {{
+        event.preventDefault();
+        showSettingsAlert("Please run the preflight check before starting transcription.");
+        return;
+      }}
+      if (event.submitter && event.submitter.id === "confirm-run-button") {{
+        runConfirmed = false;
+        preflightComplete = false;
+      }}
       const newName = document.querySelector('[name="new_profile_name"]').value.trim();
       const action = document.querySelector('[name="profile_action"]');
       if (event.submitter && event.submitter.id === "profile-save-button") {{
-        action.value = newName ? "create" : "update";
-        if (newName) resolveDuplicateProfileName(event, newName);
+        if (newName) {{
+          action.value = "create";
+          resolveDuplicateProfileName(event, newName);
+          return;
+        }}
+        const profileId = document.querySelector('[name="profile_id"]').value;
+        const profile = profiles[profileId];
+        if (!profile) {{
+          action.value = "update";
+          return;
+        }}
+        if (window.confirm(`Replace "${{profile.label}}" with the current profile fields? Choose Cancel to save a new version.`)) {{
+          action.value = "update";
+          return;
+        }}
+        const versionName = window.prompt("Name for the new profile version:", suggestedVersionName(profile.profile_label || profile.label));
+        if (!versionName || !versionName.trim()) {{
+          event.preventDefault();
+          return;
+        }}
+        document.querySelector('[name="new_profile_name"]').value = versionName.trim();
+        action.value = "create";
         return;
       }}
       if (newName) {{
@@ -616,16 +945,68 @@ def page() -> str:
       const profileSelect = document.querySelector('[name="profile_id"]');
       if (profileSelect) {{
         setProfileFields(profileSelect.value);
-        profileSelect.addEventListener("change", () => setProfileFields(profileSelect.value));
+        profileSelect.addEventListener("change", () => {{
+          setProfileFields(profileSelect.value);
+          resetPreflight();
+          hideSettingsAlert();
+        }});
+      }}
+      const apiKeyInput = document.querySelector('[name="gemini_api_key"]');
+      if (apiKeyInput) {{
+        apiKeyInput.addEventListener("input", () => {{
+          updateRunButton(false);
+          resetPreflight();
+          hideSettingsAlert();
+        }});
       }}
       document.querySelectorAll('[name="order"]').forEach((input) => {{
-        input.addEventListener("change", setOrderHint);
+        input.addEventListener("change", () => {{
+          setOrderHint();
+          resetPreflight();
+        }});
+      }});
+      document.querySelectorAll('[name="file_type"]').forEach((input) => {{
+        input.addEventListener("change", resetPreflight);
       }});
       setOrderHint();
+      const confirmRunButton = document.getElementById("confirm-run-button");
+      if (confirmRunButton) {{
+        confirmRunButton.addEventListener("click", (event) => {{
+          event.preventDefault();
+          runConfirmed = true;
+          completionAlertShown = false;
+          if (runForm) runForm.requestSubmit(confirmRunButton);
+        }});
+      }}
+      const downloadLink = document.getElementById("download-link");
+      if (downloadLink) {{
+        downloadLink.addEventListener("click", (event) => {{
+          if (downloadLink.getAttribute("aria-disabled") === "true") event.preventDefault();
+        }});
+      }}
+      const closeAlertButton = document.getElementById("settings-alert-close");
+      if (closeAlertButton) {{
+        closeAlertButton.addEventListener("click", hideSettingsAlert);
+      }}
+      const refreshStatusButton = document.getElementById("refresh-status-button");
+      if (refreshStatusButton) {{
+        refreshStatusButton.addEventListener("click", refreshStatus);
+      }}
+      const resetButton = document.getElementById("reset-button");
+      if (resetButton) {{
+        resetButton.addEventListener("click", () => {{
+          resetPreflight();
+          hideSettingsAlert();
+        }});
+      }}
       const runForm = document.querySelector('form[action="/run"]');
       if (runForm) {{
         runForm.addEventListener("submit", handleProfileEditsBeforeSubmit);
+        runForm.addEventListener("submit", confirmProfileDelete);
       }}
+      updateRunButton({str(running).lower()});
+      updateRunStatus({str(running).lower()});
+      updateDeleteButton({str(running).lower()});
       if ({str(running).lower()}) {{
         window.setTimeout(refreshStatus, 1500);
       }}
@@ -650,6 +1031,12 @@ def page() -> str:
     h1 {{
       margin: 0 0 20px;
       font-size: 28px;
+    }}
+    .top-bar {{
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
     }}
     form, .panel {{
       background: #ffffff;
@@ -680,6 +1067,11 @@ def page() -> str:
       gap: 10px;
       align-items: end;
     }}
+    .path-control button {{
+      margin-top: 0;
+      white-space: nowrap;
+      background: #53616f;
+    }}
     .path-display {{
       min-height: 22px;
       margin-top: 6px;
@@ -708,42 +1100,40 @@ def page() -> str:
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 14px;
+      align-items: start;
     }}
-    .tool-grid {{
+    .run-options {{
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 14px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+      gap: 14px;
+      align-items: start;
     }}
-    .profile-save-row {{
+    .radio-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 8px;
+    }}
+    .profile-save-row, .profile-select-row {{
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 10px;
       align-items: end;
     }}
-    .profile-save-row button {{
-      margin-top: 0;
+    .profile-save-row button, .profile-select-row button {{
+      margin-top: 6px;
       white-space: nowrap;
     }}
-    .tool-grid input {{
-      position: absolute;
-      opacity: 0;
-      pointer-events: none;
+    .radio-option {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 0;
+      font-weight: 500;
+      white-space: nowrap;
     }}
-    .tool-grid span {{
-      display: block;
-      padding: 10px 12px;
-      border: 1px solid #8d99a6;
-      border-radius: 6px;
-      text-align: center;
-      font-weight: 700;
-      cursor: pointer;
-      background: #fff;
-    }}
-    .tool-grid input:checked + span {{
-      border-color: #255c99;
-      background: #255c99;
-      color: #fff;
+    .radio-option input {{
+      margin: 0;
     }}
     .check {{
       display: flex;
@@ -777,11 +1167,155 @@ def page() -> str:
       font-weight: 700;
       cursor: pointer;
     }}
+    button:not(:disabled):hover, .button-label:hover, .download:hover {{
+      filter: brightness(0.92);
+    }}
+    button:not(:disabled):focus-visible, .button-label:focus-visible, .download:focus-visible {{
+      outline: 3px solid rgba(37, 92, 153, 0.32);
+      outline-offset: 2px;
+    }}
+    #reset-button, #profile-save-button, #refresh-status-button {{
+      background: #255c99;
+    }}
+    #reset-button:not(:disabled):hover, #profile-save-button:not(:disabled):hover, #refresh-status-button:not(:disabled):hover {{
+      background: #1f4d80;
+      filter: none;
+    }}
+    #run-button {{
+      background: #22863a;
+    }}
+    #run-button:not(:disabled):hover {{
+      background: #176f2c;
+    }}
+    #run-button:disabled, #confirm-run-button:disabled {{
+      background: #8d99a6;
+      color: #eef2f6;
+      cursor: not-allowed;
+      opacity: 0.72;
+    }}
     .actions {{
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
       align-items: center;
+    }}
+    .run-actions {{
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      margin-top: 22px;
+    }}
+    .run-button-stack {{
+      display: grid;
+      gap: 8px;
+      align-items: start;
+    }}
+    .run-button-stack button {{
+      width: 170px;
+      margin-top: 0;
+    }}
+    .run-confirmation {{
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-content: flex-start;
+      align-items: flex-start;
+      min-height: 72px;
+      margin-top: 0;
+      padding: 10px 12px;
+      border: 1px solid #d9d4c8;
+      border-radius: 6px;
+      background: #fbfaf7;
+      color: #1f2933;
+      font-size: 13px;
+    }}
+    .profile-work-area {{
+      margin: 20px -18px -18px;
+      padding: 18px;
+      border-top: 1px solid #d9d4c8;
+      border-radius: 0 0 8px 8px;
+      background: #f4f5f6;
+    }}
+    .profile-work-area > .hint:first-child {{
+      margin-top: 0;
+      margin-bottom: 12px;
+    }}
+    .profile-work-area > .hint:first-child + label {{
+      margin-top: 0;
+    }}
+    .run-confirmation-settings[hidden] {{
+      display: none;
+    }}
+    .run-confirmation-title {{
+      font-weight: 700;
+    }}
+    .run-confirmation-settings {{
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      color: #4b5563;
+    }}
+    #confirm-run-button {{
+      margin-top: 0;
+      background: #22863a;
+    }}
+    .settings-alert {{
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(31, 41, 51, 0.34);
+    }}
+    .settings-alert[hidden] {{
+      display: none;
+    }}
+    .settings-alert-box {{
+      width: min(420px, 100%);
+      padding: 20px;
+      border: 1px solid #d9d4c8;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 18px 42px rgba(31, 41, 51, 0.24);
+      text-align: center;
+    }}
+    .settings-alert-title {{
+      margin: 0 0 8px;
+      font-size: 18px;
+      font-weight: 750;
+    }}
+    .settings-alert-message {{
+      margin: 0;
+      color: #4b5563;
+    }}
+    #settings-alert-close {{
+      margin-top: 16px;
+    }}
+    .run-status {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 0;
+      color: #37546b;
+      font-size: 13px;
+      font-weight: 650;
+    }}
+    .run-status[hidden] {{
+      display: none;
+    }}
+    .spinner {{
+      width: 16px;
+      height: 16px;
+      border: 2px solid #b8c2cc;
+      border-top-color: #22863a;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }}
+    @keyframes spin {{
+      to {{ transform: rotate(360deg); }}
     }}
     .actions form {{
       margin: 0;
@@ -791,6 +1325,16 @@ def page() -> str:
     }}
     .danger {{
       background: #a33a2b;
+    }}
+    #download-wrap {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }}
+    .download-note {{
+      color: #5f6b76;
+      font-size: 13px;
     }}
     .button-label, .download {{
       display: inline-block;
@@ -806,17 +1350,34 @@ def page() -> str:
       text-decoration: none;
       white-space: nowrap;
     }}
-    .path-control button {{
-      margin-top: 0;
-      white-space: nowrap;
-      background: #53616f;
+    .download {{
+      background: #22863a;
+    }}
+    .download:not(.disabled-link):hover {{
+      background: #176f2c;
+      filter: none;
+    }}
+    .download.disabled-link {{
+      background: #8d99a6;
+      color: #eef2f6;
+      cursor: not-allowed;
+      opacity: 0.72;
+      pointer-events: none;
+    }}
+    #download-link {{
+      margin-top: 18px;
+    }}
+    .button-secondary {{
+      margin-top: 8px;
+      background: #255c99;
     }}
     button:disabled {{
       background: #8d99a6;
-      cursor: wait;
+      cursor: not-allowed;
     }}
     pre {{
-      min-height: 220px;
+      min-height: 150px;
+      max-height: 200px;
       overflow: auto;
       white-space: pre-wrap;
       background: #15191f;
@@ -827,6 +1388,10 @@ def page() -> str:
     .summary {{
       color: #37546b;
       font-weight: 650;
+    }}
+    .panel-title {{
+      margin: 0 0 10px;
+      font-size: 16px;
     }}
     .byline {{
       margin: -14px 0 20px;
@@ -839,76 +1404,124 @@ def page() -> str:
       font-size: 12px;
     }}
     @media (max-width: 720px) {{
-      .row, .tool-grid {{ grid-template-columns: 1fr; }}
+      .row, .run-options, .profile-select-row, .profile-save-row {{ grid-template-columns: 1fr; }}
+      .path-control {{ grid-template-columns: 1fr; }}
+      .run-actions {{ grid-template-columns: 1fr; }}
+      .top-bar {{ align-items: stretch; }}
+      .run-button-stack button {{ width: 100%; }}
     }}
   </style>
 </head>
 <body>
+<div id="settings-alert" class="settings-alert" role="alertdialog" aria-modal="true" aria-labelledby="settings-alert-title" hidden>
+  <div class="settings-alert-box">
+    <p id="settings-alert-title" class="settings-alert-title">Run settings needed</p>
+    <p id="settings-alert-message" class="settings-alert-message"></p>
+    <button id="settings-alert-close" type="button">OK</button>
+  </div>
+</div>
 <main>
-  <h1>Customizable Transcription Interface</h1>
+  <div class="top-bar">
+    <h1>Customizable Transcription Interface</h1>
+  </div>
   <p class="byline">Created by Steve Covello, 2026</p>
   <form method="post" action="/run">
     <div class="path-control">
       <label>Source folder
         <div class="path-display">{html.escape(str(SOURCE_FOLDER))}</div>
       </label>
+      <button id="reset-button" type="submit" formaction="/reset" formmethod="post" {disabled}>Reset</button>
     </div>
-    <label>Gemini model
-      <select name="model">
-        {model_options}
-      </select>
-    </label>
-    <label>Gemini API key
-      <input type="password" name="gemini_api_key" autocomplete="off" placeholder="Paste your Gemini API key for this run">
-      <p class="hint">Used only for this browser session/request. It is not saved to the project files.</p>
-    </label>
-    <label>Process order</label>
-    <div class="tool-grid">
-      <label><input type="radio" name="order" value="newest" required {newest_checked}><span>Newest-to-oldest</span></label>
-      <label><input type="radio" name="order" value="oldest" required {oldest_checked}><span>Oldest-to-newest</span></label>
+    <div class="row">
+      <label>Gemini model
+        <select name="model">
+          {model_options}
+        </select>
+      </label>
+      <label>Gemini API key
+        <input type="password" name="gemini_api_key" autocomplete="off" placeholder="Paste your Gemini API key for this run">
+        <p class="hint">Used only for this browser session/request. It is not saved to the project files.</p>
+      </label>
     </div>
-    <p id="order-hint" class="hint"></p>
+    <div class="run-options">
+      <div>
+        <label>Process order</label>
+        <div class="radio-row">
+          <label class="radio-option"><input type="radio" name="order" value="oldest" required {oldest_checked}>Oldest-to-newest</label>
+          <label class="radio-option"><input type="radio" name="order" value="newest" required {newest_checked}>Newest-to-oldest</label>
+        </div>
+        <p id="order-hint" class="hint"></p>
+      </div>
+      <div>
+        <label>File type</label>
+        <div class="radio-row">
+          <label class="radio-option"><input type="radio" name="file_type" value="jpeg" required {jpeg_checked}>JPEG</label>
+          <label class="radio-option"><input type="radio" name="file_type" value="png" required {png_checked}>PNG</label>
+          <label class="radio-option"><input type="radio" name="file_type" value="pdf" required {pdf_checked}>PDF</label>
+        </div>
+        <p class="hint">JPEG includes .jpg and .jpeg files.</p>
+      </div>
+    </div>
     <label>Prompt profile
-      <select name="profile_id">
-        {profile_options}
-      </select>
+      <div class="profile-select-row">
+        <select name="profile_id">
+          {profile_options}
+        </select>
+        <button id="profile-delete-button" class="danger" type="submit" formaction="/delete-profile" formmethod="post" disabled>Delete Profile</button>
+      </div>
       <input type="hidden" name="profile_action" value="use">
       <input type="hidden" name="duplicate_profile_action" value="">
-      <p class="hint">The profile sections below are plain text fields. The app handles JSON formatting automatically when it saves, so quotes, brackets, and commas typed here will not break the profile file.</p>
     </label>
-    <label>Save new custom profile as
+    <div class="actions run-actions">
+      <div class="run-button-stack">
+        <button id="run-button" type="submit" disabled>Preflight Check</button>
+        <button id="confirm-run-button" type="submit" disabled>Confirm and run</button>
+      </div>
+      <span id="run-confirmation" class="run-confirmation">
+        <span class="run-confirmation-title">Confirm settings:</span>
+        <span id="run-confirmation-settings" class="run-confirmation-settings" hidden>
+          <span>Order: <strong id="confirm-order"></strong></span>
+          <span>File type: <strong id="confirm-file-type"></strong></span>
+          <span>Prompt Profile: <strong id="confirm-profile"></strong></span>
+        </span>
+        <span id="run-status" class="run-status" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>
+      </span>
+    </div>
+    <div class="profile-work-area">
+      <p class="hint">The profile sections below are plain text fields. The app handles JSON formatting automatically when it saves, so quotes, brackets, and commas typed here will not break the profile file.</p>
+      <label>Save new custom profile as
       <p class="hint">Leave blank to update the selected profile. Enter a new name to save the three boxes below as a reusable profile.</p>
       <div class="profile-save-row">
         <input type="text" name="new_profile_name" value="{escaped_new_profile_name}" placeholder="Example: Palermo baptisms">
         <button id="profile-save-button" type="submit" formaction="/save-profile" formmethod="post" {disabled}>Save Profile</button>
       </div>
-    </label>
-    <label>Role and local context
+      </label>
+      <label>Role and local context
       <p class="hint">Plain text. Shows the profile role plus tone and style. Edit this box to update the selected profile or create a new version when you run transcription.</p>
       <textarea name="role_context" placeholder="Example: You are an expert paleographer specializing in 18th-century Palermo, Sicily baptism records...">{escaped_role_context}</textarea>
-    </label>
-    <label>Ground truth and reference material
+      </label>
+      <label>Ground truth and reference material
       <p class="hint">Plain text. Shows the profile technical reference, taxonomy, dictionaries, names, places, formulas, and ground truth material.</p>
       <textarea name="reference_context" placeholder="Paste reference content here">{escaped_reference_context}</textarea>
-    </label>
-    <label>Output format
+      </label>
+      <label>Output format
       <p class="hint">Plain text. Shows the profile output structure and transcription/translation examples.</p>
       <textarea name="output_format" placeholder="Paste output format here">{escaped_output_format}</textarea>
-    </label>
-    <div class="actions">
-      <button id="run-button" type="submit" {disabled}>Run transcription</button>
+      </label>
     </div>
   </form>
   <section class="panel">
+    <h2 class="panel-title">Progress Console</h2>
     <div id="summary" class="summary">{escaped_summary}</div>
     <div class="actions">
       <form method="post" action="/stop">
         <button id="stop-button" class="danger" type="submit" {stop_disabled}>Stop</button>
       </form>
+      <a id="download-link" class="download{download_disabled_class}" href="/download" download aria-disabled="{download_aria_disabled}">Download Document</a>
+      <span class="download-note">{escaped_download_help}</span>
     </div>
     <p id="output">Output: {escaped_output}</p>
-    <p><a href="/">Refresh Status</a></p>
-    <div id="download-wrap">{download_link}</div>
+    <button id="refresh-status-button" class="button-secondary" type="button">Refresh Status</button>
     <pre id="log">{escaped_log}</pre>
   </section>
   <footer class="license">Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA). Not for commercial use. Attribution required.</footer>
@@ -973,6 +1586,7 @@ def write_docx(output_docx: Path, text: str) -> None:
 def run_job(form: FormData, output_file: Path) -> None:
     try:
         image_folder = SOURCE_FOLDER
+        file_type = selected_file_type(form)
         markdown_file = PROJECT_DIR / "outputs" / f"{output_file.stem}.md"
         delay = 2.0
         profile = resolve_profile_for_run(form)
@@ -986,15 +1600,27 @@ def run_job(form: FormData, output_file: Path) -> None:
         else:
             add_log(f"Using prompt profile: {profile['label']}")
 
+        source_count = preflight_source_file_type(image_folder, file_type)
+        add_log(f"Found {source_count} {file_type_display(file_type)} source file(s) for this run.")
+
+        add_log("Checking Gemini API key before starting image processing...")
+        validate_api_key(
+            PROJECT_DIR,
+            selected_model(form),
+            pasted_value(form, "gemini_api_key") or None,
+        )
+        add_log("Gemini API key validated.")
+
         config = TranscriptionConfig(
             image_folder=image_folder,
             output_file=markdown_file,
             prompt_file=PROFILES_DIR,
             model=selected_model(form),
             delay_seconds=delay,
-            reverse_order=form.getfirst("order", "newest") != "oldest",
+            reverse_order=form.getfirst("order", "oldest") != "oldest",
             system_prompt=system_prompt,
             api_key_override=pasted_value(form, "gemini_api_key") or None,
+            source_extensions=extensions_for_file_type(file_type),
         )
         results = run_batch(
             config,
@@ -1002,14 +1628,17 @@ def run_job(form: FormData, output_file: Path) -> None:
             progress=add_log,
             cancel_requested=stop_event.is_set,
         )
-        write_docx(output_file, markdown_file.read_text(encoding="utf-8"))
+        if markdown_file.exists():
+            write_docx(output_file, markdown_file.read_text(encoding="utf-8"))
+        else:
+            add_log(f"Markdown output was not found for Word export: {markdown_file}")
         failures = count_failures(results)
         with lock:
             if stop_event.is_set():
                 state["summary"] = f"Stopped after {len(results)} image(s), {failures} failure(s)."
             else:
                 state["summary"] = f"Processed {len(results)} image(s), {failures} failure(s)."
-            state["download"] = str(output_file)
+            state["download"] = str(output_file) if output_file.exists() else ""
     except Exception as exc:
         add_log(f"Fatal error: {exc}")
         with lock:
@@ -1041,8 +1670,16 @@ class Handler(BaseHTTPRequestHandler):
             self.stop_job()
             return
 
+        if self.path == "/reset":
+            self.reset()
+            return
+
         if self.path == "/save-profile":
             self.save_profile()
+            return
+
+        if self.path == "/delete-profile":
+            self.delete_profile()
             return
 
         if self.path != "/run":
@@ -1057,6 +1694,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             form = parse_post_form(self)
             model = selected_model(form)
+            api_key_value = pasted_value(form, "gemini_api_key")
+            if not api_key_value:
+                raise RuntimeError("Paste a Gemini API key before running transcription.")
+            selected_profile_id(form)
+            preflight_source_file_type(SOURCE_FOLDER, selected_file_type(form))
         except Exception as exc:
             with lock:
                 state["summary"] = f"Fatal error: {exc}"
@@ -1065,7 +1707,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(page())
             return
 
-        order = form.getfirst("order", "newest")
+        order = form.getfirst("order", "oldest")
+        file_type = selected_file_type(form)
         profile_id = selected_profile_id(form)
         profile_action = form.getfirst("profile_action", "use") or "use"
         new_profile_name = pasted_value(form, "new_profile_name")
@@ -1110,7 +1753,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         output_file = destination_output_file(profile_id)
         if order not in {"newest", "oldest"}:
-            order = "newest"
+            order = "oldest"
         with lock:
             stop_event.clear()
             state["running"] = True
@@ -1120,6 +1763,7 @@ class Handler(BaseHTTPRequestHandler):
             state["summary"] = f"Running {profile['label']}..."
             state["model"] = model
             state["order"] = order
+            state["file_type"] = file_type
             state["profile_id"] = profile_id
             state["new_profile_name"] = new_profile_name
             state["role_context"] = role_context
@@ -1133,8 +1777,8 @@ class Handler(BaseHTTPRequestHandler):
     def save_profile(self) -> None:
         try:
             form = parse_post_form(self)
-            profile_id = selected_profile_id(form)
             new_profile_name = pasted_value(form, "new_profile_name")
+            profile_id = "" if new_profile_name else selected_profile_id(form)
             role_context = pasted_value(form, "role_context")
             reference_context = pasted_value(form, "reference_context")
             output_format = pasted_value(form, "output_format")
@@ -1172,6 +1816,32 @@ class Handler(BaseHTTPRequestHandler):
                 state["download"] = ""
         self.respond(page())
 
+    def delete_profile(self) -> None:
+        with lock:
+            if state["running"]:
+                self.respond(page())
+                return
+        try:
+            form = parse_post_form(self)
+            profile_id = selected_profile_id(form)
+            profile = delete_profile(profile_id)
+            message = f"Deleted profile: {profile.get('label', profile_id)}"
+            with lock:
+                state["summary"] = message
+                state["log"] = [message]
+                state["download"] = ""
+                state["profile_id"] = ""
+                state["new_profile_name"] = ""
+                state["role_context"] = ""
+                state["reference_context"] = ""
+                state["output_format"] = ""
+        except Exception as exc:
+            with lock:
+                state["summary"] = f"Fatal error: {exc}"
+                state["log"] = [f"Fatal error: {exc}"]
+                state["download"] = ""
+        self.respond(page())
+
     def stop_job(self) -> None:
         with lock:
             if state["running"]:
@@ -1182,6 +1852,15 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 state["summary"] = "No transcription is running."
         self.respond(page())
+
+    def reset(self) -> None:
+        with lock:
+            if state["running"]:
+                self.redirect_home()
+                return
+        stop_event.clear()
+        reset_ui_state()
+        self.redirect_home()
 
     def status(self) -> None:
         data = json.dumps(status_payload()).encode("utf-8")
@@ -1234,7 +1913,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     ensure_profiles_dir()
     with lock:
-        state["profile_id"] = load_selected_profile_id()
+        state["profile_id"] = ""
     server = HTTPServer((HOST, PORT), Handler)
     print(f"Customizable Transcription Interface running at http://{HOST}:{PORT}")
     server.serve_forever()

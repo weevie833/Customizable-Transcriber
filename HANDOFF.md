@@ -22,6 +22,8 @@ The app uses Gemini to transcribe local archival images from this hardcoded sour
 
 It creates timestamped `.docx` output in `outputs/` and also writes an intermediate timestamped `.md` file.
 
+Current development is saved locally as WIP/dev only. Do not commit or push this state to GitHub until the user explicitly asks.
+
 ## Current Workflow
 
 The former top-level mode buttons have been removed. Runs are now driven by saved prompt profiles in `profiles/`. The Rendi profiles were migrated from the old `.md` prompts into JSON files and behave like user-created custom profiles.
@@ -33,7 +35,7 @@ Current saved profiles include:
 - `profiles/rendi-matrimoni.json`
 - `profiles/rendi-generic.json`
 
-`profiles/settings.json` stores the last selected profile and is ignored by git.
+`profiles/settings.json` stores the last selected profile and is ignored by git, but the UI now starts with `Select a Profile` so users must actively choose a profile before running a batch.
 
 Each profile has these editable plain-text sections:
 
@@ -47,7 +49,7 @@ The UI shows these sections as plain text, not raw JSON. The app handles JSON es
 
 The UI has a `Save Profile` button beside `Save new custom profile as`.
 
-- If the profile name field is blank, `Save Profile` updates the selected profile.
+- If the profile name field is blank, `Save Profile` prompts the user to replace the selected profile or save a new named version.
 - If a new name is entered, `Save Profile` creates a new reusable profile.
 - If the entered name matches an existing profile, the browser prompts the user to replace the existing profile or create a renamed new version.
 - Backend save logic also supports explicit replacement so direct POSTs behave predictably.
@@ -56,20 +58,28 @@ If edited profile boxes are submitted with `Run transcription`, the app still pr
 
 ## API Key Handling
 
-The web UI now includes a `Gemini API key` field under the model dropdown. A user can paste their own key for a run. The pasted key is used as a runtime override and is not saved to project files.
+The web UI now includes a `Gemini API key` field beside the model dropdown. A user must paste their own key before `Run transcription` is enabled. The pasted key is used as a runtime override and is not saved to project files. The app validates the key/model combination with a small preflight request before starting the image batch.
 
 Private local use can still rely on `.env`, but `.env` is ignored by git and should not be committed.
 
-## Source File Ordering
+## Source File Type And Ordering
 
-The source scanner in `transcription_bot/core.py` recursively scans image files in subdirectories, parses date folder names like `1786 December 2`, sorts chronologically, and includes relative source paths in output record headers.
+The source scanner in `transcription_bot/core.py` recursively scans source files in subdirectories, parses date folder names like `1786 December 2`, sorts chronologically, and includes relative source paths in output record headers.
 
-The web app has process-order controls:
+The web UI now has a compact file-type radio selector beside process order:
 
-- `Newest-to-oldest`: default; most recent record appears first in the output document.
-- `Oldest-to-newest`: oldest record appears first in the output document.
+- `JPEG`: processes `.jpg` and `.jpeg`.
+- `PNG`: processes `.png`.
+- `PDF`: processes `.pdf`.
 
-The UI shows a small explanatory hint that changes when the user selects either order.
+The selected file type is passed into `TranscriptionConfig.source_extensions`, so the batch only processes the selected type. A preflight check counts files in the hardcoded source folder before the Gemini key check. If the selected type is not present, the run stops early with a clear message showing available JPEG/PNG/PDF counts. As of this WIP save, the configured source folder contains `JPEG: 8`, `PNG: 0`, `PDF: 0`.
+
+The web app has compact process-order radio controls:
+
+- `Oldest-to-newest`: default; oldest record appears first in the output document.
+- `Newest-to-oldest`: most recent record appears first in the output document.
+
+The UI shows a small explanatory hint that changes when the user selects either order. A `Reset` button sits beside the Source folder and restores default settings, returning the prompt dropdown to `Select a Profile`. The run flow now uses a `Preflight Check` button and a disabled-by-default `Confirm and run` button directly underneath it. Clicking `Preflight Check` without a Gemini API key or selected prompt profile shows a centered audible alert instead of only writing to the progress console. With valid settings, `Preflight Check` fills the always-visible `Confirm settings` box with the selected order, file type, and prompt profile, disables `Preflight Check`, and enables `Confirm and run`. The batch starts only after `Confirm and run` is clicked. The profile-editing controls below the run area are separated by a divider and pale grey background to keep configuration decisions visually grouped above.
 
 ## Model Selection
 
@@ -80,20 +90,23 @@ The web app uses a Gemini model dropdown:
 
 ## Run Control
 
-The web page polls `/status` while a run is active, so the log and summary update automatically.
+The web page polls `/status` while a run is active, so the log and summary update automatically. The Progress Console `Refresh Status` control also calls `/status` directly and updates only the console/download area; it does not reload the whole page or reset the main form.
 
 A `Stop` button requests cooperative cancellation. If Gemini is already processing an image, the current request is allowed to finish. A partial `.docx` is generated from the `.md` content already written.
 
 ## Key Files
 
-- `app.py`: local web app, profile dropdown/editor, profile saving, API key field, model dropdown, order selector, stop/status/download flow, `.docx` generation.
-- `transcription_bot/core.py`: Gemini client, runtime API key override, recursive image discovery, date-aware sorting, cancellable batch transcription, output cleanup.
+- `app.py`: local web app, profile dropdown/editor, profile saving, API key field, model dropdown, compact order and file-type radio selectors, source-type preflight checks, stop/status/download flow, `.docx` generation.
+- `transcription_bot/core.py`: Gemini client, runtime API key override, recursive source discovery for selected JPEG/PNG/PDF extensions, date-aware sorting, cancellable batch transcription, output cleanup.
 - `profiles/`: saved JSON prompt profiles.
 - `README.md`: setup and usage notes.
 - `.env`: local Gemini API key, ignored by git.
 - `.env.example`: template for the API key.
 
 ## To-Do For Next Session
+
+- Replace the hardcoded source-folder display with a user-facing source-folder picker so users can navigate to their source folder before running.
+- Later, consider adding less-common file types such as WebP/TIFF/HEIC if needed.
 
 Add a profile-assistant feature that can take raw pasted ground-truth material, such as a long unformatted list of names, and transform it into structured profile content before saving. The current app saves pasted ground truth safely as plain text inside JSON, but it does not parse or convert the content into structured JSON dictionaries automatically.
 
@@ -110,5 +123,5 @@ Possible design:
 Use this prompt to continue:
 
 ```text
-We are continuing work on the local Customizable Transcription Interface app at /Users/stevecovello/Documents/Codex/Transcription Bot. Read HANDOFF.md first. The app uses saved JSON prompt profiles, recursive chronological image scanning from /Users/stevecovello/Desktop/MM/Transcription Sources, model selection, a per-run Gemini API key field, newest/oldest process-order controls with explanatory hints, automatic status updates, a stop button, incremental `.md` output, and timestamped `.docx` output. Next task: add a user-friendly feature to transform raw pasted ground-truth material, such as a long unformatted list of names, into structured profile reference content before saving. Please inspect the current code and continue from the handoff.
+We are continuing work on the local Customizable Transcription Interface app at /Users/stevecovello/Documents/Codex/Transcription Bot. Read HANDOFF.md first. Current state is local WIP/dev only; do not commit or push to GitHub unless explicitly asked. The app uses saved JSON prompt profiles, recursive chronological source scanning from /Users/stevecovello/Desktop/MM/Transcription Sources, JPEG/PNG/PDF file-type radio selection with preflight source-folder checks, model selection, a per-run Gemini API key field, compact oldest/newest process-order radio controls with oldest-to-newest as the default, a Reset button beside Source folder, a Preflight Check plus disabled-by-default `Confirm and run` flow with an always-visible `Confirm settings` box, visually separated profile-editing controls below the run area, automatic status updates, a stop button, incremental `.md` output, and timestamped `.docx` output. Next task: continue UI/testing refinements or add a user-friendly feature to transform raw pasted ground-truth material, such as a long unformatted list of names, into structured profile reference content before saving. Please inspect the current code and continue from the handoff.
 ```

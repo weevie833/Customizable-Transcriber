@@ -1,6 +1,6 @@
 # Customizable Transcription Interface
 
-Local Gemini transcription app for archival images. It replaces the Colab/Google Drive workflow with local folder input, saved prompt profiles, timestamped Markdown output, and timestamped Word document output.
+Local Gemini transcription app for archival records. It replaces the Colab/Google Drive workflow with local folder input, saved prompt profiles, selected JPEG/PNG/PDF source processing, timestamped Markdown output, and timestamped Word document output.
 
 ## Setup
 
@@ -36,19 +36,26 @@ The web app uses the hardcoded source folder in `app.py`. Select a saved prompt 
 
 Current web app behavior:
 
-- Recursively scans source subfolders for image files.
+- Recursively scans source subfolders for the selected source file type.
+- Supports `JPEG` (`.jpg`, `.jpeg`), `PNG` (`.png`), and `PDF` (`.pdf`) from the web UI.
+- Runs a preflight check before transcription to confirm the selected file type exists in the source folder.
 - Sorts date folders chronologically.
-- Lets you choose `Newest-to-oldest` or `Oldest-to-newest`; `Newest-to-oldest` is the default.
+- Lets you choose `Oldest-to-newest` or `Newest-to-oldest`; `Oldest-to-newest` is the default.
 - Lets you choose between `Gemini 3.5 Flash` for faster/lower-cost runs and `Gemini 3.1 Pro Preview` for higher-accuracy runs.
-- Lets the user paste a Gemini API key for the current run without storing it in the repo.
-- Lets you choose a saved prompt profile from a dropdown. The default saved profile is Rendi Battesimi.
+- Requires the user to paste a Gemini API key and choose a saved prompt profile before a run can start. The dropdown starts at `Select a Profile` to prevent accidental runs with the wrong profile.
+- Shows a centered audible alert if `Preflight Check` is clicked before a Gemini API key is pasted or before a prompt profile is selected.
+- Keeps a visible `Confirm settings` box beside the run controls. Clicking `Preflight Check` fills it with process order, file type, and prompt profile, disables `Preflight Check`, and enables `Confirm and run`.
 - Selecting a prompt profile loads its saved role/local context, reference material, and output format into plain-text editable boxes for inspection before running.
 - The app saves profile edits as JSON automatically, so quotes, brackets, and commas typed into the editor boxes do not break profile-file syntax.
 - If those boxes are edited before running, the app prompts to update the selected profile or save a new named version.
-- The `Save Profile` button saves a new named profile, or updates the selected profile when the name field is blank, without starting transcription.
+- The `Save Profile` button stays active when the app is not running. It saves a new named profile, or lets you replace the selected profile or save a new version when the name field is blank.
+- The `Reset` button beside the Source folder restores default settings, clears the profile editor, and returns the prompt dropdown to `Select a Profile`.
+- The profile-editing area below the preflight/run controls is visually separated with a divider and pale grey background, keeping run configuration decisions grouped above it.
+- The app validates the pasted Gemini API key with a small preflight request before starting the image batch.
 - Writes each processed image to a timestamped `.md` file as soon as the response is received.
 - Creates a timestamped `.docx` Word document in `outputs/` when the run finishes or is stopped.
 - Updates run status automatically while processing.
+- Lets `Refresh Status` update only the Progress Console without reloading or resetting the rest of the app.
 - Supports a `Stop` button that stops before the next image. If Gemini is already processing an image, stop takes effect after that request finishes.
 
 Saved profiles:
@@ -90,6 +97,6 @@ python3 transcribe.py "/path/to/image/folder" --delay 0
 - `prompt.md`: original paleography prompt from the Colab notebook.
 - `app.py`: localhost web app.
 - `transcribe.py`: command-line runner.
-- `transcription_bot/core.py`: shared transcription logic.
+- `transcription_bot/core.py`: shared transcription logic and selected source-type scanning.
 - `profiles/`: saved JSON prompt profiles.
 - `outputs/`: generated Markdown and Word document files.

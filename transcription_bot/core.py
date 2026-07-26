@@ -24,7 +24,7 @@ SUPPORTED_SOURCE_EXTENSIONS = frozenset(
     for extension in extensions
 )
 IMAGE_EXTENSIONS = SUPPORTED_SOURCE_EXTENSIONS
-DEFAULT_MODEL = "gemini-3.5-flash"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 USER_INSTRUCTION = "Transcribe and translate this document word-for-word."
 MONTHS = {
     "jan": 1,

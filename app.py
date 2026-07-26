@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import html
+import hashlib
+import io
 import json
 import re
+import secrets
 import threading
 import urllib.parse
 import zipfile
 from collections.abc import Mapping
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from email import policy
+from email.parser import BytesParser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -22,15 +27,19 @@ from transcription_bot.core import (
     run_batch,
     validate_api_key,
 )
+from xls_conversion.ai_parser import parse_records_with_ai, preflight_records_with_ai
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
 HOST = "127.0.0.1"
 PORT = 8765
 MAX_FORM_BYTES = 5_000_000
+MAX_DOCX_BYTES = 50_000_000
+MAX_JSON_BYTES = 15_000_000
 DEFAULT_PROFILE_ID = "rendi-battesimi"
 PROFILES_DIR = PROJECT_DIR / "profiles"
 PROFILE_SETTINGS_FILE = PROFILES_DIR / "settings.json"
+XLS_CONVERSION_DIR = PROJECT_DIR / "xls_conversion"
 SOURCE_FOLDER = Path("/Users/stevecovello/Desktop/MM/Transcription Sources")
 DOWNLOAD_HELP_TEXT = "The DOCX file will be downloaded to wherever your browser saves downloaded files. Check your browser's Downloads button for download history."
 FILE_TYPE_LABELS = {
@@ -39,7 +48,9 @@ FILE_TYPE_LABELS = {
     "pdf": "PDF (.pdf)",
 }
 MODELS = {
+    "gemini-3.6-flash": "Gemini 3.6 Flash - latest balanced speed / intelligence",
     "gemini-3.5-flash": "Gemini 3.5 Flash - faster / lower cost",
+    "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite - fastest / lowest cost",
     "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - higher accuracy",
 }
 
@@ -60,6 +71,8 @@ state = {
 }
 lock = threading.Lock()
 stop_event = threading.Event()
+xls_preflight_lock = threading.Lock()
+xls_preflight_cache: dict[str, dict[str, object]] = {}
 
 
 def add_log(message: str) -> None:
@@ -124,6 +137,136 @@ def parse_post_form(handler: BaseHTTPRequestHandler) -> FormData:
 
     body = handler.rfile.read(content_length).decode("utf-8")
     return FormData(urllib.parse.parse_qs(body, keep_blank_values=True))
+
+
+def parse_json_body(handler: BaseHTTPRequestHandler) -> dict[str, object]:
+    content_type = handler.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        raise RuntimeError("Unsupported request type.")
+    try:
+        content_length = int(handler.headers.get("Content-Length", "0"))
+    except ValueError as exc:
+        raise RuntimeError("Invalid request length.") from exc
+    if content_length <= 0 or content_length > MAX_JSON_BYTES:
+        raise RuntimeError("Invalid request length.")
+    try:
+        payload = json.loads(handler.rfile.read(content_length).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("The conversion request is not valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("The conversion request must be a JSON object.")
+    return payload
+
+
+def uploaded_docx(handler: BaseHTTPRequestHandler) -> tuple[str, bytes]:
+    content_type = handler.headers.get("Content-Type", "")
+    if not content_type.lower().startswith("multipart/form-data"):
+        raise RuntimeError("Choose a DOCX file to upload.")
+
+    try:
+        content_length = int(handler.headers.get("Content-Length", "0"))
+    except ValueError as exc:
+        raise RuntimeError("Invalid upload length.") from exc
+
+    if content_length <= 0 or content_length > MAX_DOCX_BYTES:
+        raise RuntimeError("The DOCX upload must be smaller than 50 MB.")
+
+    body = handler.rfile.read(content_length)
+    message = BytesParser(policy=policy.default).parsebytes(
+        b"Content-Type: " + content_type.encode("utf-8") + b"\r\n"
+        b"MIME-Version: 1.0\r\n\r\n" + body
+    )
+    for part in message.iter_parts():
+        if part.get_param("name", header="content-disposition") != "source_file":
+            continue
+        filename = Path(part.get_filename() or "").name
+        if not filename.lower().endswith(".docx"):
+            raise RuntimeError("Upload a Microsoft Word DOCX file.")
+        payload = part.get_payload(decode=True) or b""
+        if not payload:
+            raise RuntimeError("The uploaded DOCX file is empty.")
+        return filename, payload
+
+    raise RuntimeError("Choose a DOCX file to upload.")
+
+
+def extract_docx_text(payload: bytes) -> str:
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            document_xml = archive.read("word/document.xml")
+    except (KeyError, zipfile.BadZipFile) as exc:
+        raise RuntimeError("The uploaded file is not a readable DOCX document.") from exc
+
+    try:
+        root = ElementTree.fromstring(document_xml)
+    except ElementTree.ParseError as exc:
+        raise RuntimeError("The DOCX document text could not be read.") from exc
+
+    namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    paragraphs: list[str] = []
+    for paragraph_node in root.iter(f"{{{namespace}}}p"):
+        parts: list[str] = []
+        for node in paragraph_node.iter():
+            if node.tag == f"{{{namespace}}}t":
+                parts.append(node.text or "")
+            elif node.tag == f"{{{namespace}}}tab":
+                parts.append("\t")
+            elif node.tag in {f"{{{namespace}}}br", f"{{{namespace}}}cr"}:
+                parts.append("\n")
+        paragraphs.append("".join(parts).rstrip())
+
+    text = "\n".join(paragraphs).strip()
+    if not text:
+        raise RuntimeError("No transcription text was found in the DOCX document.")
+    return text
+
+
+def source_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def save_xls_preflight(
+    result: dict[str, object],
+    record_type: str,
+    text: str,
+    image_range: str,
+    model: str,
+) -> str:
+    token = secrets.token_urlsafe(24)
+    with xls_preflight_lock:
+        if len(xls_preflight_cache) >= 100:
+            xls_preflight_cache.pop(next(iter(xls_preflight_cache)))
+        xls_preflight_cache[token] = {
+            "record_type": record_type,
+            "source_hash": source_hash(text),
+            "image_range": image_range.strip(),
+            "model": model,
+            "ok": result.get("ok") is True,
+        }
+    return token
+
+
+def validate_xls_preflight(
+    token: str,
+    record_type: str,
+    text: str,
+    image_range: str,
+    model: str,
+    ignore_failure: bool,
+) -> None:
+    with xls_preflight_lock:
+        preflight = xls_preflight_cache.get(token)
+    if not preflight:
+        raise RuntimeError("Run the complete preflight check before converting.")
+    if (
+        preflight["record_type"] != record_type
+        or preflight["source_hash"] != source_hash(text)
+        or preflight["image_range"] != image_range.strip()
+        or preflight["model"] != model
+    ):
+        raise RuntimeError("The source or settings changed. Run preflight again before converting.")
+    if preflight["ok"] is not True and not ignore_failure:
+        raise RuntimeError("Preflight found missing images or English translations.")
 
 
 def destination_output_file(profile_id: str) -> Path:
@@ -1024,19 +1167,58 @@ def page() -> str:
       color: #1f2933;
     }}
     main {{
-      max-width: 900px;
+      width: min(980px, calc(100% - 40px));
       margin: 0 auto;
-      padding: 32px 20px 48px;
+      padding: 32px 0 48px;
     }}
     h1 {{
-      margin: 0 0 20px;
+      margin: 0;
       font-size: 28px;
     }}
-    .top-bar {{
+    .site-header {{
       display: flex;
       justify-content: space-between;
-      gap: 16px;
-      align-items: flex-start;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 20px;
+    }}
+    .site-heading {{
+      display: grid;
+      gap: 4px;
+    }}
+    .site-nav {{
+      display: flex;
+      flex: 0 0 auto;
+      gap: 4px;
+      align-items: center;
+    }}
+    .nav-link {{
+      display: inline-block;
+      padding: 8px 10px 7px;
+      border-bottom: 3px solid transparent;
+      color: #255c99;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }}
+    .nav-link:hover {{
+      border-bottom-color: #9eb8d7;
+      background: #eef4fb;
+      color: #173f6d;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }}
+    .nav-link:focus-visible {{
+      outline: 3px solid #255c99;
+      outline-offset: 2px;
+      border-radius: 2px;
+    }}
+    .nav-link[aria-current="page"] {{
+      border-bottom-color: #255c99;
+      background: #e5eef9;
+      color: #173f6d;
+      font-weight: 750;
+      text-decoration: none;
     }}
     form, .panel {{
       background: #ffffff;
@@ -1394,7 +1576,7 @@ def page() -> str:
       font-size: 16px;
     }}
     .byline {{
-      margin: -14px 0 20px;
+      margin: 0;
       color: #5f6b76;
       font-size: 13px;
     }}
@@ -1404,11 +1586,18 @@ def page() -> str:
       font-size: 12px;
     }}
     @media (max-width: 720px) {{
+      main {{
+        width: min(100% - 28px, 980px);
+        padding-top: 20px;
+      }}
       .row, .run-options, .profile-select-row, .profile-save-row {{ grid-template-columns: 1fr; }}
       .path-control {{ grid-template-columns: 1fr; }}
       .run-actions {{ grid-template-columns: 1fr; }}
-      .top-bar {{ align-items: stretch; }}
+      .site-header {{ align-items: stretch; }}
       .run-button-stack button {{ width: 100%; }}
+    }}
+    @media (max-width: 520px) {{
+      .site-header {{ flex-direction: column; }}
     }}
   </style>
 </head>
@@ -1421,10 +1610,16 @@ def page() -> str:
   </div>
 </div>
 <main>
-  <div class="top-bar">
-    <h1>Customizable Transcription Interface</h1>
-  </div>
-  <p class="byline">Created by Steve Covello, 2026</p>
+  <header class="site-header">
+    <div class="site-heading">
+      <h1>Customizable Transcription Interface</h1>
+      <p class="byline">Created by Steve Covello, 2026</p>
+    </div>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link" href="/" aria-current="page">Transcribe</a>
+      <a class="nav-link" href="/xls-conversion">XLS Conversion</a>
+    </nav>
+  </header>
   <form method="post" action="/run">
     <div class="path-control">
       <label>Source folder
@@ -1651,6 +1846,14 @@ def run_job(form: FormData, output_file: Path) -> None:
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path in {"/xls-conversion", "/xls-conversion/"}:
+            self.serve_xls_asset("index.html")
+            return
+
+        if parsed.path.startswith("/xls-conversion/"):
+            self.serve_xls_asset(parsed.path.removeprefix("/xls-conversion/"))
+            return
+
         if parsed.path == "/status":
             self.status()
             return
@@ -1666,6 +1869,18 @@ class Handler(BaseHTTPRequestHandler):
         self.respond(page())
 
     def do_POST(self) -> None:
+        if urllib.parse.urlparse(self.path).path == "/api/xls-conversion/upload":
+            self.upload_xls_source()
+            return
+
+        if urllib.parse.urlparse(self.path).path == "/api/xls-conversion/parse":
+            self.parse_xls_source()
+            return
+
+        if urllib.parse.urlparse(self.path).path == "/api/xls-conversion/preflight":
+            self.preflight_xls_source()
+            return
+
         if self.path == "/stop":
             self.stop_job()
             return
@@ -1773,6 +1988,114 @@ class Handler(BaseHTTPRequestHandler):
         thread = threading.Thread(target=run_job, args=(form, output_file), daemon=True)
         thread.start()
         self.respond(page())
+
+    def upload_xls_source(self) -> None:
+        try:
+            filename, payload = uploaded_docx(self)
+            text = extract_docx_text(payload)
+            self.respond_json(
+                {
+                    "filename": filename,
+                    "text": text,
+                    "characters": len(text),
+                }
+            )
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
+
+    def parse_xls_source(self) -> None:
+        try:
+            payload = parse_json_body(self)
+            model = str(payload.get("model", "") or "")
+            if model not in MODELS:
+                raise RuntimeError("Select a Gemini model before converting.")
+            api_key_value = str(payload.get("gemini_api_key", "") or "").strip()
+            if not api_key_value:
+                raise RuntimeError("Paste a Gemini API key before converting.")
+            record_type = str(payload.get("record_type", "") or "")
+            text = str(payload.get("text", "") or "")
+            image_range = str(payload.get("image_range", "") or "")
+            validate_xls_preflight(
+                token=str(payload.get("preflight_token", "") or ""),
+                record_type=record_type,
+                text=text,
+                image_range=image_range,
+                model=model,
+                ignore_failure=payload.get("ignore_preflight") is True,
+            )
+            validate_api_key(PROJECT_DIR, model, api_key_value)
+            result = parse_records_with_ai(
+                record_type=record_type,
+                text=text,
+                image_range=image_range,
+                image_overrides=str(payload.get("image_overrides", "") or ""),
+                api_key=api_key_value,
+                model=model,
+            )
+            self.respond_json(result)
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
+
+    def preflight_xls_source(self) -> None:
+        try:
+            payload = parse_json_body(self)
+            model = str(payload.get("model", "") or "")
+            if model not in MODELS:
+                raise RuntimeError("Select a Gemini model before running preflight.")
+            api_key_value = str(payload.get("gemini_api_key", "") or "").strip()
+            if not api_key_value:
+                raise RuntimeError("Paste a Gemini API key before running preflight.")
+            record_type = str(payload.get("record_type", "") or "")
+            text = str(payload.get("text", "") or "")
+            image_range = str(payload.get("image_range", "") or "")
+            validate_api_key(PROJECT_DIR, model, api_key_value)
+            result = preflight_records_with_ai(
+                record_type=record_type,
+                text=text,
+                image_range=image_range,
+                api_key=api_key_value,
+                model=model,
+            )
+            token = save_xls_preflight(result, record_type, text, image_range, model)
+            result["preflight_token"] = token
+            result["source_hash"] = source_hash(text)
+            self.respond_json(result)
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
+
+    def serve_xls_asset(self, relative_path: str) -> None:
+        relative = Path(relative_path or "index.html")
+        if relative.is_absolute() or ".." in relative.parts:
+            self.send_error(404)
+            return
+
+        path = (XLS_CONVERSION_DIR / relative).resolve()
+        try:
+            path.relative_to(XLS_CONVERSION_DIR.resolve())
+        except ValueError:
+            self.send_error(404)
+            return
+
+        if not path.is_file():
+            self.send_error(404)
+            return
+
+        content_types = {
+            ".html": "text/html; charset=utf-8",
+            ".js": "text/javascript; charset=utf-8",
+            ".css": "text/css; charset=utf-8",
+        }
+        content_type = content_types.get(path.suffix.lower())
+        if not content_type:
+            self.send_error(404)
+            return
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
     def save_profile(self) -> None:
         try:
@@ -1901,6 +2224,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def respond_json(self, payload: dict[str, object], status: int = 200) -> None:
+        data = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
     def redirect_home(self) -> None:
         self.send_response(303)
         self.send_header("Location", "/")
@@ -1914,7 +2246,7 @@ def main() -> None:
     ensure_profiles_dir()
     with lock:
         state["profile_id"] = ""
-    server = HTTPServer((HOST, PORT), Handler)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Customizable Transcription Interface running at http://{HOST}:{PORT}")
     server.serve_forever()
 

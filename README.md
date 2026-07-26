@@ -32,6 +32,18 @@ Open:
 http://127.0.0.1:8765
 ```
 
+The home-page header links to the unified XLS Conversion interface:
+
+```text
+http://127.0.0.1:8765/xls-conversion
+```
+
+XLS Conversion accepts a local DOCX transcription and produces downloadable
+XLSX and CSV files. Select the source type, image range, Gemini model, and API
+key, then run the semantic preflight before conversion. The preflight reviews
+the requested image range for existing English translations without changing
+the source content. Battesimi extraction is currently configured.
+
 The web app uses the hardcoded source folder in `app.py`. Select a saved prompt profile before running; the selected profile controls the role/local context, reference material, and output format.
 
 Current web app behavior:
@@ -41,7 +53,7 @@ Current web app behavior:
 - Runs a preflight check before transcription to confirm the selected file type exists in the source folder.
 - Sorts date folders chronologically.
 - Lets you choose `Oldest-to-newest` or `Newest-to-oldest`; `Oldest-to-newest` is the default.
-- Lets you choose between `Gemini 3.5 Flash` for faster/lower-cost runs and `Gemini 3.1 Pro Preview` for higher-accuracy runs.
+- Provides Gemini Flash, Flash-Lite, and Pro model options.
 - Requires the user to paste a Gemini API key and choose a saved prompt profile before a run can start. The dropdown starts at `Select a Profile` to prevent accidental runs with the wrong profile.
 - Shows a centered audible alert if `Preflight Check` is clicked before a Gemini API key is pasted or before a prompt profile is selected.
 - Keeps a visible `Confirm settings` box beside the run controls. Clicking `Preflight Check` fills it with process order, file type, and prompt profile, disables `Preflight Check`, and enables `Confirm and run`.
@@ -100,3 +112,4 @@ python3 transcribe.py "/path/to/image/folder" --delay 0
 - `transcription_bot/core.py`: shared transcription logic and selected source-type scanning.
 - `profiles/`: saved JSON prompt profiles.
 - `outputs/`: generated Markdown and Word document files.
+- `xls_conversion/`: unified DOCX-to-XLSX/CSV page and source-specific extraction helpers.

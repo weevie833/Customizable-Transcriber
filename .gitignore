@@ -6,3 +6,4 @@ outputs/
 uploads/
 .DS_Store
 profiles/settings.json
+.claude/

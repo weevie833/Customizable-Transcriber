@@ -80,26 +80,27 @@ def _tokenize_words(text: str) -> list[str]:
     return [word for word in normalized.split(" ") if word]
 
 
-def character_error_rate(reference: str, hypothesis: str) -> float:
-    """CER = (I + S + D) / N, N = character count of the reference."""
+def character_edit_stats(reference: str, hypothesis: str) -> tuple[int, int]:
+    """(character-level edit distance, reference character count), the raw
+    counts CER is a ratio of. Exposed separately so callers (the comparison
+    report) can turn a percentage back into an estimated number of edits."""
     ref = normalize_transcription_text(reference)
     hyp = normalize_transcription_text(hypothesis)
-    if not ref:
-        return 0.0 if not hyp else 1.0
-    return Levenshtein.distance(ref, hyp) / len(ref)
+    return Levenshtein.distance(ref, hyp), len(ref)
 
 
-def word_error_rate(reference: str, hypothesis: str) -> float:
-    """WER = word-level Levenshtein distance / word count of the reference."""
+def word_edit_stats(reference: str, hypothesis: str) -> tuple[int, int]:
+    """(word-level edit distance, reference word count), the raw counts WER
+    is a ratio of."""
     ref_words = _tokenize_words(reference)
     hyp_words = _tokenize_words(hypothesis)
-    if not ref_words:
-        return 0.0 if not hyp_words else 1.0
-    return Levenshtein.distance(ref_words, hyp_words) / len(ref_words)
+    return Levenshtein.distance(ref_words, hyp_words), len(ref_words)
 
 
-def word_error_rate_bag_of_words(reference: str, hypothesis: str) -> float:
-    """WER-BoW = (N - |ref ∩ hyp|) / N — ignores word order (Moysset et al., 2017).
+def bag_of_words_mismatch_stats(reference: str, hypothesis: str) -> tuple[int, int]:
+    """(words in the reference with no matching occurrence in the hypothesis,
+    reference word count), the raw counts WER-BoW is a ratio of — ignores word
+    order (Moysset et al., 2017).
 
     The intersection is multiset-based (via Counter): a word appearing twice
     in the reference needs two matching occurrences in the hypothesis to
@@ -108,26 +109,36 @@ def word_error_rate_bag_of_words(reference: str, hypothesis: str) -> float:
     """
     ref_words = _tokenize_words(reference)
     hyp_words = _tokenize_words(hypothesis)
-    if not ref_words:
-        return 0.0 if not hyp_words else 1.0
     intersection = sum((Counter(ref_words) & Counter(hyp_words)).values())
-    return (len(ref_words) - intersection) / len(ref_words)
+    return len(ref_words) - intersection, len(ref_words)
 
 
-def cer_quality_label(cer: float) -> str:
-    """Thresholds cited in the paper (Muehlberger et al., 2019; Hodel et al., 2021)."""
-    if cer < 0.025:
-        return "Excellent"
-    if cer < 0.05:
-        return "Very good"
-    if cer <= 0.10:
-        return "Good"
-    return "Poor"
+def _rate(edits: int, total: int) -> float:
+    if total == 0:
+        return 0.0 if edits == 0 else 1.0
+    return edits / total
+
+
+def character_error_rate(reference: str, hypothesis: str) -> float:
+    """CER = (I + S + D) / N, N = character count of the reference."""
+    return _rate(*character_edit_stats(reference, hypothesis))
+
+
+def word_error_rate(reference: str, hypothesis: str) -> float:
+    """WER = word-level Levenshtein distance / word count of the reference."""
+    return _rate(*word_edit_stats(reference, hypothesis))
+
+
+def word_error_rate_bag_of_words(reference: str, hypothesis: str) -> float:
+    """WER-BoW = (N - |ref ∩ hyp|) / N — ignores word order (Moysset et al., 2017)."""
+    return _rate(*bag_of_words_mismatch_stats(reference, hypothesis))
 
 
 def score_transcription(reference: str, hypothesis: str) -> dict[str, object]:
     """CER/WER/WER-BoW for one model's native-language transcription against the
-    corrected reference.
+    corrected reference, plus the raw edit counts each rate is computed from
+    (used by the downloadable comparison report to state an estimated number
+    of character/word-level fixes, not just a percentage).
 
     Both sides are run through strip_non_transcription_blocks() first, applied
     symmetrically so neither side is penalized for content the other lacks.
@@ -135,15 +146,23 @@ def score_transcription(reference: str, hypothesis: str) -> dict[str, object]:
     Translation, Notes, and the synthetic Page/Entry locator are excluded, so
     the score doesn't conflate reading the handwriting with writing an English
     sentence or a commentary note. See strip_non_transcription_blocks().
+
+    No quality label is included deliberately — labeling a CER as "Good" or
+    "Poor" bakes in a threshold judgment call the person reading the score,
+    not this function, should make for their own use case.
     """
     ref = strip_non_transcription_blocks(reference)
     hyp = strip_non_transcription_blocks(hypothesis)
-    cer = character_error_rate(ref, hyp)
-    wer = word_error_rate(ref, hyp)
-    wer_bow = word_error_rate_bag_of_words(ref, hyp)
+    char_edits, ref_chars = character_edit_stats(ref, hyp)
+    word_edits, ref_words = word_edit_stats(ref, hyp)
+    bow_mismatches, _ = bag_of_words_mismatch_stats(ref, hyp)
     return {
-        "cer": round(cer, 4),
-        "wer": round(wer, 4),
-        "wer_bow": round(wer_bow, 4),
-        "quality": cer_quality_label(cer),
+        "cer": round(_rate(char_edits, ref_chars), 4),
+        "wer": round(_rate(word_edits, ref_words), 4),
+        "wer_bow": round(_rate(bow_mismatches, ref_words), 4),
+        "char_edits": char_edits,
+        "ref_chars": ref_chars,
+        "word_edits": word_edits,
+        "ref_words": ref_words,
+        "bow_mismatches": bow_mismatches,
     }

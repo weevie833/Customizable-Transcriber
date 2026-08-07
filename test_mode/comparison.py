@@ -18,6 +18,48 @@ _LINEBREAK_RUN = re.compile(r"\s*\n\s*")
 _TRAILING_PUNCTUATION = re.compile(r"[^\w\s]+(?=\s|$)")
 _WHITESPACE_RUN = re.compile(r"\s+")
 
+_BLOCK_SPLIT = re.compile(r"\n\s*\n")
+_LABEL_NOTES = re.compile(r"^notes:\s*", re.IGNORECASE)
+_LABEL_LOCATOR = re.compile(r"^page\s+\S+\s*[-–—]\s*entry\s+\S+\s*:\s*$", re.IGNORECASE)
+_LABEL_ENGLISH_TRANSLATION_BARE = re.compile(r"^english translation:\s*$", re.IGNORECASE)
+_LABEL_ENGLISH_TRANSLATION_INLINE = re.compile(r"^english translation:\s*(.*)$", re.IGNORECASE | re.DOTALL)
+
+
+def strip_non_transcription_blocks(text: str) -> str:
+    """Drop the English Translation, Notes, and synthetic Page/Entry locator
+    blocks, leaving only the native-language transcription content (including
+    a Marginal Heading block, when present — that's a verbatim transcription
+    of what the scribe wrote, not commentary, so it stays scored).
+
+    Test Mode compares models on transcription accuracy specifically; without
+    this, CER/WER conflates transcription quality with translation-phrasing
+    conformance and note-writing style, neither of which is what's being
+    benchmarked. See CLAUDE.md "Chiusa Sclafani battesimi — decisions" for the
+    block-structure contract this relies on. `Notes:`/`Latin Transcription:`
+    label text itself is left in place exactly like every other block's own
+    label — only whole blocks are dropped, never partial content.
+    """
+    blocks = _BLOCK_SPLIT.split(text)
+    kept: list[str] = []
+    skip_next = False
+    for block in blocks:
+        if skip_next:
+            skip_next = False
+            continue
+        stripped = block.strip()
+        if _LABEL_NOTES.match(stripped):
+            continue
+        if _LABEL_LOCATOR.match(stripped):
+            continue
+        if _LABEL_ENGLISH_TRANSLATION_BARE.match(stripped):
+            skip_next = True
+            continue
+        inline_match = _LABEL_ENGLISH_TRANSLATION_INLINE.match(stripped)
+        if inline_match and inline_match.group(1).strip():
+            continue
+        kept.append(block)
+    return "\n\n".join(kept)
+
 
 def normalize_transcription_text(text: str) -> str:
     """Collapse line breaks/empty lines and strip word-boundary punctuation.
@@ -84,10 +126,21 @@ def cer_quality_label(cer: float) -> str:
 
 
 def score_transcription(reference: str, hypothesis: str) -> dict[str, object]:
-    """CER/WER/WER-BoW for one model's transcription against the corrected reference."""
-    cer = character_error_rate(reference, hypothesis)
-    wer = word_error_rate(reference, hypothesis)
-    wer_bow = word_error_rate_bag_of_words(reference, hypothesis)
+    """CER/WER/WER-BoW for one model's native-language transcription against the
+    corrected reference.
+
+    Both sides are run through strip_non_transcription_blocks() first, applied
+    symmetrically so neither side is penalized for content the other lacks.
+    This measures transcription/paleography accuracy in isolation — English
+    Translation, Notes, and the synthetic Page/Entry locator are excluded, so
+    the score doesn't conflate reading the handwriting with writing an English
+    sentence or a commentary note. See strip_non_transcription_blocks().
+    """
+    ref = strip_non_transcription_blocks(reference)
+    hyp = strip_non_transcription_blocks(hypothesis)
+    cer = character_error_rate(ref, hyp)
+    wer = word_error_rate(ref, hyp)
+    wer_bow = word_error_rate_bag_of_words(ref, hyp)
     return {
         "cer": round(cer, 4),
         "wer": round(wer, 4),

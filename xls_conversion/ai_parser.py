@@ -125,8 +125,8 @@ PAGE AND DATES:
 - A PREVIOUS RECORD CONTEXT may be supplied for the first entry in a block. Use it only when the source explicitly refers back to a preceding date.
 
 INDIVIDUAL AND PARENTS:
-- The entry title may identify the child even when the translation only says "was given the name".
-- If only the child's given name appears in the translation, use a supported surname from the entry title or parents; otherwise retain the given name without inventing a surname.
+- The Marginal Heading block, if present, may identify the child even when the translation only says "was given the name".
+- If only the child's given name appears in the translation, use a supported surname from the Marginal Heading block or parents; otherwise retain the given name without inventing a surname.
 - Extract the father and mother from language such as "born to the spouses", "born to", or "son/daughter/child of".
 - Infer gender from explicit sex terms, son/daughter language, grammatical gender, and clearly gendered given names. Use "Male" or "Female"; leave blank only when a reliable inference cannot be made.
 - In each parent's Other Information field, briefly summarize all other stated details relevant to that parent, including deceased status, occupation, residence, place of origin, age, legitimacy context, titles, and relationship details.

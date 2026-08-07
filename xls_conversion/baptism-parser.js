@@ -1,5 +1,6 @@
 (function () {
   const HEADERS = [
+    "Page #",
     "Record #",
     "Image #",
     "Year",
@@ -263,6 +264,7 @@
       return {
         title: stripMarkdown(titleLine),
         recordNumber: parseRecordNumber(titleLine),
+        pageNumber: parsePageNumber(titleLine),
         body: bodyLines.join("\n").trim(),
         imageNumber,
       };
@@ -282,6 +284,7 @@
     const godparents = parseGodparents(english);
 
     return {
+      "Page #": entry.pageNumber || "",
       "Record #": entry.recordNumber || "",
       "Image #": entry.imageNumber || "",
       Year: dateParts.year,
@@ -394,7 +397,16 @@
   }
 
   function entryHeadingPattern() {
-    return /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:(?:Entry\s+\d+\s*(?:[:.][^\n]*)?|(?:\d+|Unnumbered\s+Entry)\s*:[^\n]*)|\[[^\]]*Entry\s+\d+[^\]]*\][^\n]*|Transcription\s*\(\s*Entry\s+\d+\s*:[^)]+\)\s*)(?:\*\*)?/gi;
+    // The leading "(?:Page\s+\S+\s*[-–—]\s*)?" makes the original page number
+    // ("Page 34 - Entry 1: ...") an optional prefix on the plain Entry
+    // heading, without touching the other heading styles this shared parser
+    // also supports (matrimoni/morti profiles, bracketed/markdown titles).
+    return /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:(?:(?:Page\s+\S+\s*[-–—]\s*)?Entry\s+\d+\s*(?:[:.][^\n]*)?|(?:\d+|Unnumbered\s+Entry)\s*:[^\n]*)|\[[^\]]*Entry\s+\d+[^\]]*\][^\n]*|Transcription\s*\(\s*Entry\s+\d+\s*:[^)]+\)\s*)(?:\*\*)?/gi;
+  }
+
+  function parsePageNumber(title) {
+    const match = stripMarkdown(title).match(/^\s*Page\s+(\S+?)\s*[-–—]/i);
+    return match ? match[1].replace(/[.,;:]+$/, "") : "";
   }
 
   function splitGroupedEnglishEntries(blockText, imageNumber) {
@@ -570,12 +582,16 @@
   }
 
   function parseParents(text) {
+    // Name captures allow [ ] and ? so an honestly-flagged uncertain reading
+    // ("to the spouses Nicolaus and Anna [de Pocopila?]") still matches —
+    // without this, the bracket used to fail the whole pattern and drop
+    // BOTH parents, even the one whose name was perfectly legible.
     const patterns = [
-      /born[^.;]*?\bto the spouses\s+([A-Z][A-Za-z'’ -]+?)\s+and\s+([A-Z][A-Za-z'’ -]+?)(?:\s+of\s+this\s+land|\s+from|\s+of|;|,|\.)/i,
+      /born[^.;]*?\bto the spouses\s+([A-Z][A-Za-z'’\[\]? -]+?)\s+and\s+([A-Z][A-Za-z'’\[\]? -]+?)(?:\s+of\s+this\s+land|\s+from|\s+of|;|,|\.)/i,
       /born to the spouses\s+(.+?)\s+and\s+(.+?)(?:\s+from|\s+of|;|,|\.)/i,
-      /(?:born [^.]*?\s+)?to\s+([A-Z][A-Za-z'’ -]+?)\s+and\s+([A-Z][A-Za-z'’ -]+?)(?:\s+from\s+[^,;.]+)?(?:,\s+[^.;]*?\bspouses|\s+spouses)/i,
-      /(?:born [^.]*?\s+)?to\s+([A-Z][A-Za-z'’ -]+?)\s+and\s+([A-Z][A-Za-z'’ -]+?)(?:,\s*spouses|\s+spouses)/i,
-      /\bto\s+([A-Z][A-Za-z'' -]+?)\s+and\s+([A-Z][A-Za-z'' -]+?)(?=\s*(?:,|\bof\b|\bfrom\b|[;.]))/i,
+      /(?:born [^.]*?\s+)?to\s+([A-Z][A-Za-z'’\[\]? -]+?)\s+and\s+([A-Z][A-Za-z'’\[\]? -]+?)(?:\s+from\s+[^,;.]+)?(?:,\s+[^.;]*?\bspouses|\s+spouses)/i,
+      /(?:born [^.]*?\s+)?to\s+([A-Z][A-Za-z'’\[\]? -]+?)\s+and\s+([A-Z][A-Za-z'’\[\]? -]+?)(?:,\s*spouses|\s+spouses)/i,
+      /\bto\s+([A-Z][A-Za-z''\[\]? -]+?)\s+and\s+([A-Z][A-Za-z''\[\]? -]+?)(?=\s*(?:,|\bof\b|\bfrom\b|[;.]))/i,
       /(?:son|daughter|child)\s+of\s+(.+?)\s+and\s+(.+?)(?:\s+from|\s+of|;|,|\.)/i,
     ];
 
@@ -604,20 +620,25 @@
 
   function parseGodparents(text) {
     const clauses = [...text.matchAll(/\b(?:the\s+)?(godmother|godfather|sponsor)(?:\s+\([^)]+\))?\s+was\s+([\s\S]*?)(?=,\s+and\s+the\s+(?:godmother|godfather|sponsor)(?:\s+\([^)]+\))?\s+was\b|\.|;)/gi)].map((match) => parseGodparentClause(match[2]));
-    const spouseClause = clauses.find((clause) => clause.spouse);
 
-    if (spouseClause && clauses.length > 1) {
+    // A lone "was" clause naming a spouse (e.g. "The godfather was Josephus,
+    // husband of Anna") describes a couple serving jointly as one clause's
+    // worth of godparent — the spouse is a second real person, so add them.
+    if (clauses.length === 1 && clauses[0].spouse) {
+      const clause = clauses[0];
       return [
-        { name: spouseClause.name, father: "" },
-        { name: spouseClause.spouse, father: "" },
+        { name: clause.name, father: clause.father },
+        { name: clause.spouse, father: "" },
       ];
     }
 
-    return clauses.flatMap((clause) => {
-      const godparents = [{ name: clause.name, father: clause.father }];
-      if (clause.spouse) godparents.push({ name: clause.spouse, father: "" });
-      return godparents;
-    });
+    // With two or more explicit "was" clauses, every godparent already has
+    // their own clause. A "wife of"/"husband of" aside inside one of those
+    // clauses identifies the godparent, it does not name an additional
+    // godparent — folding it in would invent a person who was never a
+    // sponsor and, worse, used to silently discard the real clauses (see
+    // CLAUDE.md "Known bug"). Take each clause's own name only.
+    return clauses.map((clause) => ({ name: clause.name, father: clause.father }));
   }
 
   function parseGodparentClause(detail) {
@@ -651,7 +672,11 @@
     }
 
     let surnameStart = tokens.length - 1;
-    const previous = tokens[tokens.length - 2]?.toLowerCase();
+    // Strip a leading "[" only for the lookup: a bracketed uncertain surname
+    // ("[de Pocopila?]") still splits as "de" + "Pocopila?]" tokens, and the
+    // particle check needs to see "de", not "[de", to keep the bracket
+    // wrapped around the whole surname instead of splitting inside it.
+    const previous = tokens[tokens.length - 2]?.toLowerCase().replace(/^\[/, "");
     if (SURNAME_PREFIXES.has(previous)) surnameStart = tokens.length - 2;
 
     const surname = tokens.slice(surnameStart).join(" ");
@@ -668,7 +693,12 @@
     if (!name) return "";
     const cleaned = name
       .replace(/\b(?:the\s+)?(?:late|deceased|quondam)\b/gi, "")
-      .replace(/\b(?:Mr|Mrs|Miss|Don|Donna|Lord|Master|Lady|magnificent)\.?\b/gi, "")
+      // Don/Master are the only honorifics the prompt permits inside a
+      // godparent clause; everything else (Doctor, Reverend, Cleric,
+      // Licentiate, Signor...) is supposed to move to Notes instead, but a
+      // model slip that leaves one in the clause shouldn't land it in the
+      // spreadsheet cell, so strip the common ones defensively too.
+      .replace(/\b(?:Mr|Mrs|Miss|Don|Donna|Lord|Master|Lady|magnificent|Doctor|Dr|Reverend|Rev|Signor|Signora|Sir)\.?\b/gi, "")
       .replace(/\bthe\b/gi, "")
       .replace(/\b(?:acting as proxy for|on behalf of)\s+[A-Z][A-Za-z'’ -]+$/i, "")
       .replace(/\bfor this purpose$/i, "")

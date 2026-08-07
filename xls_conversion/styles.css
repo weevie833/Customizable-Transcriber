@@ -25,6 +25,24 @@ body {
   line-height: 1.45;
 }
 
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 8px;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--blue);
+  color: #fff;
+  border-radius: 0 0 6px 6px;
+  text-decoration: none;
+  font-weight: 700;
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
 .app-shell {
   width: min(980px, calc(100% - 40px));
   margin: 0 auto;
@@ -235,7 +253,7 @@ input[type="password"],
 select,
 textarea {
   width: 100%;
-  border: 1px solid #b8b2a5;
+  border: 1px solid #8a8377;
   border-radius: 6px;
   background: #fff;
   color: var(--ink);

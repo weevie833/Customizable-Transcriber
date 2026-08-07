@@ -218,7 +218,7 @@ def transcribe_image(
     include_thoughts: bool = False,
 ) -> str:
     mime_type = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
-    config_kwargs = {"system_instruction": system_prompt}
+    config_kwargs = {"system_instruction": system_prompt, "temperature": 0}
 
     if include_thoughts and hasattr(types, "ThinkingConfig"):
         config_kwargs["thinking_config"] = types.ThinkingConfig(include_thoughts=True)

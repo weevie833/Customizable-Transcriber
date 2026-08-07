@@ -84,32 +84,10 @@ Prompt behavior:
 - Italian transcriptions preserve source abbreviations such as `Ant:o`.
 - English translations expand clear abbreviations, for example `Ant:o` as `Antonio`.
 
-## Run From The Command Line
-
-```bash
-python3 transcribe.py "/path/to/image/folder"
-```
-
-Optional output file:
-
-```bash
-python3 transcribe.py "/path/to/image/folder" --output "/path/to/output.md"
-```
-
-Useful options:
-
-```bash
-python3 transcribe.py "/path/to/image/folder" --reverse
-python3 transcribe.py "/path/to/image/folder" --model gemini-3.5-flash
-python3 transcribe.py "/path/to/image/folder" --delay 0
-```
-
 ## Files
 
-- `prompt.md`: original paleography prompt from the Colab notebook.
 - `app.py`: localhost web app.
-- `transcribe.py`: command-line runner.
 - `transcription_bot/core.py`: shared transcription logic and selected source-type scanning.
-- `profiles/`: saved JSON prompt profiles.
+- `profiles/`: saved JSON prompt profiles — the single source of truth the app reads. `profiles/sources/` holds source material (lexicons, corrections, build scripts) that generates specific profiles; it is not itself loaded by the app.
 - `outputs/`: generated Markdown and Word document files.
 - `xls_conversion/`: unified DOCX-to-XLSX/CSV page and source-specific extraction helpers.

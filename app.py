@@ -904,8 +904,15 @@ def page() -> str:
   <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Customizable Transcription Interface</title>
+  <title>Customizable Transcription</title>
   <script>
+    document.addEventListener("click", function (event) {{
+      const link = event.target.closest("a.download");
+      if (link && link.getAttribute("aria-disabled") === "true") {{
+        event.preventDefault();
+      }}
+    }});
+
     async function refreshStatus() {{
       const response = await fetch("/status", {{ cache: "no-store" }});
       if (!response.ok) return;
@@ -1065,10 +1072,13 @@ def page() -> str:
       }}
     }}
 
+    let settingsAlertReturnFocus = null;
+
     function showSettingsAlert(message) {{
       const alert = document.getElementById("settings-alert");
       const messageNode = document.getElementById("settings-alert-message");
       if (!alert || !messageNode) return;
+      settingsAlertReturnFocus = document.activeElement;
       messageNode.textContent = message;
       alert.hidden = false;
       playAlertSound();
@@ -1079,6 +1089,10 @@ def page() -> str:
     function hideSettingsAlert() {{
       const alert = document.getElementById("settings-alert");
       if (alert) alert.hidden = true;
+      if (settingsAlertReturnFocus && typeof settingsAlertReturnFocus.focus === "function") {{
+        settingsAlertReturnFocus.focus();
+      }}
+      settingsAlertReturnFocus = null;
     }}
 
     function missingRunSettingMessage() {{
@@ -1407,12 +1421,39 @@ def page() -> str:
       font-weight: 650;
       margin-top: 14px;
     }}
+    fieldset {{
+      border: 0;
+      margin: 0;
+      padding: 0;
+    }}
+    legend {{
+      display: block;
+      padding: 0;
+      font-weight: 650;
+      margin-top: 14px;
+    }}
+    .skip-link {{
+      position: absolute;
+      top: -40px;
+      left: 8px;
+      z-index: 100;
+      padding: 10px 16px;
+      background: #255c99;
+      color: #fff;
+      border-radius: 0 0 6px 6px;
+      text-decoration: none;
+      font-weight: 700;
+      transition: top 0.15s ease;
+    }}
+    .skip-link:focus {{
+      top: 0;
+    }}
     input[type="text"], input[type="password"], input[type="number"], select, textarea {{
       box-sizing: border-box;
       width: 100%;
       margin-top: 6px;
       padding: 10px 12px;
-      border: 1px solid #b8b2a5;
+      border: 1px solid #8a8377;
       border-radius: 6px;
       font: inherit;
       background: #fff;
@@ -1777,6 +1818,7 @@ def page() -> str:
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 <div id="settings-alert" class="settings-alert" role="alertdialog" aria-modal="true" aria-labelledby="settings-alert-title" hidden>
   <div class="settings-alert-box">
     <p id="settings-alert-title" class="settings-alert-title">Run settings needed</p>
@@ -1784,16 +1826,17 @@ def page() -> str:
     <button id="settings-alert-close" type="button">OK</button>
   </div>
 </div>
-<main>
+<main id="main-content" tabindex="-1">
   <header class="site-header">
     <div class="site-heading">
-      <h1>Customizable Transcription Interface</h1>
+      <h1>Customizable Transcription</h1>
       <p class="byline">Created by Steve Covello, 2026</p>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
       <a class="nav-link" href="/" aria-current="page">Transcribe</a>
-      <a class="nav-link" href="/xls-conversion">XLS Conversion</a>
+      <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode">Test Mode</a>
+      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
     </nav>
   </header>
   <form method="post" action="/run">
@@ -1815,23 +1858,23 @@ def page() -> str:
       </label>
     </div>
     <div class="run-options">
-      <div>
-        <label>Process order</label>
+      <fieldset>
+        <legend>Process order</legend>
         <div class="radio-row">
           <label class="radio-option"><input type="radio" name="order" value="oldest" required {oldest_checked}>Oldest-to-newest</label>
           <label class="radio-option"><input type="radio" name="order" value="newest" required {newest_checked}>Newest-to-oldest</label>
         </div>
         <p id="order-hint" class="hint"></p>
-      </div>
-      <div>
-        <label>File type</label>
+      </fieldset>
+      <fieldset>
+        <legend>File type</legend>
         <div class="radio-row">
           <label class="radio-option"><input type="radio" name="file_type" value="jpeg" required {jpeg_checked}>JPEG</label>
           <label class="radio-option"><input type="radio" name="file_type" value="png" required {png_checked}>PNG</label>
           <label class="radio-option"><input type="radio" name="file_type" value="pdf" required {pdf_checked}>PDF</label>
         </div>
         <p class="hint">JPEG includes .jpg and .jpeg files.</p>
-      </div>
+      </fieldset>
     </div>
     <label>Prompt profile
       <div class="profile-select-row">
@@ -1855,7 +1898,7 @@ def page() -> str:
           <span>File type: <strong id="confirm-file-type"></strong></span>
           <span>Prompt Profile: <strong id="confirm-profile"></strong></span>
         </span>
-        <span id="run-status" class="run-status" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>
+        <span id="run-status" class="run-status" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>
       </span>
     </div>
     <div class="profile-work-area">
@@ -1883,7 +1926,7 @@ def page() -> str:
   </form>
   <section class="panel">
     <h2 class="panel-title">Progress Console</h2>
-    <div id="summary" class="summary">{escaped_summary}</div>
+    <div id="summary" class="summary" role="status" aria-live="polite">{escaped_summary}</div>
     <div class="actions">
       <form method="post" action="/stop">
         <button id="stop-button" class="danger" type="submit" {stop_disabled}>Stop</button>
@@ -1891,7 +1934,7 @@ def page() -> str:
       <a id="download-link" class="download{download_disabled_class}" href="/download" download aria-disabled="{download_aria_disabled}">Download Document</a>
       <span class="download-note">{escaped_download_help}</span>
     </div>
-    <p id="output">Output: {escaped_output}</p>
+    <p id="output" aria-live="polite">Output: {escaped_output}</p>
     <button id="refresh-status-button" class="button-secondary" type="button">Refresh Status</button>
     <pre id="log">{escaped_log}</pre>
   </section>
@@ -1954,6 +1997,13 @@ def test_mode_page() -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Test Mode - Model Comparison</title>
   <script>
+    document.addEventListener("click", function (event) {{
+      const link = event.target.closest("a.download");
+      if (link && link.getAttribute("aria-disabled") === "true") {{
+        event.preventDefault();
+      }}
+    }});
+
     const profiles = {profile_data_json};
     const MODEL_LABELS = {model_labels_json};
     const initialRuns = {initial_runs_json};
@@ -2046,10 +2096,13 @@ def test_mode_page() -> str:
       }}
     }}
 
+    let settingsAlertReturnFocus = null;
+
     function showSettingsAlert(message) {{
       const alert = document.getElementById("settings-alert");
       const messageNode = document.getElementById("settings-alert-message");
       if (!alert || !messageNode) return;
+      settingsAlertReturnFocus = document.activeElement;
       messageNode.textContent = message;
       alert.hidden = false;
       playAlertSound();
@@ -2060,6 +2113,10 @@ def test_mode_page() -> str:
     function hideSettingsAlert() {{
       const alert = document.getElementById("settings-alert");
       if (alert) alert.hidden = true;
+      if (settingsAlertReturnFocus && typeof settingsAlertReturnFocus.focus === "function") {{
+        settingsAlertReturnFocus.focus();
+      }}
+      settingsAlertReturnFocus = null;
     }}
 
     function missingRunSettingMessage() {{
@@ -2477,12 +2534,39 @@ def test_mode_page() -> str:
       font-weight: 650;
       margin-top: 14px;
     }}
+    fieldset {{
+      border: 0;
+      margin: 0;
+      padding: 0;
+    }}
+    legend {{
+      display: block;
+      padding: 0;
+      font-weight: 650;
+      margin-top: 14px;
+    }}
+    .skip-link {{
+      position: absolute;
+      top: -40px;
+      left: 8px;
+      z-index: 100;
+      padding: 10px 16px;
+      background: #255c99;
+      color: #fff;
+      border-radius: 0 0 6px 6px;
+      text-decoration: none;
+      font-weight: 700;
+      transition: top 0.15s ease;
+    }}
+    .skip-link:focus {{
+      top: 0;
+    }}
     input[type="text"], input[type="password"], input[type="number"], select, textarea {{
       box-sizing: border-box;
       width: 100%;
       margin-top: 6px;
       padding: 10px 12px;
-      border: 1px solid #b8b2a5;
+      border: 1px solid #8a8377;
       border-radius: 6px;
       font: inherit;
       background: #fff;
@@ -2491,7 +2575,7 @@ def test_mode_page() -> str:
     input[type="file"]::file-selector-button {{
       margin-right: 8px;
       padding: 6px 10px;
-      border: 1px solid #b8b2a5;
+      border: 1px solid #8a8377;
       border-radius: 6px;
       font: inherit;
       font-size: 13px;
@@ -2940,6 +3024,7 @@ def test_mode_page() -> str:
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 <div id="settings-alert" class="settings-alert" role="alertdialog" aria-modal="true" aria-labelledby="settings-alert-title" hidden>
   <div class="settings-alert-box">
     <p id="settings-alert-title" class="settings-alert-title">Run settings needed</p>
@@ -2947,7 +3032,7 @@ def test_mode_page() -> str:
     <button id="settings-alert-close" type="button">OK</button>
   </div>
 </div>
-<main>
+<main id="main-content" tabindex="-1">
   <header class="site-header">
     <div class="site-heading">
       <h1>Test Mode: Model Comparison</h1>
@@ -2955,8 +3040,9 @@ def test_mode_page() -> str:
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
       <a class="nav-link" href="/">Transcribe</a>
-      <a class="nav-link" href="/xls-conversion">XLS Conversion</a>
+      <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode" aria-current="page">Test Mode</a>
+      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
     </nav>
   </header>
   <p class="hint">Runs the same source images and prompt profile through different Gemini models to compare performance.</p>
@@ -2997,23 +3083,23 @@ def test_mode_page() -> str:
       <p class="hint">Used for every run in the queue. Not saved to the project files.</p>
     </label>
     <div class="run-options">
-      <div>
-        <label>Process order</label>
+      <fieldset>
+        <legend>Process order</legend>
         <div class="radio-row">
           <label class="radio-option"><input type="radio" name="order" value="oldest" required {oldest_checked}>Oldest-to-newest</label>
           <label class="radio-option"><input type="radio" name="order" value="newest" required {newest_checked}>Newest-to-oldest</label>
         </div>
         <p id="order-hint" class="hint"></p>
-      </div>
-      <div>
-        <label>File type</label>
+      </fieldset>
+      <fieldset>
+        <legend>File type</legend>
         <div class="radio-row">
           <label class="radio-option"><input type="radio" name="file_type" value="jpeg" required {jpeg_checked}>JPEG</label>
           <label class="radio-option"><input type="radio" name="file_type" value="png" required {png_checked}>PNG</label>
           <label class="radio-option"><input type="radio" name="file_type" value="pdf" required {pdf_checked}>PDF</label>
         </div>
         <p class="hint">JPEG includes .jpg and .jpeg files.</p>
-      </div>
+      </fieldset>
     </div>
     <label>Prompt profile
       <div class="profile-select-row">
@@ -3040,7 +3126,7 @@ def test_mode_page() -> str:
           <span>File type: <strong id="confirm-file-type"></strong></span>
           <span>Prompt Profile: <strong id="confirm-profile"></strong></span>
         </span>
-        <span id="run-status" class="run-status" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>
+        <span id="run-status" class="run-status" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>
       </span>
     </div>
   </form>
@@ -3072,7 +3158,7 @@ def test_mode_page() -> str:
   </section>
   <section class="panel">
     <h2 class="panel-title">Progress Console</h2>
-    <div id="summary" class="summary">{escaped_summary}</div>
+    <div id="summary" class="summary" role="status" aria-live="polite">{escaped_summary}</div>
     <div class="actions">
       <form method="post" action="/test-mode/stop">
         <button id="stop-button" class="danger" type="submit" {stop_disabled}>Stop</button>
@@ -3082,6 +3168,525 @@ def test_mode_page() -> str:
     <div id="progress-rows" class="progress-rows"></div>
     <pre id="log">{escaped_log}</pre>
   </section>
+  <footer class="license">Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA). Not for commercial use. Attribution required.</footer>
+</main>
+</body>
+</html>"""
+
+
+PROMPT_BUILDER_TEMPLATE_ID = "chiusa-sclafani-battesimi-v3"
+
+PROMPT_BUILDER_SECTION_HELP = {
+    "role_context": (
+        "Defines who the AI is, what it's transcribing, and the ground rules for "
+        "accuracy. Replace the project-specific details — the location, the "
+        "register type (baptisms, marriages, deaths...), the parish or archive name, "
+        "the date range, and any page-layout notes (columns, page numbering, running "
+        "order) that match your own source images. Keep the overall shape: an "
+        "uncertainty protocol (never guess a name, use [illegible] instead) and "
+        "fidelity rules (preserve spelling, don't silently correct the scribe) are "
+        "what keep a transcription trustworthy for genealogical research — most "
+        "projects will want to keep these close to as-is."
+    ),
+    "reference_context": (
+        "Gives the AI your project's own ground truth: the standard formula your "
+        "register's entries follow, an abbreviation key for the hand and language, "
+        "and a name lexicon (surnames and given names actually attested in your "
+        "source, ideally frequency-tiered) so it can break ties between similar "
+        "letterforms without inventing names that aren't real. Almost everything "
+        "here is specific to your project and should be replaced — but keep the "
+        "structure (formula, then abbreviation key, then lexicon) and the rule that "
+        "a lexicon only breaks ties, it never overrules what's on the page."
+    ),
+    "output_format": (
+        "Defines the exact text format the AI must output. This feeds downstream "
+        "tooling (the Word document writer, and a spreadsheet parser if you build "
+        "one), so exact phrasing matters more than it looks — a rephrased sentence "
+        "can silently leave a spreadsheet column blank. Keep the block structure "
+        "(locator, marginal heading, date, notes, transcription, translation, each "
+        "separated by a blank line) and the discipline of exact required phrasings. "
+        "The locator line (Page/Entry number) should stay a pure navigation aid, not "
+        "a transcription — number sequentially yourself if your register has no "
+        "entry numbers of its own, or transcribe the register's own numbers if it "
+        "does. The marginal heading, if your register has one, should be a verbatim "
+        "transcription of what's actually written there, not an invented summary — "
+        "omit that block entirely for registers with no separate heading. Update the "
+        "worked examples and any parser-specific wording to match your own register "
+        "and your own downstream tooling."
+    ),
+}
+
+PROMPT_BUILDER_CORE_RULES = [
+    "Output only what is present in the source image.",
+    "Do not include a filename or START OF RECORD header; the app adds that automatically.",
+    "Preserve original spellings, archaic forms, non-standard forms, capitalization, and punctuation when visible.",
+    "Preserve abbreviations exactly as written in the transcription.",
+    "Expand clear abbreviations only in the English translation.",
+    "Do not preserve source line breaks; use continuous paragraphs unless the output format requires separate fields.",
+    "Do not summarize, modernize, normalize, or invent missing words.",
+    "Use brackets for uncertain readings, for example [Rovella?] or [illegible].",
+    "If part of the page is unreadable, mark only that portion as [illegible].",
+]
+
+
+def prompt_builder_page(
+    role_context: str | None = None,
+    reference_context: str | None = None,
+    output_format: str | None = None,
+    new_profile_name: str = "",
+    message: str = "",
+    message_kind: str = "",
+) -> str:
+    template_profile = load_profile(PROMPT_BUILDER_TEMPLATE_ID)
+    template_role = str(template_profile.get("role_context", ""))
+    template_reference = str(template_profile.get("reference_context", ""))
+    template_format = str(template_profile.get("output_format", ""))
+
+    if role_context is None:
+        role_context = template_role
+    if reference_context is None:
+        reference_context = template_reference
+    if output_format is None:
+        output_format = template_format
+
+    escaped_role = html.escape(role_context)
+    escaped_reference = html.escape(reference_context)
+    escaped_format = html.escape(output_format)
+    escaped_name = html.escape(new_profile_name)
+
+    role_words = len(role_context.split())
+    reference_words = len(reference_context.split())
+    format_words = len(output_format.split())
+
+    banner_html = ""
+    if message:
+        banner_class = "pb-banner-success" if message_kind == "success" else "pb-banner-error"
+        banner_html = f'<div class="pb-banner {banner_class}" role="status">{html.escape(message)}</div>'
+
+    template_json = json.dumps(
+        {
+            "role_context": template_role,
+            "reference_context": template_reference,
+            "output_format": template_format,
+        }
+    ).replace("</", "<\\/")
+    core_rules_json = json.dumps(PROMPT_BUILDER_CORE_RULES).replace("</", "<\\/")
+
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prompt Builder</title>
+  <style>
+    :root {{
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }}
+    body {{
+      margin: 0;
+      background: #f7f5f0;
+      color: #1f2933;
+    }}
+    main {{
+      width: min(980px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }}
+    h1 {{
+      margin: 0;
+      font-size: 28px;
+    }}
+    .site-header {{
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 20px;
+    }}
+    .site-heading {{
+      display: grid;
+      gap: 4px;
+    }}
+    .site-nav {{
+      display: flex;
+      flex: 0 0 auto;
+      gap: 4px;
+      align-items: center;
+    }}
+    .nav-link {{
+      display: inline-block;
+      padding: 8px 10px 7px;
+      border-bottom: 3px solid transparent;
+      color: #255c99;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }}
+    .nav-link:hover {{
+      border-bottom-color: #9eb8d7;
+      background: #eef4fb;
+      color: #173f6d;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }}
+    .nav-link:focus-visible {{
+      outline: 3px solid #255c99;
+      outline-offset: 2px;
+      border-radius: 2px;
+    }}
+    .nav-link[aria-current="page"] {{
+      border-bottom-color: #255c99;
+      background: #e5eef9;
+      color: #173f6d;
+      font-weight: 750;
+      text-decoration: none;
+    }}
+    form, .panel {{
+      background: #ffffff;
+      border: 1px solid #d9d4c8;
+      border-radius: 8px;
+      padding: 18px;
+      margin-bottom: 18px;
+    }}
+    label {{
+      display: block;
+      font-weight: 650;
+      margin-top: 14px;
+    }}
+    fieldset {{
+      border: 0;
+      margin: 0;
+      padding: 0;
+    }}
+    legend {{
+      display: block;
+      padding: 0;
+      font-weight: 650;
+      margin-top: 14px;
+    }}
+    .skip-link {{
+      position: absolute;
+      top: -40px;
+      left: 8px;
+      z-index: 100;
+      padding: 10px 16px;
+      background: #255c99;
+      color: #fff;
+      border-radius: 0 0 6px 6px;
+      text-decoration: none;
+      font-weight: 700;
+      transition: top 0.15s ease;
+    }}
+    .skip-link:focus {{
+      top: 0;
+    }}
+    input[type="text"], textarea {{
+      box-sizing: border-box;
+      width: 100%;
+      margin-top: 6px;
+      padding: 10px 12px;
+      border: 1px solid #8a8377;
+      border-radius: 6px;
+      font: inherit;
+      background: #fff;
+      color: #1f2933;
+    }}
+    textarea {{
+      min-height: 260px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.45;
+    }}
+    .hint {{
+      margin: 6px 0 0;
+      color: #5f6b76;
+      font-size: 13px;
+      font-weight: 400;
+    }}
+    button {{
+      margin-top: 18px;
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 6px;
+      background: #255c99;
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }}
+    button:not(:disabled):hover {{
+      filter: brightness(0.92);
+    }}
+    button:not(:disabled):focus-visible {{
+      outline: 3px solid rgba(37, 92, 153, 0.32);
+      outline-offset: 2px;
+    }}
+    #pb-save-button {{
+      background: #22863a;
+    }}
+    #pb-save-button:not(:disabled):hover {{
+      background: #176f2c;
+      filter: none;
+    }}
+    .button-secondary {{
+      background: #53616f;
+    }}
+    .panel-title {{
+      margin: 0 0 10px;
+      font-size: 16px;
+    }}
+    .byline {{
+      margin: 0;
+      color: #5f6b76;
+      font-size: 13px;
+    }}
+    .license {{
+      margin: 8px 0 0;
+      color: #5f6b76;
+      font-size: 12px;
+    }}
+    .pb-toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 4px;
+    }}
+    .pb-toolbar button {{
+      margin-top: 0;
+    }}
+    .pb-banner {{
+      padding: 12px 14px;
+      border-radius: 6px;
+      margin-bottom: 18px;
+      font-weight: 650;
+    }}
+    .pb-banner-success {{
+      background: #e6f4ea;
+      color: #1e6b34;
+      border: 1px solid #b7dfc2;
+    }}
+    .pb-banner-error {{
+      background: #fbeae7;
+      color: #8a2c1d;
+      border: 1px solid #eec3ba;
+    }}
+    details.pb-section {{
+      background: #ffffff;
+      border: 1px solid #d9d4c8;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 14px;
+    }}
+    details.pb-section summary {{
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      padding: 2px 0;
+    }}
+    details.pb-section summary::-webkit-details-marker {{
+      display: none;
+    }}
+    details.pb-section summary::before {{
+      content: "\\25B8";
+      margin-right: 8px;
+      color: #255c99;
+      display: inline-block;
+      transition: transform 0.12s ease;
+    }}
+    details.pb-section[open] summary::before {{
+      transform: rotate(90deg);
+    }}
+    .pb-summary-text {{
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+    }}
+    .pb-word-count {{
+      color: #5f6b76;
+      font-weight: 500;
+      font-size: 12px;
+      white-space: nowrap;
+    }}
+    .pb-section-caption {{
+      margin: 10px 0 4px;
+      padding: 10px 12px;
+      background: #f4f5f6;
+      border: 1px solid #e2e5e8;
+      border-radius: 6px;
+      color: #3d4852;
+      font-size: 13px;
+    }}
+    #pb-preview-content {{
+      min-height: 150px;
+      max-height: 420px;
+      overflow: auto;
+      white-space: pre-wrap;
+      background: #15191f;
+      color: #e8edf2;
+      border-radius: 8px;
+      padding: 14px;
+      margin-top: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12.5px;
+    }}
+    @media (max-width: 720px) {{
+      main {{
+        width: min(100% - 28px, 980px);
+        padding-top: 20px;
+      }}
+      .site-header {{ align-items: stretch; }}
+    }}
+    @media (max-width: 520px) {{
+      .site-header {{ flex-direction: column; }}
+    }}
+  </style>
+  <script>
+    const PB_TEMPLATE = {template_json};
+    const PB_CORE_RULES = {core_rules_json};
+    const PB_DEFAULT_ROLE = "You are an expert paleographer and historian specializing in handwritten archival records. Use only the user-supplied local reference material and what is visible in the source image; do not rely on assumptions from any unrelated locality.";
+    const PB_DEFAULT_FORMAT = "Italian Transcription:\\n[Continuous, source-faithful transcription.]\\n\\nEnglish Translation:\\n[Faithful English translation.]";
+
+    function pbWordCount(text) {{
+      const trimmed = (text || "").trim();
+      return trimmed ? trimmed.split(/\\s+/).length : 0;
+    }}
+
+    function pbUpdateCounts() {{
+      document.getElementById("wc-role_context").textContent = pbWordCount(document.querySelector('[name="role_context"]').value) + " words";
+      document.getElementById("wc-reference_context").textContent = pbWordCount(document.querySelector('[name="reference_context"]').value) + " words";
+      document.getElementById("wc-output_format").textContent = pbWordCount(document.querySelector('[name="output_format"]').value) + " words";
+    }}
+
+    function pbAssembleFullPrompt(role, reference, format) {{
+      const roleText = role.trim() ? role : PB_DEFAULT_ROLE;
+      const formatText = format.trim() ? format : PB_DEFAULT_FORMAT;
+      const rules = PB_CORE_RULES.map(function (r) {{ return "- " + r; }}).join("\\n");
+      let scaffold = "# ROLE AND LOCAL CONTEXT\\n" + roleText + "\\n\\n# CORE TRANSCRIPTION RULES\\n" + rules + "\\n\\n# OUTPUT FORMAT\\n" + formatText;
+      const sections = [scaffold];
+      if (reference.trim()) {{
+        sections.push(
+          "# USER-SUPPLIED GROUND TRUTH AND REFERENCE MATERIAL\\n" +
+          "Use the following material as the primary local knowledge base for this run. " +
+          "It may include JSON dictionaries, names, places, formulas, abbreviations, sample " +
+          "transcriptions/translations, or other ground-truth notes. Do not invent content " +
+          "from this reference; use it only to resolve or constrain readings visible in the source image.\\n\\n" +
+          "```text\\n" + reference + "\\n```"
+        );
+      }}
+      return sections.join("\\n\\n");
+    }}
+
+    function pbUpdatePreview() {{
+      const role = document.querySelector('[name="role_context"]').value;
+      const reference = document.querySelector('[name="reference_context"]').value;
+      const format = document.querySelector('[name="output_format"]').value;
+      document.getElementById("pb-preview-content").textContent = pbAssembleFullPrompt(role, reference, format);
+    }}
+
+    function pbRefresh() {{
+      pbUpdateCounts();
+      pbUpdatePreview();
+    }}
+
+    function pbResetToTemplate() {{
+      if (!confirm("Reset all three sections back to the template? This discards your current edits.")) return;
+      document.querySelector('[name="role_context"]').value = PB_TEMPLATE.role_context || "";
+      document.querySelector('[name="reference_context"]').value = PB_TEMPLATE.reference_context || "";
+      document.querySelector('[name="output_format"]').value = PB_TEMPLATE.output_format || "";
+      pbRefresh();
+    }}
+
+    function pbSetAllOpen(open) {{
+      document.querySelectorAll("details.pb-section").forEach(function (d) {{ d.open = open; }});
+    }}
+
+    document.addEventListener("DOMContentLoaded", function () {{
+      ["role_context", "reference_context", "output_format"].forEach(function (name) {{
+        document.querySelector('[name="' + name + '"]').addEventListener("input", pbRefresh);
+      }});
+      document.getElementById("pb-expand-all").addEventListener("click", function () {{ pbSetAllOpen(true); }});
+      document.getElementById("pb-collapse-all").addEventListener("click", function () {{ pbSetAllOpen(false); }});
+      document.getElementById("pb-reset-template").addEventListener("click", pbResetToTemplate);
+      pbRefresh();
+    }});
+  </script>
+  </head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content" tabindex="-1">
+  <header class="site-header">
+    <div class="site-heading">
+      <h1>Prompt Builder</h1>
+      <p class="byline">Created by Steve Covello, 2026</p>
+    </div>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link" href="/">Transcribe</a>
+      <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
+      <a class="nav-link" href="/test-mode">Test Mode</a>
+      <a class="nav-link" href="/prompt-builder" aria-current="page">Prompt Builder</a>
+    </nav>
+  </header>
+  <p class="hint">Starts you from a template built from our most refined profile, split into the same three parts every profile uses. Edit the parts that describe your own project — each section below says what to change and what to leave alone — then save it as a new profile. It becomes available on the Transcribe and Test Mode pages after you reload those tabs (they load the profile list once, when the page opens).</p>
+  {banner_html}
+  <form method="post" action="/prompt-builder/save-profile">
+    <div class="pb-toolbar">
+      <button type="button" id="pb-expand-all" class="button-secondary">Expand all</button>
+      <button type="button" id="pb-collapse-all" class="button-secondary">Collapse all</button>
+      <button type="button" id="pb-reset-template" class="button-secondary">Reset to template</button>
+    </div>
+
+    <details class="pb-section" open>
+      <summary>
+        <span class="pb-summary-text">1. Role &amp; Style</span>
+        <span class="pb-word-count" id="wc-role_context">{role_words} words</span>
+      </summary>
+      <p class="pb-section-caption">{PROMPT_BUILDER_SECTION_HELP["role_context"]}</p>
+      <textarea name="role_context" spellcheck="false">{escaped_role}</textarea>
+    </details>
+
+    <details class="pb-section">
+      <summary>
+        <span class="pb-summary-text">2. Reference Material</span>
+        <span class="pb-word-count" id="wc-reference_context">{reference_words} words</span>
+      </summary>
+      <p class="pb-section-caption">{PROMPT_BUILDER_SECTION_HELP["reference_context"]}</p>
+      <textarea name="reference_context" spellcheck="false">{escaped_reference}</textarea>
+    </details>
+
+    <details class="pb-section">
+      <summary>
+        <span class="pb-summary-text">3. Output Format</span>
+        <span class="pb-word-count" id="wc-output_format">{format_words} words</span>
+      </summary>
+      <p class="pb-section-caption">{PROMPT_BUILDER_SECTION_HELP["output_format"]}</p>
+      <textarea name="output_format" spellcheck="false">{escaped_format}</textarea>
+    </details>
+
+    <details class="pb-section">
+      <summary>
+        <span class="pb-summary-text">Full prompt preview</span>
+        <span class="pb-word-count">as sent to Gemini</span>
+      </summary>
+      <p class="pb-section-caption">Read-only. This is the three sections above assembled exactly the way the app builds the real system prompt — including the fixed rules and headers it adds automatically — so you can see what the AI actually receives.</p>
+      <pre id="pb-preview-content"></pre>
+    </details>
+
+    <label>Save this as a new profile
+      <input type="text" name="new_profile_name" value="{escaped_name}" placeholder="e.g. Caiazzo Battesimi 1780s" autocomplete="off">
+      <p class="hint">Creates a new profile file; it never overwrites the template.</p>
+    </label>
+    <button id="pb-save-button" type="submit">Save Profile</button>
+  </form>
   <footer class="license">Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA). Not for commercial use. Attribution required.</footer>
 </main>
 </body>
@@ -3326,6 +3931,10 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(test_mode_page())
             return
 
+        if parsed.path in {"/prompt-builder", "/prompt-builder/"}:
+            self.respond(prompt_builder_page())
+            return
+
         if parsed.path == "/test-mode/status":
             self.test_status()
             return
@@ -3367,6 +3976,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/save-profile":
             self.save_profile()
+            return
+
+        if self.path == "/prompt-builder/save-profile":
+            self.save_prompt_builder_profile()
             return
 
         if self.path == "/delete-profile":
@@ -3638,6 +4251,50 @@ class Handler(BaseHTTPRequestHandler):
                 state["log"] = [f"Fatal error: {exc}"]
                 state["download"] = ""
         self.respond(page())
+
+    def save_prompt_builder_profile(self) -> None:
+        role_context = ""
+        reference_context = ""
+        output_format = ""
+        new_profile_name = ""
+        try:
+            form = parse_post_form(self)
+            new_profile_name = pasted_value(form, "new_profile_name")
+            role_context = pasted_value(form, "role_context")
+            reference_context = pasted_value(form, "reference_context")
+            output_format = pasted_value(form, "output_format")
+            profile = save_custom_profile(
+                new_profile_name,
+                role_context,
+                reference_context,
+                output_format,
+                replace_existing=False,
+            )
+            message = (
+                f'Saved profile "{profile["label"]}". Reload the Transcribe or Test Mode '
+                "tab to see it in the profile list there."
+            )
+            self.respond(
+                prompt_builder_page(
+                    role_context=profile.get("role_context", ""),
+                    reference_context=profile.get("reference_context", ""),
+                    output_format=profile.get("output_format", ""),
+                    new_profile_name="",
+                    message=message,
+                    message_kind="success",
+                )
+            )
+        except Exception as exc:
+            self.respond(
+                prompt_builder_page(
+                    role_context=role_context,
+                    reference_context=reference_context,
+                    output_format=output_format,
+                    new_profile_name=new_profile_name,
+                    message=f"Could not save: {exc}",
+                    message_kind="error",
+                )
+            )
 
     def delete_profile(self) -> None:
         with lock:

@@ -43,6 +43,143 @@ See `HANDOFF.md` for app/UI state. **Do not commit or push without being asked.*
      fix changed what the live tool does; it didn't. `matrimony-parser.js` and
      `morti-parser.js` are the same kind of orphaned-but-reference-worthy code.
 
+## Prompt Builder page (`/prompt-builder`)
+
+Guided profile-creation page, added because writing a strong three-part system
+prompt from scratch is a different skill than knowing what a project needs.
+`prompt_builder_page()` in `app.py` (near `test_mode_page()`). Pre-populates the
+same three fields every profile uses (`role_context`, `reference_context`,
+`output_format`) from `PROMPT_BUILDER_TEMPLATE_ID = "chiusa-sclafani-battesimi-v3"`
+— loaded live via `load_profile()`, not a hardcoded copy, so it stays in sync if
+that profile is ever rebuilt — but the UI only ever calls it "Template", never
+by name, since it's meant to generalize to any register type. Each of the three
+fields sits in its own collapsible `<details>` with a fixed (non-editable)
+caption above it saying what's project-specific to replace and what structural
+scaffolding to keep; captions live in `PROMPT_BUILDER_SECTION_HELP`.
+
+Saving posts to `/prompt-builder/save-profile` (`Handler.save_prompt_builder_profile`),
+which just calls the existing `save_custom_profile()` — always creates a new
+profile (auto-suffixed `-2`/`-3` on a name collision), never edits the template
+or an existing profile in place. Editing an existing saved profile still happens
+on the Transcribe page, which already supports that; Prompt Builder is
+deliberately a creation tool, not a full profile manager, and doesn't support
+delete either.
+
+The page's "Full prompt preview" panel mirrors `build_system_prompt()` /
+`neutral_system_scaffold()` client-side in JS (`pbAssembleFullPrompt`), because
+the real assembled prompt is NOT just the three fields concatenated — it's
+wrapped with fixed headers and 9 hardcoded "CORE TRANSCRIPTION RULES" bullets
+that get added regardless of profile content. If those Python functions change,
+the JS mirror needs updating to match or the preview will lie about what's
+actually sent to Gemini. Verified byte-for-byte identical against a real
+`build_system_prompt()` call. (An earlier version of this check found 609
+literal `\r\n` escape sequences baked into `chiusa-sclafani-battesimi-v3.json`'s
+string fields — invisible to a raw-byte scan of the file since they were
+JSON-escaped text, not actual CR bytes, but `json.loads` decodes escapes, so
+they became real CRLF characters once loaded and made the live preview ~600
+characters shorter than what `build_system_prompt()` actually assembled.
+Fixed by rebuilding the profile from source — `build_prompt.py`'s literal
+strings only ever use `\n` — rather than hand-patching the JSON. If a profile
+file's assembled-prompt length ever looks off again, check for the same
+JSON-escaped-CRLF pattern before assuming a logic bug.)
+
+Same nav bar (`app.py` ×2, `xls_conversion/index.html` ×1) and same
+stale-embedded-snapshot footgun as the rest of the app: Transcribe and Test
+Mode read the profile list once when their page renders, so a profile saved
+here needs a real reload of those tabs before it appears there — the save
+banner says so.
+
+## Accessibility (WCAG)
+
+Page `<h1>` titles: Transcribe = "Customizable Transcription", XLS Conversion =
+"XLSX Conversion" (nav label matches), Test Mode = "Test Mode: Model
+Comparison", Prompt Builder = "Prompt Builder". The XLS Conversion page's
+`<h1>` used to literally read "Customizable Transcription Interface" — a
+copy-paste leftover from before that page existed as its own file — fixed
+alongside this pass.
+
+Audited against WCAG 2.1 AA and fixed, across `app.py`'s three page functions
+and `xls_conversion/index.html` + `styles.css`:
+
+- **No skip link.** Added `.skip-link` (visually hidden until focused) as the
+  first focusable element in `<body>` on all four pages, targeting
+  `<main id="main-content" tabindex="-1">`.
+- **Radio groups had no programmatic group name.** "Process order" and "File
+  type" on Transcribe/Test Mode were a bare `<label>` (not associated with any
+  control) followed by a `<div>` of radios. Changed to `<fieldset><legend>`,
+  with `fieldset`/`legend` CSS reset to look identical to the old
+  `<label>`/`<div>` pair. (XLS Conversion's record-type radios already used
+  `role="radiogroup" aria-label="Source material"` — no change needed there.)
+- **Status regions weren't announced to screen readers.** Added
+  `role="status" aria-live="polite"` to `#summary` and `#run-status`, and
+  `aria-live="polite"` to `#output`, on Transcribe/Test Mode. (XLS Conversion
+  already had this right.) Deliberately did NOT make `#log` or Test Mode's
+  `#progress-rows` live — they update too frequently/verbosely; a live region
+  there would re-announce constantly instead of helping.
+- **Download links stayed keyboard-activatable while "disabled."**
+  `aria-disabled="true"` + `pointer-events: none` blocks mouse clicks but not
+  a keyboard Enter on a focused `<a href>` (the `<a>` never had `disabled`
+  removed, unlike a real `<button disabled>`, which is why the old markup
+  didn't just use a button). Added a delegated `click` listener on both pages
+  that calls `preventDefault()` when `aria-disabled="true"` regardless of
+  input method.
+- **Settings-alert modal didn't return focus.** `showSettingsAlert()` moved
+  focus into the dialog (correct) but `hideSettingsAlert()` left focus
+  wherever the browser dropped it. Now stores `document.activeElement` before
+  opening and restores it on close.
+- **Contrast failures.** `.pb-word-count` (`#8d99a6` on white, 2.9:1) darkened
+  to `#5f6b76` (5.0:1, matches `.hint`). The shared input/textarea/select
+  border `#b8b2a5` (2.1:1 against white, below the 3:1 UI-component minimum)
+  darkened to `#8a8377` (3.75:1) everywhere it appeared — 4 spots in `app.py`
+  plus `xls_conversion/styles.css`.
+
+Checked and already compliant, not touched: `lang="en"` on all four documents,
+no images needing alt text (icons are CSS, not `<img>`), heading hierarchy
+(`.panel-title` is a real `<h2>`, not a styled `<div>`), focus-visible outlines
+present on links/buttons with no `outline: none` anywhere, labels correctly
+associated with their inputs via wrapping.
+
+Noted but not fixed (low priority / judgment calls, revisit if it matters):
+the disclosure-triangle character in Prompt Builder's `<summary>::before` is
+decorative and could theoretically be announced by some AT even though
+`<details>`'s native expanded/collapsed state already covers the same
+information; the settings-alert modal moves focus in/out correctly but
+doesn't hard-trap Tab within it while open, so a sighted keyboard user could
+in principle Tab past it into the obscured page behind the overlay.
+
+## Test Mode scoring — native-language transcription accuracy only
+
+`test_mode/comparison.py`'s `score_transcription()` runs both sides through
+`strip_non_transcription_blocks()` before computing CER/WER/WER-BoW. This is
+deliberate, not an oversight: Test Mode's whole purpose is comparing models on
+transcription/paleography accuracy, and scoring the raw full text (as it did
+before) conflated that with translation-phrasing quality and note-writing
+style — neither of which reflects how well a model reads handwriting. Notes
+are English commentary, not transcribed content, so a model that writes a
+differently-worded but equally correct note used to be penalized as if it
+had misread the page.
+
+What gets dropped: the entire `English Translation:` block, the entire
+`Notes:` block, and the synthetic `Page N - Entry n:` locator line (that
+number doesn't exist on the page — see the heading redesign below — so it
+isn't transcription content either). What's kept: `Marginal Heading:` (a
+verbatim transcription of what the scribe wrote, so it's real content now
+that Section 3 no longer fabricates it — see below), `Date:`, and
+`Latin Transcription:`, labels and all, exactly as they'd have been scored
+before. Both the ground-truth corrected text and every candidate's text are
+stripped the same way, so neither side is unfairly penalized for content the
+other lacks.
+
+This relies on the label `English Translation:` being a stable, consistent
+string across profiles (confirmed true for both Chiusa Sclafani's own
+`Latin Transcription:`/`English Translation:` pair and the generic profile
+default's `Italian Transcription:`/`English Translation:` pair — the native
+label varies, the English one doesn't) — not something enforced by the
+schema, so a custom Prompt-Builder-authored profile that uses different
+wording for its English block would silently bypass the strip. Not fixed
+here; worth revisiting if Test Mode is ever run against a profile that
+deviates from that convention.
+
 ## The parser contract (this is what breaks silently in `baptism-parser.js`)
 
 Get one of these wrong and the DOCX still looks perfect while spreadsheet columns
@@ -116,8 +253,20 @@ Active profile: `profiles/chiusa-sclafani-battesimi-v3.json`. Rebuild it, don't
 hand-edit:
 
 ```bash
-cd prompts/chiusa-sclafani && python3 build_prompt.py
+cd profiles/sources/chiusa-sclafani && python3 build_prompt.py
 ```
+
+Prose in `build_prompt.py`'s `SECTION_1`/`SECTION_2_HEAD`/`SECTION_3` string
+literals is hard-wrapped one sentence-flow per line purely for source
+readability — reflowed into single lines per paragraph before every commit, so
+the generated profile's `role_context`/`reference_context`/`output_format`
+read as continuous prose in the Prompt Builder / Transcribe textareas, not
+mid-sentence line breaks. Structural line breaks are NOT touched: markdown
+headers, bullet/numbered list items, the `# ABBREVIATION KEY` table, the
+`# BLOCK STRUCTURE` required output template, and the worked examples all keep
+their own required line/blank-line layout. If you edit these string literals
+by hand later, keep new prose on one line per paragraph (wrap in your editor,
+not in the source) rather than reintroducing hard 80-column wraps.
 
 **Known footgun: the browser can silently revert this file.** The app embeds a
 JS snapshot of a profile's fields when the page renders; re-selecting the
@@ -128,6 +277,49 @@ If the boxes match the tab's own stale baseline, the app treats the run as
 not-reloaded tab → file got overwritten with a 3-fixes-behind version,
 confirmed by matching mtimes). **After every `build_prompt.py` rebuild, do a
 real browser reload (Cmd+R), not just a dropdown re-select, before running.**
+
+**Entry heading is now a locator + a real Marginal Heading block, not a
+fabricated summary.** Section 3 used to require `Page 34 - Entry 1: Manfre,
+Filippa Maria` — a heading the model invented by reformatting names it read
+elsewhere; nothing on the actual page looks like that. Section 2 already
+documented the register's real marginal-heading formula (`[child] filius/filia
+[father] et [mother] [surname]`), so Section 3 was rewritten to actually use
+it: `Page 34 - Entry 1:` is now a pure locator (synthetic — this register has
+no entry numbers of its own; a register that does should transcribe its own
+instead, which is a per-profile decision, not universal), and a new
+`Marginal Heading:` block carries a verbatim transcription of what the scribe
+wrote in the margin, omitted entirely for registers with no separate heading.
+`Latin Transcription:` now holds the body only (from `Ego Sac.os...` onward),
+not the heading text repeated. This also fixed a real information loss: the
+worked examples already documented cases where the heading and body disagree
+(image 194's Collica entry has the names in a different order in each; the
+Collura entry has an illegible name in the body but a legible one in the
+heading) — the old single fabricated heading silently discarded whichever
+version it didn't use. Both now survive, each in its own block, with the
+disagreement flagged on the Notes line per the Section 3 rule.
+
+Rippled to `xls_conversion/ai_parser.py`'s `BATTESIMI_SYSTEM_PROMPT`: its
+child-surname fallback used to say "use a supported surname from the entry
+title or parents" — the entry title no longer carries a name, so this now
+says "Marginal Heading block" instead, preserving the same fallback behavior
+since the model still sees that block in the source text it's extracting
+from (the instruction to "ignore Latin/Italian transcription text" was
+already treated as not applying to this one fallback case, same as before).
+
+**Known gap, not fixed: `baptism-parser.js`'s Child-column surname is now
+broken for this register** (offline parser only — not live, see the pipeline
+section above). Its `parseChild()` got the child's surname from the old
+fabricated heading via a `titleName` parameter; that's now always empty, so
+Child comes back given-names-only (or blank entirely, for the rarer entries
+whose translation has no "was given the name" clause). The fix would be
+parsing the surname out of the Marginal Heading's own Latin formula, but a
+naive "last token after et" heuristic is unsafe: entry 6 in
+`xls_conversion/tests/fixture-expected-format.md` (Collica) has the surname
+trailing the *father* before "et", not the mother after it, unlike entry 1
+(Manfre) where it trails the mother — real structural variation within the
+same register, not a hypothetical edge case. `run_parser_test.py`'s
+`EXPECTED` values were updated to the honest current output rather than left
+silently wrong; see its comment block for the full reasoning.
 
 Editorial rules, each of which someone will be tempted to "improve" — don't:
 
@@ -173,9 +365,10 @@ Editorial rules, each of which someone will be tempted to "improve" — don't:
 ## Where things live
 
 ```
-profiles/chiusa-sclafani-battesimi-v3.json   active prompt (generated — do not hand-edit)
-prompts/chiusa-sclafani/
-  build_prompt.py                            generates the profile; edit this
+profiles/                                    single live location for all profiles (app.py reads only this)
+  chiusa-sclafani-battesimi-v3.json          active prompt (generated — do not hand-edit)
+  sources/chiusa-sclafani/                   build source for the profile above — not itself loaded by the app
+    build_prompt.py                          generates the profile; edit this
   lex.json                                   407 surnames + 320 given names, frequency-tiered
   clean_index.py                             rebuilds the index from the indexer's marked-up xlsx;
                                               also reusable for other marked-up ground-truth files
@@ -259,3 +452,9 @@ than guessing it.
   unexamined phrasing contracts, and neither prompt has been checked for the
   fixes made here (hallucination guard, `filius`/`filia` cross-check,
   godparent-honorific tightening).
+- **Parse the child's surname out of the Marginal Heading block in
+  `baptism-parser.js`.** See "Chiusa Sclafani battesimi — decisions" above —
+  not a simple last-token-after-"et" regex, since the surname's position
+  relative to "et" varies for real reasons within this same register. Not
+  live-critical (offline regression parser only), but the regression suite
+  currently documents the gap rather than testing correct behavior.

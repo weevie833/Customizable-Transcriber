@@ -41,6 +41,21 @@ Hours are Italian hours (ore italiane), counted from sunset, not modern clock ti
 
 `nudius tertius` = the day before yesterday. `hodie` = today. `hac nocte` = last night. `die praeterita` = yesterday. `die 5. praesentis` = the 5th of the current month.
 
+# LATIN NAME DECLENSION
+
+Latin does not mark a word's grammatical role with word order or with a preposition alone, the way English and Italian do. It marks role by changing the word's ending — and personal names decline exactly like any other noun. The same person's name can therefore take more than one written form within a single entry, and that is correct grammar, not a scribal inconsistency, not a misreading, and not something to correct or flag.
+
+The cases you will meet in this register, using `Franciscus` and `Michael` as examples:
+
+- Nominative — the dictionary form, used as a sentence's subject: `Franciscus`, `Michael`.
+- Genitive — possession, "of X": `Francisci`, `Michaelis`. The marginal heading's `filius/filia [father]` construction uses this case: `filia Michaelis` literally means "daughter OF Michael," not "daughter Michaelis."
+- Ablative — origin, "from/by X," the case that follows `ex`: `Francisco`, `Michaele`. The body's `natum/natam ex [father] et [mother]` construction uses this case: `ex ... Michaele` literally means "born FROM Michael."
+- Accusative — the direct object of a verb, occasionally seen after `cui nomen imposui`: `Franciscum`, `Michaelem`. The final `-m` is frequently written as a macron or tilde over the preceding vowel rather than spelled out (`Francisc[ū]`) — this is the same abbreviation convention already noted under Scribal Habits in Section 2, not a different name.
+
+So `Franciscus`, `Francisci`, `Francisco`, and `Franciscum`/`Francisc[ū]` are four grammatical forms of one name, not four people and not four spellings to reconcile. The same holds for `Michael`/`Michaelis`/`Michaele`/`Michaelem`, and for every personal name in this register. Seeing two different case-forms of the same name at two different points in one entry — most often a genitive form in the Marginal Heading and an ablative form in the body, because those two blocks use different grammatical constructions — is expected, not an error.
+
+Transcribe each occurrence exactly as it is inflected on the page; never normalize a genitive or ablative form to the nominative within the Latin transcription itself. That normalization happens only once, in the English translation (see Fidelity Rules below) — the transcription's job is to preserve the case actually written, because the case is itself evidence of how the name functions in that sentence.
+
 # FIDELITY RULES
 
 - Transcribe exactly what is on the page. Preserve archaic and non-standard spelling, inconsistent capitalization, and scribal error. Do not silently correct the scribe.
@@ -301,7 +316,7 @@ For every entry, emit these labeled blocks, in this order, SEPARATED BY BLANK LI
 Rules that follow from how the programs read this:
 
 - `Page <page number> - Entry <n>:` is a locator, not a transcription of anything written on the page. Use the LEFT-page number for left-column entries, the RIGHT-page number for right-column entries — exactly as `Page 34 - `, followed immediately by the entry number: `Page 34 - Entry 1:`. Entries in the same image legitimately carry different page numbers once you cross from the left column to the right column. Number entries sequentially from 1 within each image, independent of the page number — this register has no entry numbers of its own; the number exists only to help a human indexer find the entry on the page. (A register that DOES print or write its own entry numbers should use those instead of counting from 1 — that is a per-register decision, not a universal rule.)
-- `Marginal Heading:` is a verbatim transcription of the heading exactly as the scribe wrote it — the child's name, then the parents, in whatever order and grammatical form appears on the page. Do not normalize its word order to match the body, do not silently correct it to agree with the body, and do not invent one where the page has no separate marginal heading — omit the block instead. If the heading and body disagree (a different name order, a different spelling, a name legible in one but not the other), transcribe each exactly as it appears in its own location and flag the disagreement on the Notes line; do not resolve it by picking one.
+- `Marginal Heading:` is a verbatim transcription of the heading exactly as the scribe wrote it — the child's name, then the parents, in whatever order and grammatical form appears on the page. Do not normalize its word order to match the body, do not silently correct it to agree with the body, and do not invent one where the page has no separate marginal heading — omit the block instead. If the heading and body disagree (a different name order, a different spelling, a name legible in one but not the other), transcribe each exactly as it appears in its own location and flag the disagreement on the Notes line; do not resolve it by picking one. A name appearing in a different grammatical case in the heading than in the body (see Latin Name Declension above — typically genitive in the heading, ablative in the body) is NOT a disagreement; that is ordinary Latin grammar and needs no note.
 - Never break the Latin or the English across multiple lines. Each is a single continuous line. A line break inside the English truncates the spreadsheet parse at that point.
 - `Notes:` must come BEFORE `Latin Transcription:`. Anything placed after the English translation is swallowed into it and corrupts the name parsing.
 
@@ -357,7 +372,7 @@ An extra title left inside the clause does not just read oddly — the parser ha
 
 `English Translation:` renders the meaning of the whole entry — heading and body together — as one continuous translation. Expand abbreviations here (`Sac.os` becomes "priest", `M.ri` becomes "Master") but keep every personal name in its Latin form — `Archangelus`, never "Archangel"; `Gregorius`, never "Gregory". Carry bracketed uncertainty across: a name marked `[illegible]` in the Latin stays `[illegible]` in the English.
 
-`Notes:` carries everything the other blocks cannot: scribal errors, a conflicting date, marginalia, struck-through text, your confidence when a reading is weak, and any disagreement between the Marginal Heading and the body — a different name order, a different spelling, a name legible in one but not the other. Write it as one sentence per point, all on a single line. State confidence explicitly as `Confidence: low` when a reading rests on the lexicon rather than on the letterforms.
+`Notes:` carries everything the other blocks cannot: scribal errors, a conflicting date, marginalia, struck-through text, your confidence when a reading is weak, and any disagreement between the Marginal Heading and the body — a different name order, a different spelling, a name legible in one but not the other. A name that simply appears in a different grammatical case in each block (see Latin Name Declension in Section 1) is not a disagreement and does not belong here. Write it as one sentence per point, all on a single line. State confidence explicitly as `Confidence: low` when a reading rests on the lexicon rather than on the letterforms.
 
 # WORKED EXAMPLES
 

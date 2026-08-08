@@ -11,14 +11,33 @@ http://127.0.0.1:8765
 Launch command:
 
 ```bash
-cd "/Users/stevecovello/Documents/Codex/Transcription Bot" && .venv/bin/python app.py
+cd path/to/Transcription-Bot && .venv/bin/python app.py
 ```
 
-The app uses Gemini to transcribe local archival images from this hardcoded source folder:
+The app uses Gemini to transcribe local archival images from a source folder chosen via
+a native folder-picker dialog (Transcribe and Test Mode pages both have a `Browse…`
+button beside the Source folder display, which reads "No folder selected" until one is
+picked). The picker calls `pick_source_folder_dialog()` in `app.py`, which dispatches by
+`platform.system()` to a native dialog run as a separate OS process — `osascript` on
+macOS, PowerShell's `System.Windows.Forms.FolderBrowserDialog` on Windows, `zenity` on
+Linux (with a clear error if zenity isn't installed) — because there is no browser-side
+way to get an absolute filesystem path for backend `Path` access, so this has to be a
+real native dialog, not an HTML file input. There's also a manual-entry fallback (a text
+field + "Use this path" button next to Browse) for any platform/setup where the native
+dialog isn't available. The chosen path is persisted to `app_settings.json` (gitignored,
+machine-specific) via `save_source_folder()`/`load_source_folder()`, so it survives
+restarts. **There is deliberately no hardcoded personal-path default** — this app is
+shared across users on different machines, so `load_source_folder()` returns `None` until
+someone actually picks a folder, and every run/preflight path refuses to run with a clear
+error ("Choose a source folder before running") rather than silently falling back to
+someone else's path. Every place that used to read the old hardcoded `SOURCE_FOLDER`
+constant now calls `load_source_folder()` fresh, so a folder picked from either page takes
+effect immediately without a server restart.
 
-```text
-/Users/stevecovello/Desktop/MM/Transcription Sources
-```
+The Windows and Linux code paths are implemented per the same pattern as the working
+macOS one but have not been run on an actual Windows or Linux machine — only exercised
+via code review and the macOS path's live behavior. Worth a real test on both before
+distributing to non-Mac users.
 
 It creates timestamped `.docx` output in `outputs/` and also writes an intermediate timestamped `.md` file.
 
@@ -72,7 +91,7 @@ The web UI now has a compact file-type radio selector beside process order:
 - `PNG`: processes `.png`.
 - `PDF`: processes `.pdf`.
 
-The selected file type is passed into `TranscriptionConfig.source_extensions`, so the batch only processes the selected type. A preflight check counts files in the hardcoded source folder before the Gemini key check. If the selected type is not present, the run stops early with a clear message showing available JPEG/PNG/PDF counts. As of this WIP save, the configured source folder contains `JPEG: 8`, `PNG: 0`, `PDF: 0`.
+The selected file type is passed into `TranscriptionConfig.source_extensions`, so the batch only processes the selected type. A preflight check counts files in the currently-picked source folder (see above) before the Gemini key check. If the selected type is not present, the run stops early with a clear message showing available JPEG/PNG/PDF counts.
 
 The web app has compact process-order radio controls:
 
@@ -123,5 +142,5 @@ Possible design:
 Use this prompt to continue:
 
 ```text
-We are continuing work on the local Customizable Transcription Interface app at /Users/stevecovello/Documents/Codex/Transcription Bot. Read HANDOFF.md first. Current state is local WIP/dev only; do not commit or push to GitHub unless explicitly asked. The app uses saved JSON prompt profiles, recursive chronological source scanning from /Users/stevecovello/Desktop/MM/Transcription Sources, JPEG/PNG/PDF file-type radio selection with preflight source-folder checks, model selection, a per-run Gemini API key field, compact oldest/newest process-order radio controls with oldest-to-newest as the default, a Reset button beside Source folder, a Preflight Check plus disabled-by-default `Confirm and run` flow with an always-visible `Confirm settings` box, visually separated profile-editing controls below the run area, automatic status updates, a stop button, incremental `.md` output, and timestamped `.docx` output. Next task: continue UI/testing refinements or add a user-friendly feature to transform raw pasted ground-truth material, such as a long unformatted list of names, into structured profile reference content before saving. Please inspect the current code and continue from the handoff.
+We are continuing work on the local Customizable Transcription Interface app at path/to/Transcription-Bot. Read HANDOFF.md first. Current state is local WIP/dev only; do not commit or push to GitHub unless explicitly asked. The app uses saved JSON prompt profiles, recursive chronological source scanning from a user-selected source folder, JPEG/PNG/PDF file-type radio selection with preflight source-folder checks, model selection, a per-run Gemini API key field, compact oldest/newest process-order radio controls with oldest-to-newest as the default, a Reset button beside Source folder, a Preflight Check plus disabled-by-default `Confirm and run` flow with an always-visible `Confirm settings` box, visually separated profile-editing controls below the run area, automatic status updates, a stop button, incremental `.md` output, and timestamped `.docx` output. Next task: continue UI/testing refinements or add a user-friendly feature to transform raw pasted ground-truth material, such as a long unformatted list of names, into structured profile reference content before saving. Please inspect the current code and continue from the handoff.
 ```

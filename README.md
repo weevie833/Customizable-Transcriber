@@ -4,21 +4,66 @@ Local Gemini transcription app for archival records. It replaces the Colab/Googl
 
 ## Setup
 
+This is a one-time setup. You'll need Terminal — it's already on your Mac, in
+Applications → Utilities → Terminal (or press `⌘ Space`, type "Terminal", press
+Return).
+
+**1. Check that Python 3 is installed.** Paste this into Terminal and press
+Return:
+
 ```bash
-cd "/Users/stevecovello/Documents/Codex/Transcription Bot"
+python3 --version
+```
+
+If you see something like `Python 3.11.5`, you're set — skip to step 2. If you
+get an error, or a prompt asking to install Command Line Tools, install Python
+from [python.org/downloads](https://www.python.org/downloads/) first, then run
+`python3 --version` again to confirm.
+
+**2. Move into the project folder.** In Terminal, type `cd ` (with a trailing
+space, don't press Return yet), then drag the `Transcription Bot` folder from
+Finder into the Terminal window — it fills in the correct path for you — then
+press Return:
+
+```bash
+cd path/to/Transcription-Bot
+```
+
+**3. Create and activate a virtual environment.** This keeps this app's Python
+packages separate from anything else on your Mac. Paste each line below
+separately, pressing Return after each one:
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
 ```
 
-For local private use, you can edit `.env` and add your Gemini API key:
+Your Terminal prompt should now start with `(.venv)` — that confirms it
+worked.
+
+**4. Install the app's dependencies:**
 
 ```bash
-GEMINI_API_KEY=your_api_key_here
+pip install -r requirements.txt
 ```
 
-The web app also includes a `Gemini API key` field. A user can paste their own key there for a run without saving it to the project files, which keeps personal keys out of GitHub commits.
+**5. Set up your Gemini API key.** Pick one of these — you don't need both:
+
+- **Paste it into the browser each run (simplest).** Skip this step. The web
+  app has a `Gemini API key` field you paste into before each run; it's never
+  written to a file.
+- **Save it once** so you don't have to paste it every time:
+
+  ```bash
+  cp .env.example .env
+  ```
+
+  Then open `.env` in any text editor (TextEdit works fine) and replace
+  `your_api_key_here` with your real key:
+
+  ```bash
+  GEMINI_API_KEY=your_api_key_here
+  ```
 
 ## Run The Local Web App
 
@@ -26,10 +71,25 @@ The web app also includes a `Gemini API key` field. A user can paste their own k
 python3 app.py
 ```
 
-Open:
+Leave that Terminal window open — the app keeps running there for as long as
+the window stays open. Then open this address in your web browser:
 
 ```text
 http://127.0.0.1:8765
+```
+
+To stop the app, click back into that Terminal window and press `Control C`.
+
+### Running it again later
+
+You don't need to repeat the setup above every time — that part is one-time.
+Each time you come back to use the app, open Terminal and run just these three
+lines:
+
+```bash
+cd path/to/Transcription-Bot
+source .venv/bin/activate
+python3 app.py
 ```
 
 The home-page header links to the unified XLS Conversion interface:
@@ -44,7 +104,7 @@ key, then run the semantic preflight before conversion. The preflight reviews
 the requested image range for existing English translations without changing
 the source content. Battesimi extraction is currently configured.
 
-The web app uses the hardcoded source folder in `app.py`. Select a saved prompt profile before running; the selected profile controls the role/local context, reference material, and output format.
+Choose the source folder with the `Browse…` button on the Transcribe or Test Mode page (native folder dialog); it's saved locally on your machine, not in the repo, and reused until you change it. Select a saved prompt profile before running; the selected profile controls the role/local context, reference material, and output format.
 
 Current web app behavior:
 

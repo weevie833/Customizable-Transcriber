@@ -4,8 +4,10 @@ import html
 import hashlib
 import io
 import json
+import platform
 import re
 import secrets
+import subprocess
 import threading
 import urllib.parse
 import zipfile
@@ -42,7 +44,7 @@ DEFAULT_PROFILE_ID = "rendi-battesimi"
 PROFILES_DIR = PROJECT_DIR / "profiles"
 PROFILE_SETTINGS_FILE = PROFILES_DIR / "settings.json"
 XLS_CONVERSION_DIR = PROJECT_DIR / "xls_conversion"
-SOURCE_FOLDER = Path("/Users/stevecovello/Desktop/MM/Transcription Sources")
+APP_SETTINGS_FILE = PROJECT_DIR / "app_settings.json"
 DOWNLOAD_HELP_TEXT = "The DOCX file will be downloaded to wherever your browser saves downloaded files. Check your browser's Downloads button for download history."
 FILE_TYPE_LABELS = {
     "jpeg": "JPEG (.jpg, .jpeg)",
@@ -144,6 +146,7 @@ def reset_ui_state() -> None:
         state["role_context"] = ""
         state["reference_context"] = ""
         state["output_format"] = ""
+    clear_source_folder()
 
 
 def reset_test_ui_state() -> None:
@@ -159,6 +162,7 @@ def reset_test_ui_state() -> None:
         test_state["profile_id"] = ""
         test_state["queue"] = []
         test_state["runs"] = {}
+    clear_source_folder()
 
 
 class FormData:
@@ -444,7 +448,9 @@ def file_type_display(file_type: str) -> str:
     return FILE_TYPE_LABELS.get(file_type, file_type.upper())
 
 
-def preflight_source_file_type(source_folder: Path, file_type: str) -> int:
+def preflight_source_file_type(source_folder: Path | None, file_type: str) -> int:
+    if source_folder is None:
+        raise RuntimeError("Choose a source folder before running (use the Browse… button above).")
     counts = count_source_files_by_type(source_folder)
     selected_count = counts.get(file_type, 0)
     if selected_count:
@@ -560,6 +566,158 @@ def save_selected_profile_id(profile_id: str) -> None:
     PROFILE_SETTINGS_FILE.write_text(
         json.dumps({"selected_profile_id": profile_id}, indent=2) + "\n",
         encoding="utf-8",
+    )
+
+
+def load_source_folder() -> Path | None:
+    """The active source folder, picked via the native folder dialog (or typed
+    manually as a fallback) and persisted to APP_SETTINGS_FILE (gitignored —
+    machine-specific). Returns None when nothing has been picked yet or the
+    settings file is missing/corrupt — this app is shared across users on
+    different machines, so there is deliberately no hardcoded personal-path
+    default to fall back to. Callers must treat None as "no folder selected"
+    and refuse to run rather than silently picking a path."""
+    if APP_SETTINGS_FILE.exists():
+        try:
+            data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
+            raw = str(data.get("source_folder", "")).strip()
+            if raw:
+                return Path(raw)
+        except (OSError, json.JSONDecodeError):
+            pass
+    return None
+
+
+def save_source_folder(path: Path) -> None:
+    data: dict[str, object] = {}
+    if APP_SETTINGS_FILE.exists():
+        try:
+            data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+    data["source_folder"] = str(path)
+    APP_SETTINGS_FILE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def clear_source_folder() -> None:
+    """Used by Reset All on both pages — source folder is one shared,
+    persisted setting, not per-page state, so clearing it resets it
+    everywhere, matching "Reset All" rather than just this page's view."""
+    if not APP_SETTINGS_FILE.exists():
+        return
+    try:
+        data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        APP_SETTINGS_FILE.unlink(missing_ok=True)
+        return
+    data.pop("source_folder", None)
+    if data:
+        APP_SETTINGS_FILE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    else:
+        APP_SETTINGS_FILE.unlink(missing_ok=True)
+
+
+def _pick_source_folder_macos() -> str | None:
+    """Native Finder "choose folder" dialog via AppleScript. Runs as an
+    independent OS process (not bound to the calling Python thread's GUI
+    affinity), which matters because ThreadingHTTPServer handles each request
+    on its own thread — a GUI toolkit living inside this process (e.g.
+    tkinter) would need to run on the main thread on macOS; shelling out
+    sidesteps that entirely, and the same reasoning applies to the Windows
+    and Linux variants below."""
+    script = 'POSIX path of (choose folder with prompt "Select the source folder for transcription images")'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"Couldn't open the folder picker: {exc}") from exc
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        if "User canceled" in stderr or "-128" in stderr:
+            return None
+        raise RuntimeError(stderr or "Couldn't open the folder picker.")
+    chosen = result.stdout.strip()
+    return chosen or None
+
+
+def _pick_source_folder_windows() -> str | None:
+    """Native folder-browse dialog via .NET's FolderBrowserDialog, run
+    through PowerShell as a separate process. `-STA` (single-threaded
+    apartment) is required for WinForms dialogs to display correctly."""
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog;"
+        "$dialog.Description = 'Select the source folder for transcription images';"
+        "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dialog.SelectedPath }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"Couldn't open the folder picker: {exc}") from exc
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or "").strip() or "Couldn't open the folder picker.")
+    # Empty stdout means the user closed the dialog without clicking OK — not an error.
+    chosen = result.stdout.strip()
+    return chosen or None
+
+
+def _pick_source_folder_linux() -> str | None:
+    """Native folder dialog via zenity (GNOME/GTK) if it's installed; there is
+    no single cross-desktop-environment API to fall back to on Linux the way
+    osascript/PowerShell provide one on Mac/Windows, so an unavailable zenity
+    surfaces as a clear error pointing at the manual-path fallback rather than
+    a silent failure."""
+    try:
+        result = subprocess.run(
+            [
+                "zenity",
+                "--file-selection",
+                "--directory",
+                "--title=Select the source folder for transcription images",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "No folder-picker dialog is available (zenity is not installed). "
+            "Type the folder path directly in the field below instead."
+        ) from exc
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"Couldn't open the folder picker: {exc}") from exc
+    if result.returncode != 0:
+        return None  # zenity exits 1 on Cancel/Escape
+    chosen = result.stdout.strip()
+    return chosen or None
+
+
+def pick_source_folder_dialog() -> str | None:
+    """Show the platform's native folder-choose dialog and return the chosen
+    absolute path, or None if the user canceled. Raises RuntimeError on any
+    other failure. Dispatches by platform.system() so this works the same way
+    (a real native dialog, not a browser file input — a browser can't hand
+    back an absolute filesystem path for the backend to read from disk) on
+    macOS, Windows, and Linux."""
+    system = platform.system()
+    if system == "Darwin":
+        return _pick_source_folder_macos()
+    if system == "Windows":
+        return _pick_source_folder_windows()
+    if system == "Linux":
+        return _pick_source_folder_linux()
+    raise RuntimeError(
+        f"No folder-picker dialog is available on this platform ({system}). "
+        "Type the folder path directly in the field below instead."
     )
 
 
@@ -876,6 +1034,9 @@ def page() -> str:
             reference_context = active_profile.get("reference_context", "")
             output_format = active_profile.get("output_format", "")
 
+    source_folder = load_source_folder()
+    source_folder_display = html.escape(str(source_folder)) if source_folder else "No folder selected"
+    source_folder_selected = "true" if source_folder else "false"
     disabled = "disabled" if running else ""
     stop_disabled = "" if running else "disabled"
     escaped_log = html.escape(log)
@@ -1098,6 +1259,10 @@ def page() -> str:
 
     function missingRunSettingMessage() {{
       const missing = [];
+      const sourceFolderDisplay = document.getElementById("source-folder-display");
+      if (!sourceFolderDisplay || sourceFolderDisplay.dataset.selected !== "true") {{
+        missing.push("choose a source folder");
+      }}
       if (!document.querySelector('[name="gemini_api_key"]').value.trim()) {{
         missing.push("paste a Gemini API key");
       }}
@@ -1106,7 +1271,9 @@ def page() -> str:
       }}
       if (!missing.length) return "";
       if (missing.length === 1) return `Before running transcription, please ${{missing[0]}}.`;
-      return "Before running transcription, please paste a Gemini API key and select a prompt profile.";
+      const last = missing[missing.length - 1];
+      const rest = missing.slice(0, -1).join(", ");
+      return `Before running transcription, please ${{rest}} and ${{last}}.`;
     }}
 
     function updateRunButton(running) {{
@@ -1115,10 +1282,14 @@ def page() -> str:
       const confirmButton = document.getElementById("confirm-run-button");
       const profileSelected = Boolean(document.querySelector('[name="profile_id"]').value);
       const apiKeyEntered = Boolean(document.querySelector('[name="gemini_api_key"]').value.trim());
+      const sourceFolderDisplay = document.getElementById("source-folder-display");
+      const sourceFolderSelected = Boolean(sourceFolderDisplay && sourceFolderDisplay.dataset.selected === "true");
       runButton.disabled = Boolean(running);
       if (confirmButton && running) confirmButton.disabled = true;
       if (running) {{
         runButton.title = "A transcription process is already running.";
+      }} else if (!sourceFolderSelected) {{
+        runButton.title = "Choose a source folder before running transcription.";
       }} else if (!apiKeyEntered) {{
         runButton.title = "Paste your Gemini API key before running transcription.";
       }} else if (!profileSelected) {{
@@ -1137,6 +1308,58 @@ def page() -> str:
       if (confirmButton) confirmButton.disabled = true;
       if (runButton) runButton.disabled = false;
       if (settings) settings.hidden = true;
+    }}
+
+    function applySourceFolder(path) {{
+      const display = document.getElementById("source-folder-display");
+      if (!display) return;
+      display.textContent = path;
+      display.dataset.selected = "true";
+      resetPreflight();
+    }}
+
+    async function pickSourceFolder() {{
+      const button = document.getElementById("browse-source-button");
+      if (!button) return;
+      button.disabled = true;
+      try {{
+        const response = await fetch("/api/pick-source-folder", {{ method: "POST" }});
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || "Couldn't open the folder picker.");
+        if (data.canceled) return;
+        applySourceFolder(data.source_folder);
+      }} catch (error) {{
+        showSettingsAlert(error.message || "Couldn't open the folder picker.");
+      }} finally {{
+        button.disabled = false;
+      }}
+    }}
+
+    async function setSourceFolderManually() {{
+      const button = document.getElementById("source-folder-manual-button");
+      const input = document.getElementById("source-folder-manual-input");
+      if (!button || !input) return;
+      const path = input.value.trim();
+      if (!path) {{
+        showSettingsAlert("Paste a folder path first.");
+        return;
+      }}
+      button.disabled = true;
+      try {{
+        const response = await fetch("/api/set-source-folder", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ path }}),
+        }});
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || "Couldn't use that path.");
+        applySourceFolder(data.source_folder);
+        input.value = "";
+      }} catch (error) {{
+        showSettingsAlert(error.message || "Couldn't use that path.");
+      }} finally {{
+        button.disabled = false;
+      }}
     }}
 
     function selectedRunSettings() {{
@@ -1332,6 +1555,14 @@ def page() -> str:
           hideSettingsAlert();
         }});
       }}
+      const browseSourceButton = document.getElementById("browse-source-button");
+      if (browseSourceButton) {{
+        browseSourceButton.addEventListener("click", pickSourceFolder);
+      }}
+      const sourceFolderManualButton = document.getElementById("source-folder-manual-button");
+      if (sourceFolderManualButton) {{
+        sourceFolderManualButton.addEventListener("click", setSourceFolderManually);
+      }}
       const runForm = document.querySelector('form[action="/run"]');
       if (runForm) {{
         runForm.addEventListener("submit", handleProfileEditsBeforeSubmit);
@@ -1460,14 +1691,35 @@ def page() -> str:
       background: #fff;
       color: #1f2933;
     }}
-    .path-control {{
+    .path-control-row {{
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 6px;
+    }}
+    .path-control-row button {{
+      margin-top: 0;
+      white-space: nowrap;
+      background: #53616f;
+    }}
+    .path-control-row button.button-tiny {{
+      background: #fff;
+    }}
+    .path-control-row .path-display {{
+      margin-top: 0;
+    }}
+    .path-manual-row {{
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 10px;
-      align-items: end;
+      align-items: center;
+      margin-top: 8px;
     }}
-    .path-control button {{
-      margin-top: 0;
+    .path-manual-row[hidden] {{
+      display: none;
+    }}
+    .path-manual-row button {{
       white-space: nowrap;
       background: #53616f;
     }}
@@ -1478,6 +1730,10 @@ def page() -> str:
       color: #4b5563;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 13px;
+    }}
+    .path-display[data-selected="false"] {{
+      color: #5f6b76;
+      font-style: italic;
     }}
     textarea {{
       min-height: 140px;
@@ -1774,6 +2030,19 @@ def page() -> str:
       background: #8d99a6;
       cursor: not-allowed;
     }}
+    .button-tiny {{
+      margin-top: 10px;
+      padding: 5px 10px;
+      border: 1px solid #255c99;
+      background: #fff;
+      color: #255c99;
+      font-size: 12px;
+      font-weight: 650;
+    }}
+    .button-tiny:not(:disabled):hover {{
+      background: #eef4fb;
+      filter: none;
+    }}
     pre {{
       min-height: 150px;
       max-height: 200px;
@@ -1808,7 +2077,7 @@ def page() -> str:
         padding-top: 20px;
       }}
       .row, .run-options, .profile-select-row, .profile-save-row {{ grid-template-columns: 1fr; }}
-      .path-control {{ grid-template-columns: 1fr; }}
+      .path-control-row, .path-manual-row {{ grid-template-columns: 1fr; }}
       .run-actions {{ grid-template-columns: 1fr; }}
       .site-header {{ align-items: stretch; }}
       .run-button-stack button {{ width: 100%; }}
@@ -1842,11 +2111,18 @@ def page() -> str:
   </header>
   <form method="post" action="/run">
     <div class="path-control">
-      <label>Source folder
-        <div class="path-display">{html.escape(str(SOURCE_FOLDER))}</div>
-      </label>
-      <button id="reset-button" type="submit" formaction="/reset" formmethod="post" {disabled}>Reset</button>
+      <label>Source folder</label>
+      <div class="path-control-row">
+        <button id="browse-source-button" type="button" class="button-tiny">Browse&hellip;</button>
+        <div class="path-display" id="source-folder-display" data-selected="{source_folder_selected}">{source_folder_display}</div>
+        <button id="reset-button" type="submit" formaction="/reset" formmethod="post" {disabled}>Reset All</button>
+      </div>
     </div>
+    <div class="path-manual-row" hidden>
+      <input type="text" id="source-folder-manual-input" placeholder="Or paste an absolute folder path">
+      <button id="source-folder-manual-button" type="button" class="button-secondary">Use this path</button>
+    </div>
+    <p class="hint" hidden>Browse opens a native folder dialog.</p>
     <div class="row">
       <label>Gemini model
         <select name="model">
@@ -1958,6 +2234,9 @@ def test_mode_page() -> str:
         queue = [dict(batch) for batch in test_state["queue"]]
         runs = {run_id: dict(run) for run_id, run in test_state["runs"].items()}
 
+    source_folder = load_source_folder()
+    source_folder_display = html.escape(str(source_folder)) if source_folder else "No folder selected"
+    source_folder_selected = "true" if source_folder else "false"
     disabled = "disabled" if running else ""
     stop_disabled = "" if running else "disabled"
     escaped_log = html.escape(log)
@@ -2122,6 +2401,10 @@ def test_mode_page() -> str:
 
     function missingRunSettingMessage() {{
       const missing = [];
+      const sourceFolderDisplay = document.getElementById("source-folder-display");
+      if (!sourceFolderDisplay || sourceFolderDisplay.dataset.selected !== "true") {{
+        missing.push("choose a source folder");
+      }}
       if (!document.querySelector('[name="gemini_api_key"]').value.trim()) {{
         missing.push("paste a Gemini API key");
       }}
@@ -2130,7 +2413,9 @@ def test_mode_page() -> str:
       }}
       if (!missing.length) return "";
       if (missing.length === 1) return `Before running transcription, please ${{missing[0]}}.`;
-      return "Before running transcription, please paste a Gemini API key and select a prompt profile.";
+      const last = missing[missing.length - 1];
+      const rest = missing.slice(0, -1).join(", ");
+      return `Before running transcription, please ${{rest}} and ${{last}}.`;
     }}
 
     function updateRunButton(running) {{
@@ -2161,6 +2446,58 @@ def test_mode_page() -> str:
       if (confirmButton) confirmButton.disabled = true;
       if (runButton) runButton.disabled = false;
       if (settings) settings.hidden = true;
+    }}
+
+    function applySourceFolder(path) {{
+      const display = document.getElementById("source-folder-display");
+      if (!display) return;
+      display.textContent = path;
+      display.dataset.selected = "true";
+      resetPreflight();
+    }}
+
+    async function pickSourceFolder() {{
+      const button = document.getElementById("browse-source-button");
+      if (!button) return;
+      button.disabled = true;
+      try {{
+        const response = await fetch("/api/pick-source-folder", {{ method: "POST" }});
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || "Couldn't open the folder picker.");
+        if (data.canceled) return;
+        applySourceFolder(data.source_folder);
+      }} catch (error) {{
+        showSettingsAlert(error.message || "Couldn't open the folder picker.");
+      }} finally {{
+        button.disabled = false;
+      }}
+    }}
+
+    async function setSourceFolderManually() {{
+      const button = document.getElementById("source-folder-manual-button");
+      const input = document.getElementById("source-folder-manual-input");
+      if (!button || !input) return;
+      const path = input.value.trim();
+      if (!path) {{
+        showSettingsAlert("Paste a folder path first.");
+        return;
+      }}
+      button.disabled = true;
+      try {{
+        const response = await fetch("/api/set-source-folder", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ path }}),
+        }});
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || "Couldn't use that path.");
+        applySourceFolder(data.source_folder);
+        input.value = "";
+      }} catch (error) {{
+        showSettingsAlert(error.message || "Couldn't use that path.");
+      }} finally {{
+        button.disabled = false;
+      }}
     }}
 
     function selectedRunSettings() {{
@@ -2484,6 +2821,14 @@ def test_mode_page() -> str:
           hideSettingsAlert();
         }});
       }}
+      const browseSourceButton = document.getElementById("browse-source-button");
+      if (browseSourceButton) {{
+        browseSourceButton.addEventListener("click", pickSourceFolder);
+      }}
+      const sourceFolderManualButton = document.getElementById("source-folder-manual-button");
+      if (sourceFolderManualButton) {{
+        sourceFolderManualButton.addEventListener("click", setSourceFolderManually);
+      }}
       const addExtraFileButton = document.getElementById("add-extra-file-button");
       if (addExtraFileButton) {{
         addExtraFileButton.addEventListener("click", addExtraFileRow);
@@ -2639,14 +2984,35 @@ def test_mode_page() -> str:
     input[type="file"]::file-selector-button:hover {{
       background: #e9eaec;
     }}
-    .path-control {{
+    .path-control-row {{
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 6px;
+    }}
+    .path-control-row button {{
+      margin-top: 0;
+      white-space: nowrap;
+      background: #53616f;
+    }}
+    .path-control-row button.button-tiny {{
+      background: #fff;
+    }}
+    .path-control-row .path-display {{
+      margin-top: 0;
+    }}
+    .path-manual-row {{
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 10px;
-      align-items: end;
+      align-items: center;
+      margin-top: 8px;
     }}
-    .path-control button {{
-      margin-top: 0;
+    .path-manual-row[hidden] {{
+      display: none;
+    }}
+    .path-manual-row button {{
       white-space: nowrap;
       background: #53616f;
     }}
@@ -2657,6 +3023,10 @@ def test_mode_page() -> str:
       color: #4b5563;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 13px;
+    }}
+    .path-display[data-selected="false"] {{
+      color: #5f6b76;
+      font-style: italic;
     }}
     textarea {{
       min-height: 140px;
@@ -3066,7 +3436,7 @@ def test_mode_page() -> str:
         padding-top: 20px;
       }}
       .row, .run-options, .profile-select-row, .profile-save-row, .run-row, .extra-file-row {{ grid-template-columns: 1fr; }}
-      .path-control {{ grid-template-columns: 1fr; }}
+      .path-control-row, .path-manual-row {{ grid-template-columns: 1fr; }}
       .run-actions {{ grid-template-columns: 1fr; }}
       .site-header {{ align-items: stretch; }}
       .run-button-stack button {{ width: 100%; }}
@@ -3101,11 +3471,18 @@ def test_mode_page() -> str:
   <p class="hint">Runs the same source images and prompt profile through different Gemini models to compare performance.</p>
   <form method="post" action="/test-mode/run">
     <div class="path-control">
-      <label>Source folder
-        <div class="path-display">{html.escape(str(SOURCE_FOLDER))}</div>
-      </label>
-      <button id="reset-button" type="submit" formaction="/test-mode/reset" formmethod="post" {disabled}>Reset</button>
+      <label>Source folder</label>
+      <div class="path-control-row">
+        <button id="browse-source-button" type="button" class="button-tiny">Browse&hellip;</button>
+        <div class="path-display" id="source-folder-display" data-selected="{source_folder_selected}">{source_folder_display}</div>
+        <button id="reset-button" type="submit" formaction="/test-mode/reset" formmethod="post" {disabled}>Reset All</button>
+      </div>
     </div>
+    <div class="path-manual-row" hidden>
+      <input type="text" id="source-folder-manual-input" placeholder="Or paste an absolute folder path">
+      <button id="source-folder-manual-button" type="button" class="button-secondary">Use this path</button>
+    </div>
+    <p class="hint" hidden>Browse opens a native folder dialog.</p>
     <div class="row">
       <label>Model A
         <select name="model_a">
@@ -4094,7 +4471,7 @@ def build_compare_report_docx(results: list[Mapping[str, object]], corrected_lab
 
 def run_job(form: FormData, output_file: Path) -> None:
     try:
-        image_folder = SOURCE_FOLDER
+        image_folder = load_source_folder()
         file_type = selected_file_type(form)
         markdown_file = PROJECT_DIR / "outputs" / f"{output_file.stem}.md"
         delay = 2.0
@@ -4172,7 +4549,7 @@ def run_test_job(
     produced, no matter how many pairs are queued.
     """
     try:
-        image_folder = SOURCE_FOLDER
+        image_folder = load_source_folder()
         file_type = selected_file_type(form)
         profile = resolve_profile_for_run(form)
         system_prompt = build_system_prompt(tool="generic", profile=profile)
@@ -4316,6 +4693,14 @@ class Handler(BaseHTTPRequestHandler):
             self.compare_report()
             return
 
+        if urllib.parse.urlparse(self.path).path == "/api/pick-source-folder":
+            self.pick_source_folder()
+            return
+
+        if urllib.parse.urlparse(self.path).path == "/api/set-source-folder":
+            self.set_source_folder()
+            return
+
         if self.path == "/stop":
             self.stop_job()
             return
@@ -4376,7 +4761,7 @@ class Handler(BaseHTTPRequestHandler):
             if not api_key_value:
                 raise RuntimeError("Paste a Gemini API key before running transcription.")
             selected_profile_id(form)
-            preflight_source_file_type(SOURCE_FOLDER, selected_file_type(form))
+            preflight_source_file_type(load_source_folder(), selected_file_type(form))
         except Exception as exc:
             with lock:
                 state["summary"] = f"Fatal error: {exc}"
@@ -4747,7 +5132,7 @@ class Handler(BaseHTTPRequestHandler):
             if not api_key_value:
                 raise RuntimeError("Paste a Gemini API key before running transcription.")
             file_type = selected_file_type(form)
-            preflight_source_file_type(SOURCE_FOLDER, file_type)
+            preflight_source_file_type(load_source_folder(), file_type)
             batches = resolve_run_batches(form)
             profile = resolve_profile_for_run(form)
             profile_id = profile["id"]
@@ -4942,6 +5327,37 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
+
+    def pick_source_folder(self) -> None:
+        try:
+            chosen = pick_source_folder_dialog()
+            if chosen is None:
+                self.respond_json({"canceled": True})
+                return
+            path = Path(chosen)
+            if not path.is_dir():
+                raise RuntimeError(f"{path} is not a folder.")
+            save_source_folder(path)
+            self.respond_json({"source_folder": str(path)})
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
+
+    def set_source_folder(self) -> None:
+        """Manual-entry fallback for platforms/setups where the native folder
+        dialog isn't available (e.g. Linux without zenity), or for a user who
+        just wants to type/paste a path directly."""
+        try:
+            payload = parse_json_body(self)
+            raw = str(payload.get("path") or "").strip()
+            if not raw:
+                raise RuntimeError("Enter a folder path.")
+            path = Path(raw).expanduser()
+            if not path.is_dir():
+                raise RuntimeError(f"{path} is not a folder, or doesn't exist on this machine.")
+            save_source_folder(path)
+            self.respond_json({"source_folder": str(path)})
         except Exception as exc:
             self.respond_json({"error": str(exc)}, status=400)
 

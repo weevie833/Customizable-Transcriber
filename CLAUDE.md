@@ -4,7 +4,7 @@ Local Python web app that sends archival page images to Gemini, writes a plain-t
 transcription, and exports `.docx`. A separate browser tool then converts that text
 into a spreadsheet for a human indexer.
 
-Launch: `cd "/Users/stevecovello/Documents/Codex/Transcription Bot" && .venv/bin/python app.py`
+Launch: `cd path/to/Transcription-Bot && .venv/bin/python app.py`
 → http://127.0.0.1:8765
 
 See `HANDOFF.md` for app/UI state. **Do not commit or push without being asked.**
@@ -361,6 +361,25 @@ Editorial rules, each of which someone will be tempted to "improve" — don't:
 - **Godparent clause honorifics: Don/Master only, everything else to Notes,
   never both.** "Doctor" leaking into a clause caused the stray-title parser
   bug above; the prompt now gives an explicit wrong/right example.
+- **Latin declension means the same name legitimately appears in more than
+  one written form within a single entry — this is not a heading/body
+  disagreement.** Flagged after image 194 Entry 3 showed both `Michaelis`
+  (genitive, in the Marginal Heading's `filia Michaelis` = "daughter OF
+  Michael") and `Michaele` (ablative, in the body's `ex ... Michaele` = "born
+  FROM Michael") for the same person. Section 1 now has a dedicated `# LATIN
+  NAME DECLENSION` block explaining nominative/genitive/ablative/accusative
+  with worked examples (`Franciscus`/`Francisci`/`Francisco`/`Franciscum`,
+  the last commonly abbreviated to a macron over the vowel), and both the
+  Marginal Heading disagreement rule and the `Notes:` block description in
+  Section 3 were amended to explicitly exclude a pure case-ending difference
+  from what counts as a disagreement to flag. Before this, the prompt's own
+  disagreement rule ("a different name order, a different spelling...") was
+  ambiguous about whether `Michaelis` vs `Michaele` counted — plausibly
+  either prompting an unnecessary Notes flag or, worse, tempting the model to
+  "resolve" it by silently normalizing one occurrence to match the other,
+  which the fidelity rules elsewhere explicitly forbid. Not yet re-tested
+  against a real image since this was a same-session fix, unlike the other
+  entries in this list.
 
 ## Where things live
 
@@ -389,10 +408,10 @@ Re-run it if a newer marked-up index arrives, then rebuild the prompt.
 
 ## v3 real-image test results (images 193–195, Gemini 3.1 Pro Preview)
 
-Ground truth: `/Users/stevecovello/Desktop/Chiusa Sclafani Battesimi/Chiusa
-Sclafani Transcription V2 193-195 Corrected.xlsx` (and `UnCorrected.xlsx`),
-resolved via `clean_index.py` with `SPONSOR_COL = "R"`. 23 entries, images
-193/194/195, dated 1753 (with one disputed 1754 — see below).
+Ground truth: `Chiusa Sclafani Transcription V2 193-195 Corrected.xlsx` (and
+`UnCorrected.xlsx`), kept locally outside the repo, resolved via
+`clean_index.py` with `SPONSOR_COL = "R"`. 23 entries, images 193/194/195,
+dated 1753 (with one disputed 1754 — see below).
 
 **Page number capture: confirmed working end-to-end.** All 23 entries got the
 correct `Page #` (193→34/35, 194→36/37, 195→38/39) in the real `ai_parser.py`

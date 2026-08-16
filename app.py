@@ -52,10 +52,8 @@ FILE_TYPE_LABELS = {
     "pdf": "PDF (.pdf)",
 }
 MODELS = {
-    "gemini-3.6-flash": "Gemini 3.6 Flash - latest balanced speed / intelligence",
-    "gemini-3.5-flash": "Gemini 3.5 Flash - faster / lower cost",
-    "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite - fastest / lowest cost",
-    "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite - frontier-class, low cost",
+    "gemini-3.7-flash": "Gemini 3.7 Flash - latest balanced speed / intelligence",
+    "gemini-3.6-flash": "Gemini 3.6 Flash - previous balanced speed / intelligence",
     "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - higher accuracy",
     "gemini-2.5-pro": "Gemini 2.5 Pro - stable, high-accuracy baseline",
 }
@@ -2352,7 +2350,7 @@ def test_mode_page() -> str:
     function showCompletionAlert() {{
       if (completionAlertShown) return;
       completionAlertShown = true;
-      showSettingsAlert("Both runs completed. Scroll down and review the Progress Console and download each model's document.");
+      showSettingsAlert("Batch run completed. Scroll down and review the Progress Console and download each model's document.");
     }}
 
     function playAlertSound() {{
@@ -2819,6 +2817,7 @@ def test_mode_page() -> str:
         resetButton.addEventListener("click", () => {{
           resetPreflight();
           hideSettingsAlert();
+          refreshStatus();
         }});
       }}
       const browseSourceButton = document.getElementById("browse-source-button");
@@ -3475,7 +3474,7 @@ def test_mode_page() -> str:
       <div class="path-control-row">
         <button id="browse-source-button" type="button" class="button-tiny">Browse&hellip;</button>
         <div class="path-display" id="source-folder-display" data-selected="{source_folder_selected}">{source_folder_display}</div>
-        <button id="reset-button" type="submit" formaction="/test-mode/reset" formmethod="post" {disabled}>Reset All</button>
+        <button id="reset-button" type="button">Reset All</button>
       </div>
     </div>
     <div class="path-manual-row" hidden>

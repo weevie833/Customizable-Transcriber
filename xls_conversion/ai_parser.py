@@ -285,9 +285,8 @@ def call_gemini_json(
         "system_instruction": system_prompt,
         "response_mime_type": "application/json",
         "max_output_tokens": 8192,
+        "temperature": 0,
     }
-    if model not in {"gemini-3.6-flash", "gemini-3.5-flash-lite"}:
-        config_options["temperature"] = 0
     response = client.models.generate_content(
         model=model,
         contents=user_message,

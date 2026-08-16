@@ -359,7 +359,7 @@
     sourceFile.value = "";
     document.querySelector('[name="recordType"][value="battesimi"]').checked = true;
     imageRange.value = "";
-    geminiModel.value = "gemini-3.5-flash-lite";
+    geminiModel.value = "gemini-3.6-flash";
     geminiApiKey.value = "";
     clearSource();
     invalidatePreflight();

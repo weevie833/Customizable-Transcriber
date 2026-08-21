@@ -4404,7 +4404,7 @@ def prompt_builder_page(
       margin-top: 10px;
     }}
     .pb-marginal-formula {{
-      margin: 4px 0 10px 23px;
+      margin: 4px 0 10px 0;
     }}
     .pb-row {{
       display: grid;

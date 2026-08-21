@@ -24,13 +24,13 @@ See `HANDOFF.md` for app/UI state. **Do not commit or push without being asked.*
    - **`xls_conversion/ai_parser.py` is what the app actually runs.** The
      `/xls-conversion` page's `app.js` calls `/api/xls-conversion/parse` and
      `/preflight`, which call `parse_records_with_ai`/`preflight_records_with_ai`
-     in this file. It makes its own Gemini call to turn the transcription text
-     into the full official template schema (`Page #`, `Image #`, split
-     Year/Month/Day ×2, Given/Last Name ×3, Gender, Sponsor(s), Notes — matching
-     `Church Baptism Record Index - Template.xlsx`). Its extraction is semantic,
-     not regex: the system prompt describes each field in natural language and
-     Gemini fills it in, which is more tolerant of phrasing drift than a regex
-     parser but also non-deterministic and unauditable line-by-line.
+     in this file. It makes its own AI call (Gemini or Claude — see the model
+     list) to turn the transcription text into the full official template
+     schema for whichever of the 6 record types is selected — see "XLS
+     Conversion record types" below. Its extraction is semantic, not regex:
+     the system prompt describes each field in natural language and the
+     model fills it in, which is more tolerant of phrasing drift than a
+     regex parser but also non-deterministic and unauditable line-by-line.
    - **`xls_conversion/baptism-parser.js` is not loaded anywhere in the live
      UI** — `index.html` only loads `app.js`. It's a deterministic regex parser
      against the exact English phrasings below, reachable today only through
@@ -43,45 +43,182 @@ See `HANDOFF.md` for app/UI state. **Do not commit or push without being asked.*
      fix changed what the live tool does; it didn't. `matrimony-parser.js` and
      `morti-parser.js` are the same kind of orphaned-but-reference-worthy code.
 
+## XLS Conversion record types (`xls_conversion/ai_parser.py`)
+
+All 6 record types the app supports are live: Church Battesimi, Church
+Matrimoni, Church Morti, Civil Birth, Civil Marriage, Civil Death. Each maps
+1:1 to one of the real templates the user supplied (`~/Desktop/Claude-Codex
+Projects/Customizable Transcription Bot/Index templates/*.xlsx`) —
+`RECORD_TYPES: dict[str, RecordTypeConfig]` is keyed by the same `record_type`
+string the frontend's `#recordType` dropdown sends (`battesimi`, `matrimoni`,
+`morti`, `civil_birth`, `civil_marriage`, `civil_death`). Each
+`RecordTypeConfig` bundles: the exact template's group/column header rows and
+field-key list (verified byte-for-byte against the real templates when
+built), its own system prompt, which fields (if any) get Male/Female
+normalization, which columns get numeric/zero-padded XLSX formatting, and
+column widths.
+
+battesimi was the only type implemented before this; it keeps its original
+`BATTESIMI_SYSTEM_PROMPT` completely untouched (not routed through the
+shared rules block below) to avoid any risk of regressing its already-tuned
+output, and keeps its own hand-tuned XLSX column widths rather than the
+generic ones the other 5 use.
+
+The 5 new types share one `GENERAL_EXTRACTION_RULES` block (uncertainty →
+`""`, extract from the English translation not the source language, don't
+anglicize/normalize names, split given name from surname keeping Italian
+prefixes with the surname, `image_link` always `""`, same-day-language date
+inheritance) interpolated into each type's own prompt, which then adds only
+its own FIELDS list and type-specific rules.
+
+Two schema differences that drive real code branches, not just different
+field names:
+- **Civil records have no Image # output column** (only `Act #` — civil
+  registry acts don't carry a separate photographed-page number the way
+  church register pages do). The parser still needs an image number
+  internally for image-block splitting and carry-forward context, so
+  `normalize_rows()` always stashes it on a `_image_number` key that's
+  stripped back out before rows are returned to the caller — `_image_number`
+  is never one of a `RecordTypeConfig.fields`, so it never leaks into a CSV/
+  XLSX column.
+- **`remove_parent_marital_details()` stays battesimi-only**, wired via
+  `RecordTypeConfig.post_process_fields`. It exists because battesimi's
+  Father/Mother "Other Information" is an open bucket field prone to
+  leaking marital-status text that belongs elsewhere; none of the other 5
+  templates have an equivalent open bucket field (civil records use
+  structured Age/Occupation columns instead), so there's nothing to leak.
+
+`xls_conversion/spreadsheet_export.py`'s `rows_to_xlsx()` used to hardcode
+battesimi's numeric columns, its zero-padded Image # column, and its 20
+exact column widths as module-level constants. These are now parameters
+(`numeric_columns`, `padded_column`, `column_widths`), defaulting to
+battesimi's original values so its output is unaffected; the other 5 types
+pass their own. The 5 new types don't get battesimi's hand-tuned widths —
+`_generic_column_widths()` applies a simple rule instead (narrow for the
+locator column(s), a uniform width for everything else, wide for the
+trailing Notes column) since hand-tuning 4 more column-width tables wasn't
+worth it for a cosmetic concern Excel's own auto-fit solves in two clicks.
+
+Live-AI extraction quality for the 5 new types hasn't been tested against a
+real transcription the way battesimi's has been (see the v3 test-results
+section below) — only verified structurally (config schemas match the real
+templates byte-for-byte, exports round-trip through openpyxl correctly, and
+a real API call reaches the provider and gets a real auth response rather
+than erroring inside this app's own code). Worth a real test pass with
+actual transcribed civil/matrimoni/morti material before relying on it.
+
 ## Prompt Builder page (`/prompt-builder`)
 
-Guided profile-creation page, added because writing a strong three-part system
-prompt from scratch is a different skill than knowing what a project needs.
-`prompt_builder_page()` in `app.py` (near `test_mode_page()`). Pre-populates the
-same three fields every profile uses (`role_context`, `reference_context`,
-`output_format`) from `PROMPT_BUILDER_TEMPLATE_ID = "chiusa-sclafani-battesimi-v3"`
-— loaded live via `load_profile()`, not a hardcoded copy, so it stays in sync if
-that profile is ever rebuilt — but the UI only ever calls it "Template", never
-by name, since it's meant to generalize to any register type. Each of the three
-fields sits in its own collapsible `<details>` with a fixed (non-editable)
-caption above it saying what's project-specific to replace and what structural
-scaffolding to keep; captions live in `PROMPT_BUILDER_SECTION_HELP`.
+**Rebuilt as a guided questionnaire** — the target user has no prompt-
+engineering skill, so the page no longer asks them to edit raw prompt text at
+all (the old version pre-loaded Chiusa Sclafani v3's actual text into three
+textareas with "replace this, keep that" captions; that still assumed someone
+could write a strong system prompt by hand). Now it's presets and short text
+fields — selects, checkboxes, small inputs — whose answers get assembled
+client-side into the same three fields every profile always used
+(`role_context`/`reference_context`/`output_format`). The backend contract
+never changed: `save_prompt_builder_profile()` → `save_custom_profile()` still
+just takes three plain strings and writes a profile JSON, exactly like every
+profile before this rework, including Chiusa Sclafani v3 itself.
 
-Saving posts to `/prompt-builder/save-profile` (`Handler.save_prompt_builder_profile`),
-which just calls the existing `save_custom_profile()` — always creates a new
-profile (auto-suffixed `-2`/`-3` on a name collision), never edits the template
-or an existing profile in place. Editing an existing saved profile still happens
-on the Transcribe page, which already supports that; Prompt Builder is
-deliberately a creation tool, not a full profile manager, and doesn't support
-delete either.
+**Record type gates everything.** A select at the top of Section 1 covers all
+6 record types the app now supports (matching the XLS Conversion dropdown
+exactly: Church Battesimi/Matrimoni/Morti, Civil Birth/Marriage/Death).
+Type-specific field groups for Sections 2 and 3 (entry-formula sub-fields,
+role-clause vocabulary, required-phrasing suggestions) are pre-rendered for
+all 6 types in the HTML (`PROMPT_BUILDER_RECORD_TYPES` dict in `app.py`,
+generated via `pb_section2_type_group_html()`/`pb_section3_type_group_html()`)
+and simply shown/hidden by `static/prompt-builder.js` based on the selected
+type — deliberately static markup + JS visibility toggling rather than
+dynamically building DOM, matching how the rest of the app favors static
+HTML over templating. Assembly only ever reads fields inside the *currently
+selected* type's group (fields are named `<type>_formula_body`,
+`<type>_phrasing_family`, etc.), so switching record type can't leak a
+hidden type's stale answers into the generated prompt.
 
-The page's "Full prompt preview" panel mirrors `build_system_prompt()` /
-`neutral_system_scaffold()` client-side in JS (`pbAssembleFullPrompt`), because
-the real assembled prompt is NOT just the three fields concatenated — it's
-wrapped with fixed headers and 9 hardcoded "CORE TRANSCRIPTION RULES" bullets
-that get added regardless of profile content. If those Python functions change,
-the JS mirror needs updating to match or the preview will lie about what's
-actually sent to Gemini. Verified byte-for-byte identical against a real
-`build_system_prompt()` call. (An earlier version of this check found 609
-literal `\r\n` escape sequences baked into `chiusa-sclafani-battesimi-v3.json`'s
-string fields — invisible to a raw-byte scan of the file since they were
-JSON-escaped text, not actual CR bytes, but `json.loads` decodes escapes, so
-they became real CRLF characters once loaded and made the live preview ~600
-characters shorter than what `build_system_prompt()` actually assembled.
-Fixed by rebuilding the profile from source — `build_prompt.py`'s literal
-strings only ever use `\n` — rather than hand-patching the JSON. If a profile
-file's assembled-prompt length ever looks off again, check for the same
-JSON-escaped-CRLF pattern before assuming a logic bug.)
+**The assembly logic lives in `static/prompt-builder.js`, not inline in
+`prompt_builder_page()`'s f-string** — the one deliberate precedent-deviation
+in this rework. Every other page's script is inlined; this one is comparable
+in size to `build_prompt.py` and is pure client logic with no Python
+templating need, so it goes through the `/static/` route already built for
+`static/i18n.js`. `prompt_builder_page()` only embeds a small
+`window.PB_CORE_RULES` JSON blob (same `json.dumps(...).replace("</", "<\\/")`
+pattern used for `profiles` elsewhere); the small `RECORD_TYPES` noun/label
+metadata the JS itself needs for boilerplate substitution ("baptism" vs
+"marriage" in a sentence) is hand-authored directly in the JS file, not piped
+through from Python — it's static reference data that never varies per
+request, so there was no reason to templatize it.
+
+Each of the three collapsible `<details class="pb-section">` sections (same
+collapsible shell as before, "Expand all"/"Collapse all" toolbar intact) now
+shows the questionnaire followed by a **read-only** generated-text preview
+scoped to that section (`#pb-role-preview`/`#pb-reference-preview`/
+`#pb-format-preview`) instead of an editable textarea. This sidesteps a real
+design problem: if the preview were editable, a hand-edit and a later
+questionnaire-field change would fight over which one wins. Power users who
+need surgical control over exact wording after creating a profile still have
+it — that's what the Transcribe page's existing free-text profile editor is
+for, unchanged by this rework. Three `<input type="hidden">` fields
+(`role_context`/`reference_context`/`output_format`) carry the assembled text
+to the existing save endpoint on submit.
+
+**Worked examples are required, minimum 1** (`#pb-example-rows`, a repeatable
+group of source/transcription/translation text, "Add another example" button)
+— the Save button is disabled client-side until at least one is filled in.
+This is a deliberate product choice, not a technical default: it's the
+single highest-leverage element in Chiusa Sclafani v3 (show, don't just
+tell), but it does mean a brand-new user with zero transcription experience
+has nothing to paste in on their first profile. Not solved here — a future
+"transcribe one sample, then correct it into your example" assisted flow
+would close that gap, but this pass just enforces the requirement, it doesn't
+help anyone meet it.
+
+**Required-phrasing rigor is deliberately left unresolved.** Section 3 offers
+suggested, fully-editable default phrasings per record type (e.g. battesimi's
+"The godfather was [Name]." role-clause default) rather than v3's rigid
+"these exact words or the parser breaks" discipline. That rigidity existed to
+feed the dormant offline regex parser (`baptism-parser.js`), not the live
+`ai_parser.py` extraction path, which tolerates phrasing drift — but whether
+the *new* questionnaire-generated profiles should still enforce exact-match
+phrasing is an open question pending real testing against `ai_parser.py`,
+not decided in this pass. The underlying facts are collected either way, so
+that decision doesn't require touching the input step again later.
+
+**"Fill with Chiusa Sclafani v3 example answers"** (`fillChiusaSclafaniExample()`
+in `static/prompt-builder.js`) reverse-engineers v3's actual prose back into
+questionnaire answers for the one record type with a proven, tested example.
+It's both a real feature (one concrete worked example for new users to look
+at) and the main verification step for this rework: the generated
+role_context/reference_context/output_format aren't byte-identical to v3
+(the questionnaire generalizes some wording — e.g. "records" instead of
+hardcoding "baptism registers" everywhere), but every fact v3's hand-written
+prompt states should be present in the generated version. Re-check this
+whenever the assembly functions change.
+
+An older byte-for-byte check against `build_system_prompt()`/
+`neutral_system_scaffold()` (back when the "Full prompt preview" mirrored a
+single pre-loaded template's raw text) once caught 609 literal `\r\n` escape
+sequences baked into `chiusa-sclafani-battesimi-v3.json`'s string fields —
+invisible to a raw-byte scan since they were JSON-escaped text, not actual CR
+bytes, but `json.loads` decodes escapes, so they became real CRLF characters
+once loaded. Fixed by rebuilding the profile from source rather than
+hand-patching the JSON. That specific failure mode doesn't apply to the new
+design (there's no more single template being compared byte-for-byte), but
+the underlying lesson generalizes: if a generated-prompt length or preview
+ever looks unexpectedly short, check for JSON-escaped whitespace before
+assuming a logic bug.
+
+Saving still posts to `/prompt-builder/save-profile`
+(`Handler.save_prompt_builder_profile`) → `save_custom_profile()` — always
+creates a new profile (auto-suffixed `-2`/`-3` on a name collision), never
+edits an existing profile in place. Editing an existing saved profile still
+happens on the Transcribe page; Prompt Builder remains a creation tool, not a
+full profile manager. One real regression from the rework: on a save error
+(in practice, only a blank profile name, since role/reference/format can
+never be empty — the fixed boilerplate blocks are always present), the page
+reloads with every questionnaire answer lost, because there's no way to
+reconstruct structured answers from already-assembled prose. Mitigated by a
+`required` attribute on the name field, not solved.
 
 Same nav bar (`app.py` ×2, `xls_conversion/index.html` ×1) and same
 stale-embedded-snapshot footgun as the rest of the app: Transcribe and Test
@@ -89,11 +226,335 @@ Mode read the profile list once when their page renders, so a profile saved
 here needs a real reload of those tabs before it appears there — the save
 banner says so.
 
+**First round of revisions after user testing, same session:**
+
+- **The "required-phrasing rigor" question is resolved — by deleting the
+  fields, not by picking a rigor level.** Section 3 no longer asks "how
+  should the parents/principal individual/role-clause be introduced" at
+  all; those 3 fields (and their `phrasing_fields` config, and the
+  `# REQUIRED PHRASINGS` sentences they generated) are gone. Reasoning: they
+  existed to feed the dormant regex parsers, worked examples do the same
+  teaching job more effectively (show beats tell), and once transcription-
+  only became a real option (below) a rule about *translation* phrasing
+  stopped making sense as a universal field anyway. The date-opening
+  convention and the honorific-stripping rule both survive as fixed
+  boilerplate, gated on whether a translation is being produced at all.
+- **Translation is now an explicit, optional choice** — two checkboxes
+  (English / Italian), both unchecked by default, first thing in Section 3.
+  Unchecking both produces a transcription-only profile: no translation
+  block in `# BLOCK STRUCTURE`, no date-opening-phrasing rule, no
+  honorifics rule (that rule is about how a *translated* name reads, so
+  it's meaningless without one), and the worked-example rows' translation
+  textareas (`.pb-example-lang-en`/`.pb-example-lang-it`, toggled by
+  `updateTranslationVisibility()` in `static/prompt-builder.js`) stay
+  hidden. Checking English, Italian, or both ripples into Section 1 too —
+  `buildRoleContext()`'s task sentence and `fidelityRulesBlock()` (now a
+  function of the selected languages, not a fixed constant) adapt their
+  wording, since both live in the same generated role_context text.
+- **All checklists (relative-date vocabulary, role-clause vocabulary,
+  relationship terms, common abbreviations, scribal quirks) now start fully
+  checked**, styled as hollow boxes with a checkmark on select
+  (`.pb-checkbox input[type="checkbox"]`, `appearance: none` + a CSS
+  `::after` checkmark) instead of browser-default checkboxes — every preset
+  is a plausible-by-default fact about the kind of register being
+  described; unchecking one is the override, not the normal path.
+- **Every lone "Add another X" text field became a proper repeatable list**
+  (relative-date terms, scribal quirks, relationship terms, honorifics) —
+  each now has its own `#pb-<name>-rows` container + "Add another" button,
+  matching the abbreviation table's existing pattern
+  (`addSimpleRow()`/`pbSimpleValues()` in `static/prompt-builder.js`). The
+  single dead-end text field they replaced technically worked (its value
+  was appended to the generated text) but only ever held one extra entry
+  and gave no visual sign it was a list at all.
+- **Name lexicon: split-on-paste to avoid pairing bias.** A new
+  `nameLexiconSplit` checkbox (default on) assumes the pasted list is
+  complete names ("Giuseppe de Natale") and runs `splitFullName()`
+  client-side into two separate, deduplicated Surnames/Given-names lists
+  before they reach the generated reference_context — matching how Chiusa
+  Sclafani's own lexicon keeps the two apart. Rationale: feeding the model
+  raw full-name pairs risks teaching it that a given name and a surname
+  that merely co-occurred in the source list *belong together*, biasing
+  toward one specific match instead of letting each name component break
+  ties independently. The splitter uses the same surname-particle list as
+  `ai_parser.py`'s `GENERAL_EXTRACTION_RULES` (da/dal/de/del/della/di/d'/
+  la/le/li/lo) so "de Natale" stays one surname instead of losing "de" to
+  the given-name half. Turning the toggle off sends the pasted text through
+  verbatim, for a user who already has a properly separated lexicon.
+- **"Fill with Chiusa Sclafani v3 example answers" button removed.** It
+  served its purpose as this feature's main verification step (proving the
+  questionnaire could reconstruct v3's actual content) and as a worked
+  example for early testing, but the user asked for it gone once that
+  verification was done — it's no longer part of the shipped UI. The
+  `fillChiusaSclafaniExample()` function it called was deleted along with
+  it, not just hidden.
+
+**Second round of revisions, same session:**
+
+- **Per-section "Generated text:" previews removed.** Each of the 3
+  collapsible sections used to show its own read-only rendering of
+  role_context/reference_context/output_format below the questionnaire;
+  now only the "Full prompt preview" section (the assembled system prompt
+  as actually sent to the model) shows generated text at all. The
+  `pb-role-preview`/`pb-reference-preview`/`pb-format-preview` elements and
+  the `pbRefresh()` lines that filled them are gone; `pb-preview-content`
+  (Full prompt preview) is unaffected. Same treatment for the Section 3
+  "Locator line format" hint line (`pb-locator-preview`) — the
+  `locatorPreviewText()` function it displayed stays, since
+  `buildOutputFormat()` still uses it to build the actual block-structure
+  text, it's just not echoed as a separate standalone line anymore.
+- **Checklists that need to stay unwrapped now get a purpose-built grid
+  class instead of the generic auto-fit `.pb-checklist`.** New:
+  `.pb-checklist-2col` (role-clause vocabulary — exactly 2 columns,
+  `minmax(max-content, 1fr)` so an item never wraps). This round also
+  added a 3-column `.pb-checklist-3col` for the common-abbreviation
+  checklist, with `PROMPT_BUILDER_COMMON_ABBREVIATIONS`'s list order
+  rearranged so the longest label landed in the one 3-column slot wide
+  enough not to wrap. **Both the 3-column class and that ordering
+  rationale were superseded the same session** — see "Third round of
+  revisions" below, which moved the abbreviation checklist (and scribal
+  quirks) onto the same `.pb-checklist-2col` class instead.
+- **Marginal-heading toggle reworded** from "This register has a separate
+  marginal heading zone" to "This register has a separate margin for each
+  entry that states the name" — same field (`{type}_hasMarginalHeading`),
+  clearer to a non-expert reader.
+- **Name-lexicon splitting was already built (previous round) — only the
+  UI copy was unclear.** The `nameLexiconSplit` toggle and
+  `splitFullName()` already handled both "Given Surname" and "Surname,
+  Given" automatically; the checkbox label read like it was asking the
+  *user* to pre-split names by hand. Reworded to say explicitly that the
+  app does it automatically, and the textarea placeholder now states both
+  supported input orders.
+
+**Third round of revisions, same session:**
+
+- **Marginal-heading checkbox moved from Section 3 to the top of each
+  type's Section 2 group**, with its formula textarea now living directly
+  underneath it and shown/hidden by its state (`updateMarginalHeadingVisibility()`
+  in `prompt-builder.js`, called on record-type switch and on the checkbox's
+  own `input` event via a `.pb-marginal-toggle` class hook). This puts "does
+  this register have one" and "what does it look like" next to each other
+  instead of in different sections, and the checkbox now doubles as the
+  optional/required signal for the field below it — so the field's label
+  changed from "Marginal heading formula (optional — leave blank if this
+  register has none)" to a plain "Marginal heading structure", the note
+  deleted as redundant. `pb_section3_type_group_html()` (which rendered
+  only this checkbox) and the `{section3_type_groups}` placeholder are gone
+  entirely — Section 3 has no per-type content left. The field name
+  (`{type}_hasMarginalHeading`) and the formula's (`{type}_formula_marginalHeading`)
+  are unchanged, so `buildOutputFormat()`/`buildReferenceContext()` needed no
+  changes beyond the new visibility wiring — both already look these up by
+  `[name="..."]`, not by DOM position. Civil types (which default this
+  checkbox unchecked) got a new `marginal_heading_placeholder` config value
+  too, so checking the box on a civil type still shows a sensible formula
+  field instead of an empty one meant only for church registers.
+- **Formula textareas switched from a `placeholder` attribute to live,
+  pre-filled, directly editable text.** Previously the sample formula
+  (`Ego Sac.os D. [CELEBRANT] ... hodie baptizavi...`) was grey hint text
+  that vanished the moment the user typed anything, forcing them to
+  reconstruct the whole bracketed-slot pattern from scratch. Now it's the
+  textarea's actual starting value — `pb_formula_fields_html()` puts the
+  sample text between `<textarea>` tags instead of in a `placeholder=`
+  attribute — so the user edits a working example in place. Applied to
+  every formula field (marginal heading, body, groom, bride, witness, act),
+  not just the one the request named ("Body Formula"), since leaving some
+  fields as vanishing placeholders and others as live text would be an
+  inconsistent pattern for no reason. Side effect, intentional: if a user
+  saves without touching one of these fields, the generic template text
+  becomes the profile's real formula rather than an empty field — a better
+  default than nothing. No i18n impact: `TEXTAREA` is in `i18n.js`'s
+  `SKIP_TAGS`, so this content was never translated either as a placeholder
+  or now as a value, which is correct since these formulas are written in
+  the register's own historical language, not English UI copy.
+- **"Body formula" relabeled to "Entry structure - write out the structure
+  used in each entry"** for battesimi and morti (the two types that have a
+  body-formula field at all) — more instructional for a first-time user
+  than the bare noun phrase it replaced. Groom/Bride/Witness/Act formula
+  labels were left as-is; only "Body formula" was named in the request.
+- **Abbreviation key and Scribal quirks both moved onto `.pb-checklist-2col`.**
+  Round 2's dedicated `.pb-checklist-3col` class, and the abbreviation
+  list's "D. placed last to land in the 3-column middle slot" ordering
+  rationale, are both gone — see the correction in "Second round of
+  revisions" above. Two columns turns out to solve the original
+  non-wrapping requirement more simply than a specially-ordered 3-column
+  grid did: at 2 columns each column is wide enough for the longest label
+  regardless of which row it falls in, so there's no longer a "one correct
+  position" for any item. 8 abbreviations now render as 4 full rows of 2;
+  5 scribal quirks as 2 full rows plus a single trailing item. Verified via
+  `getBoundingClientRect()` that both grids place their items in the
+  expected rows with zero line-wrapping, including the (unmoved) "D. = Don /
+  Dominus (courtesy title for clergy and gentry)" item.
+- **`nameLexiconSplit` checkbox deleted; splitting is now unconditional.**
+  The toggle asked the user to confirm the pasted lexicon was made of full
+  names before `splitFullName()` would run — a decision the app can already
+  make itself for any register, so the checkbox was pure friction. Deleted
+  the checkbox, its label, and the `splitMode`/`splitToggle` branch in
+  `buildReferenceContext()` (`static/prompt-builder.js`); the given/surname
+  split (and its "these are NOT paired combinations" note) now always runs
+  when the Name lexicon field is non-empty. `i18n.js`'s translation entry
+  for the deleted label was removed too.
+- **"Honorifics kept inside a role clause" explained inline, no code
+  change**: the checked honorifics (Don, Master, plus anything added) are
+  the only titles allowed to stay attached to a name inside an
+  introducing phrase like "The godfather was Don Carolus Calsi"; any other
+  title the source mentions (Doctor, Reverend, a religious order, …) gets
+  moved out to the Notes block instead, so the role clause keeps a
+  predictable shape a downstream reader (or the AI itself, on a later
+  pass) can rely on. Only matters when a translation is being produced —
+  a verbatim transcription has no "clause" to keep clean.
+
+**Fourth round of revisions, same session — info-button popups added.**
+The request asked for explanatory "info bugs" (small (i) buttons that reveal
+a popup) after five specific fields, plus three unrelated wording/behavior
+tweaks. New shared building block: `pb_info_button_html(panel_id, text)` in
+`app.py` emits a `<button class="pb-info-btn" aria-expanded aria-controls>`
+next to a `<span class="pb-info-panel" role="note" hidden>` holding the
+text; `wireInfoButtons()` in `static/prompt-builder.js` (delegated on
+`document`, so it needs wiring only once) opens one panel at a time —
+opening a second closes the first — and closes on outside click or Escape,
+with `aria-expanded` kept in sync for screen readers.
+
+- **Declension checkbox** ("Include Latin grammatical case-declension
+  guidance") gets one, explaining what Latin case declension is with a
+  worked example (Franciscus/Francisci/Francisco) and why the same name
+  legitimately taking different forms in one entry isn't a spelling error.
+  This checkbox was the first spot an info button sat next to a
+  `.pb-checkbox` rather than a `<p class="hint">` — the two needed
+  different fixes to lay out on one line (two more checkboxes later got
+  the same treatment: confidence-rationale in round 5, marginal-heading
+  in a follow-up — see below; the `.pb-inline-row` fix this round
+  established is what both of them reused). First attempt changed
+  `.pb-checkbox` itself to
+  `inline-flex`, which broke: an inline-level flex box's shrink-to-fit width
+  is computed from the *remaining horizontal space on its line*, not its
+  content's natural width, so at this checkbox's position that resolved to
+  ~112px and the label text wrapped across six lines. Fixed by reverting
+  `.pb-checkbox` to plain `flex` (its original value, correct everywhere
+  else it's used) and instead wrapping just this one checkbox + button pair
+  in a new `.pb-inline-row` flex container (`display:flex; align-items:
+  center`), with `.pb-inline-row .pb-checkbox { flex: 0 0 auto }` so the
+  checkbox sizes to its own content as a flex *item* of a container with
+  real available width, not as a bare inline box guessing at line space.
+  Verified via `getBoundingClientRect()` afterward that this didn't regress
+  the `.pb-checklist-2col` grids (abbreviations, scribal quirks, role
+  vocab) — they're a separate CSS context and were never at risk, but it's
+  the kind of change worth re-checking given how fiddly this turned out.
+- **Role-clause vocabulary** (all 6 record types, not just the Church
+  Battesimi example in the request — same reasoning as every other
+  per-type UI element in this page: one type getting a feature and the
+  other five not would be an arbitrary inconsistency) explains that these
+  are the register's own words for entry roles (e.g. "P.nus" vs "PP." for
+  one vs. multiple godparents) and that checking one teaches the AI to
+  recognize and use it correctly.
+- **Scribal / paleographic quirks** explains the concept in one sentence
+  with two concrete examples (long ſ misread as f, macron marking a
+  dropped letter) and why checking them helps — so the AI doesn't misread
+  a normal habit of the hand as an unfamiliar name.
+- **Name lexicon**: relabeled from "Name lexicon (optional)" to "Name
+  lexicon" (the field already reads as optional from context; the parenthetical
+  was redundant once an info button exists to explain it), its old always-
+  visible hint paragraph ("Adding a lexicon greatly increases...") moved
+  verbatim into the new info button instead of staying as permanent page
+  furniture, and its placeholder text tightened to "Paste known family
+  names and given names - either as "Given Surname" or "Surname, Given
+  name"" per the exact wording requested. Needed one structural fix beyond
+  the button itself: this label uses the page's generic `label { display:
+  grid }` rule (text on row 1, the control on row 2), so appending the
+  info button as a bare sibling after the label text would have landed it
+  on its own grid row below the text and above the textarea. Fixed by
+  wrapping just the "Name lexicon" text and the button together in an
+  explicit `<span>`, which becomes row 1 as a single item with both
+  contents flowing inline inside it.
+- **Translation hint reworded** from "Translation — leave both unchecked
+  for a transcription-only profile with no translation at all" to
+  "Translation is optional — leave both unchecked for a transcription-only
+  output with no translation at all" (leads with "optional" instead of
+  making the reader infer it, and "output" instead of "profile" since the
+  sentence is describing what gets produced, not the saved profile itself).
+- **Honorifics section gets an info button** with the explanation of what
+  a "role clause" is (same content given inline in this session's own
+  answer to the equivalent question, now placed in the UI), **and the
+  entire section is now hidden unless a translation language is
+  checked** (`#pb-honorifics-section`, toggled in
+  `updateTranslationVisibility()`). This isn't a new behavior so much as
+  making the UI match logic that already existed: `buildOutputFormat()`
+  has always nested the honorifics-rule sentence inside `if (langs.length)`
+  — a translation-only rule about how a name reads in translated prose —
+  so a honorifics checkbox with no translation selected already had zero
+  effect on the generated prompt. Hiding it now makes that dead-end
+  visible before the user wastes a click on it, not after.
+
+**Fifth round of revisions, same session:**
+
+- **Relative-date vocabulary moved onto `.pb-checklist-2col`**, same
+  treatment as the abbreviation key and scribal quirks in the third round.
+  5 terms now render as 2 full rows plus a single trailing item, verified
+  non-wrapping via `getBoundingClientRect()`.
+- **Two wording tweaks**: Section 1's fixed-boilerplate sentence now ends
+  "...no matter what you select below" (was "...answer above" — stale
+  once the per-section preview panels were removed in round 2, since
+  "above" no longer pointed at anything on the page); the page's top
+  sub-heading was rewritten from a longer sentence explaining the preset/
+  free-text split to a shorter, more direct one ("Pick from presets below
+  to describe your register...") that also states the reload requirement
+  as an instruction ("you must reload those pages first") rather than a
+  parenthetical aside.
+- **Confidence-rationale checkbox gets an info button**, explaining what
+  the High/Medium/Low + one-line-reason rule actually produces and why
+  it's useful (a fast way to spot entries worth a second look). Needed
+  the same `.pb-inline-row` wrapper fix as the declension checkbox in the
+  fourth round, for the same reason (a bare `.pb-checkbox` can't safely
+  sit inline next to a following sibling).
+- **Worked Examples section deleted outright** — the hint paragraph, the
+  repeatable source/transcription/translation row group, the "Add another
+  example" button, and the requirement that gated the Save button on
+  having at least one filled in. Removed the matching JS:
+  `collectExampleRows()`, `addExampleRow()`, the `# WORKED EXAMPLES` block
+  in `buildOutputFormat()`, the save-button disable/title logic in
+  `pbRefresh()`, and the `.pb-example-lang-en`/`.pb-example-lang-it`
+  toggling that used to live in `updateTranslationVisibility()`. The
+  stance going in was that output formatting (locator line with image
+  filename/number, the per-entry block headers, the no-line-break
+  protocol, blank-line spacing between blocks) is already fully specified
+  by `# BLOCK STRUCTURE` and the other fixed rules `buildOutputFormat()`
+  assembles from the questionnaire's own answers — none of that actually
+  depended on a worked example.
+  **That's true, and format compliance doesn't regress.** But it's only
+  half of what worked examples were doing. The other half — calibrating
+  the AI's actual *transcription and translation judgment* against this
+  specific register's paleography and phrasing register (how literal to
+  be, what a borderline-legible letterform should resolve to, how terse
+  or expansive a translation should read) — has no boilerplate substitute;
+  nothing else in the questionnaire shows the AI a real correct answer to
+  pattern-match against. This was flagged in the original build (see
+  "Worked examples are required, minimum 1" above) as "the single
+  highest-leverage element in Chiusa Sclafani v3 (show, don't just
+  tell)" — that assessment doesn't change with this deletion, only the
+  UI's insistence on collecting one. A user who wants that benefit back
+  still can: the Transcribe page's free-text profile editor can append a
+  worked example to `reference_context` or `output_format` by hand after
+  saving, same as any other post-hoc edit to a generated profile.
+
+**Follow-up, same session: marginal-heading checkbox gets an info button
+too.** User flagged (correctly) that this checkbox never got one, despite
+sitting right next to declension and confidence-rationale, which did.
+Added `pb_info_button_html()` for all 6 record types (same
+`.pb-inline-row` wrapper as the other checkbox-adjacent buttons), text
+explaining what a marginal heading is and why the transcription keeps it
+as its own block separate from the entry body (the two occasionally
+disagree, and both readings are worth preserving — same reasoning as the
+Chiusa Sclafani v3 Marginal Heading rework earlier in this file). Also
+confirmed, while investigating the report: the field's `23px` left
+indent (`.pb-marginal-formula`) under its checkbox is intentional, not a
+bug — it's sized to the checkbox's own 16px width + 7px gap so the
+formula field visually nests under the checkbox's label text.
+
 ## Accessibility (WCAG)
 
 Page `<h1>` titles: Transcribe = "Customizable Transcription", XLS Conversion =
-"XLSX Conversion" (nav label matches), Test Mode = "Test Mode: Model
-Comparison", Prompt Builder = "Prompt Builder". The XLS Conversion page's
+"XLSX Conversion" (nav label matches), Test Mode = "Test Mode" (shortened
+from "Test Mode: Model Comparison" in a later pass so the Italian translation
+stays on one line at normal width), Prompt Builder = "Prompt Builder". The
+XLS Conversion page's
 `<h1>` used to literally read "Customizable Transcription Interface" — a
 copy-paste leftover from before that page existed as its own file — fixed
 alongside this pass.

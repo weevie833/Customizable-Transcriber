@@ -8,7 +8,15 @@ from collections.abc import Iterable, Sequence
 from xml.sax.saxutils import escape
 
 
-NUMERIC_BODY_COLUMNS = frozenset({2, 3, 5, 6, 8})
+# Battesimi's own numeric columns / zero-padded Image# column / hand-tuned
+# widths -- kept as explicit defaults so its existing call site (and output
+# bytes) are unaffected by the other 5 record types now passing their own.
+BATTESIMI_NUMERIC_COLUMNS = frozenset({2, 3, 5, 6, 8})
+BATTESIMI_PADDED_COLUMN = 2
+BATTESIMI_COLUMN_WIDTHS = [
+    12, 12, 11, 11, 11, 11, 11, 11, 19, 19,
+    11, 19, 19, 32, 19, 19, 32, 34, 26, 42,
+]
 
 
 def rows_to_csv(
@@ -32,10 +40,14 @@ def rows_to_xlsx(
     fields: Sequence[str],
     rows: Iterable[dict[str, str]],
     sheet_name: str,
+    numeric_columns: frozenset[int] = BATTESIMI_NUMERIC_COLUMNS,
+    padded_column: int | None = BATTESIMI_PADDED_COLUMN,
+    column_widths: Sequence[int] | None = None,
 ) -> bytes:
     data_rows = [[row.get(field, "") for field in fields] for row in rows]
     all_rows = [list(group_headers), list(column_headers), *data_rows]
-    worksheet_xml = _worksheet_xml(all_rows)
+    widths = list(column_widths) if column_widths is not None else BATTESIMI_COLUMN_WIDTHS
+    worksheet_xml = _worksheet_xml(all_rows, numeric_columns, padded_column, widths)
 
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -101,16 +113,26 @@ def rows_to_xlsx(
     return output.getvalue()
 
 
-def _worksheet_xml(rows: Sequence[Sequence[str]]) -> str:
+def _worksheet_xml(
+    rows: Sequence[Sequence[str]],
+    numeric_columns: frozenset[int],
+    padded_column: int | None,
+    column_widths: Sequence[int],
+) -> str:
     row_xml: list[str] = []
     for row_number, row in enumerate(rows, start=1):
         style = 1 if row_number == 1 else 2 if row_number == 2 else 0
         cells = "".join(
-            _worksheet_cell(row_number, column_number, value, style)
+            _worksheet_cell(row_number, column_number, value, style, numeric_columns, padded_column)
             for column_number, value in enumerate(row, start=1)
         )
         height = ' ht="24" customHeight="1"' if row_number <= 2 else ""
         row_xml.append(f'<row r="{row_number}"{height}>{cells}</row>')
+
+    cols_xml = "".join(
+        f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
+        for index, width in enumerate(column_widths, start=1)
+    )
 
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -121,27 +143,22 @@ def _worksheet_xml(rows: Sequence[Sequence[str]]) -> str:
     </sheetView>
   </sheetViews>
   <sheetFormatPr defaultRowHeight="15"/>
-  <cols>
-    <col min="1" max="2" width="12" customWidth="1"/>
-    <col min="3" max="8" width="11" customWidth="1"/>
-    <col min="9" max="10" width="19" customWidth="1"/>
-    <col min="11" max="11" width="11" customWidth="1"/>
-    <col min="12" max="13" width="19" customWidth="1"/>
-    <col min="14" max="14" width="32" customWidth="1"/>
-    <col min="15" max="16" width="19" customWidth="1"/>
-    <col min="17" max="17" width="32" customWidth="1"/>
-    <col min="18" max="18" width="34" customWidth="1"/>
-    <col min="19" max="19" width="26" customWidth="1"/>
-    <col min="20" max="20" width="42" customWidth="1"/>
-  </cols>
+  <cols>{cols_xml}</cols>
   <sheetData>{''.join(row_xml)}</sheetData>
 </worksheet>"""
 
 
-def _worksheet_cell(row: int, column: int, value: object, style: int) -> str:
+def _worksheet_cell(
+    row: int,
+    column: int,
+    value: object,
+    style: int,
+    numeric_columns: frozenset[int],
+    padded_column: int | None,
+) -> str:
     reference = _cell_reference(row, column)
-    if row >= 3 and column in NUMERIC_BODY_COLUMNS:
-        numeric_style = 3 if column == 2 else 4
+    if row >= 3 and column in numeric_columns:
+        numeric_style = 3 if column == padded_column else 4
         return _numeric_cell(reference, value, numeric_style)
     return _inline_string_cell(reference, value, style)
 

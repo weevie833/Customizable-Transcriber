@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import mimetypes
 import os
 import re
@@ -9,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
+import anthropic
 from google import genai
 from google.genai import types
 
@@ -98,6 +100,38 @@ def api_key(project_dir: Path) -> str:
     if key == "your_api_key_here":
         raise RuntimeError("GEMINI_API_KEY is still set to the placeholder value.")
     return key
+
+
+def claude_api_key(project_dir: Path) -> str:
+    load_env_file(project_dir / ".env")
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is not set. Add it to .env or export it before running."
+        )
+    if key == "your_api_key_here":
+        raise RuntimeError("ANTHROPIC_API_KEY is still set to the placeholder value.")
+    return key
+
+
+def provider_for_model(model: str) -> str:
+    return "claude" if model.startswith("claude-") else "gemini"
+
+
+def key_looks_like_claude(api_key: str) -> bool:
+    return api_key.strip().startswith("sk-ant-")
+
+
+def key_matches_provider(model: str, api_key: str) -> bool:
+    """Loose, prefix-based sanity check -- not a substitute for a real API call.
+
+    Anthropic keys reliably start with "sk-ant-", so a Claude model paired
+    with a key that doesn't start that way is unambiguously wrong. Gemini/
+    Google AI keys don't have one universal prefix, so a Gemini model just
+    requires the key to *not* look like an Anthropic one.
+    """
+    looks_claude = key_looks_like_claude(api_key)
+    return looks_claude if provider_for_model(model) == "claude" else not looks_claude
 
 
 def parse_date_folder(name: str) -> tuple[int, int, int] | None:
@@ -195,29 +229,46 @@ def default_output_file(project_dir: Path) -> Path:
     return project_dir / "outputs" / f"transcription-{stamp}.md"
 
 
-def make_client(project_dir: Path, api_key_override: str | None = None) -> genai.Client:
+@dataclass
+class LLMClient:
+    provider: str
+    gemini: genai.Client | None = None
+    claude: anthropic.Anthropic | None = None
+
+
+def make_client(project_dir: Path, model: str, api_key_override: str | None = None) -> LLMClient:
+    provider = provider_for_model(model)
+    if provider == "claude":
+        key = (api_key_override or "").strip() or claude_api_key(project_dir)
+        return LLMClient(provider="claude", claude=anthropic.Anthropic(api_key=key))
     key = (api_key_override or "").strip() or api_key(project_dir)
-    return genai.Client(api_key=key)
-
-
+    return LLMClient(provider="gemini", gemini=genai.Client(api_key=key))
 
 
 def validate_api_key(project_dir: Path, model: str, api_key_override: str | None = None) -> None:
-    client = make_client(project_dir, api_key_override)
-    client.models.generate_content(
+    client = make_client(project_dir, model, api_key_override)
+    if client.provider == "claude":
+        client.claude.messages.create(
+            model=model,
+            max_tokens=4,
+            messages=[{"role": "user", "content": "Reply with OK."}],
+        )
+        return
+    client.gemini.models.generate_content(
         model=model,
         contents="Reply with OK.",
         config=types.GenerateContentConfig(max_output_tokens=4),
     )
 
-def transcribe_image(
+
+def _transcribe_image_gemini(
     client: genai.Client,
     image_path: Path,
+    mime_type: str,
     system_prompt: str,
     model: str,
-    include_thoughts: bool = False,
+    include_thoughts: bool,
 ) -> str:
-    mime_type = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
     config_kwargs = {"system_instruction": system_prompt, "temperature": 0}
 
     if include_thoughts and hasattr(types, "ThinkingConfig"):
@@ -232,6 +283,52 @@ def transcribe_image(
         config=types.GenerateContentConfig(**config_kwargs),
     )
     return response.text or ""
+
+
+def _transcribe_image_claude(
+    client: anthropic.Anthropic,
+    image_path: Path,
+    mime_type: str,
+    system_prompt: str,
+    model: str,
+) -> str:
+    data = base64.standard_b64encode(image_path.read_bytes()).decode("utf-8")
+    block_type = "document" if mime_type == "application/pdf" else "image"
+    source_block = {
+        "type": block_type,
+        "source": {"type": "base64", "media_type": mime_type, "data": data},
+    }
+    response = client.messages.create(
+        model=model,
+        max_tokens=8192,
+        # This SDK's Messages API has no temperature knob (Gemini's temperature=0
+        # equivalent doesn't exist here) -- "high" effort is the closest available
+        # lever for careful, consistent transcription output.
+        output_config={"effort": "high"},
+        system=system_prompt,
+        messages=[
+            {
+                "role": "user",
+                "content": [source_block, {"type": "text", "text": USER_INSTRUCTION}],
+            }
+        ],
+    )
+    return "".join(block.text for block in response.content if block.type == "text")
+
+
+def transcribe_image(
+    client: LLMClient,
+    image_path: Path,
+    system_prompt: str,
+    model: str,
+    include_thoughts: bool = False,
+) -> str:
+    mime_type = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
+    if client.provider == "claude":
+        return _transcribe_image_claude(client.claude, image_path, mime_type, system_prompt, model)
+    return _transcribe_image_gemini(
+        client.gemini, image_path, mime_type, system_prompt, model, include_thoughts
+    )
 
 
 def collapse_source_line_breaks(text: str) -> str:
@@ -288,7 +385,7 @@ def run_batch(
             progress(message)
 
     log(f"Found {len(files)} source file(s).")
-    client = make_client(project_dir, config.api_key_override)
+    client = make_client(project_dir, config.model, config.api_key_override)
     results: list[ImageResult] = []
 
     with config.output_file.open("w", encoding="utf-8") as output:

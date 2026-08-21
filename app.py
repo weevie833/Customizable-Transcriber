@@ -27,6 +27,8 @@ from transcription_bot.core import (
     count_source_files_by_type,
     default_output_file,
     extensions_for_file_type,
+    key_matches_provider,
+    provider_for_model,
     run_batch,
     validate_api_key,
 )
@@ -44,6 +46,7 @@ DEFAULT_PROFILE_ID = "rendi-battesimi"
 PROFILES_DIR = PROJECT_DIR / "profiles"
 PROFILE_SETTINGS_FILE = PROFILES_DIR / "settings.json"
 XLS_CONVERSION_DIR = PROJECT_DIR / "xls_conversion"
+STATIC_DIR = PROJECT_DIR / "static"
 APP_SETTINGS_FILE = PROJECT_DIR / "app_settings.json"
 DOWNLOAD_HELP_TEXT = "The DOCX file will be downloaded to wherever your browser saves downloaded files. Check your browser's Downloads button for download history."
 FILE_TYPE_LABELS = {
@@ -56,6 +59,9 @@ MODELS = {
     "gemini-3.6-flash": "Gemini 3.6 Flash - previous balanced speed / intelligence",
     "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - higher accuracy",
     "gemini-2.5-pro": "Gemini 2.5 Pro - stable, high-accuracy baseline",
+    "claude-opus-5": "Claude Opus 5 - highest accuracy",
+    "claude-sonnet-5": "Claude Sonnet 5 - balanced speed / intelligence",
+    "claude-haiku-4-5-20251001": "Claude Haiku 4.5 - fastest, lower cost",
 }
 
 state = {
@@ -399,7 +405,7 @@ def test_destination_output_file(profile_id: str, run_id: str, model: str, stem:
 def selected_model(form: FormData) -> str:
     model = form.getfirst("model", DEFAULT_MODEL) or DEFAULT_MODEL
     if model not in MODELS:
-        raise RuntimeError("Select a Gemini model before running transcription.")
+        raise RuntimeError("Select a model before running transcription.")
     return model
 
 
@@ -407,7 +413,7 @@ def selected_model_pair(form: FormData) -> tuple[str, str]:
     model_a = form.getfirst("model_a", DEFAULT_MODEL) or DEFAULT_MODEL
     model_b = form.getfirst("model_b", DEFAULT_MODEL) or DEFAULT_MODEL
     if model_a not in MODELS or model_b not in MODELS:
-        raise RuntimeError("Select a Gemini model for both Model A and Model B before running.")
+        raise RuntimeError("Select a model for both Model A and Model B before running.")
     if model_a == model_b:
         raise RuntimeError("Model A and Model B must be different models.")
     return model_a, model_b
@@ -1065,6 +1071,7 @@ def page() -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Customizable Transcription</title>
+  <script src="/static/i18n.js" defer></script>
   <script>
     document.addEventListener("click", function (event) {{
       const link = event.target.closest("a.download");
@@ -1592,7 +1599,7 @@ def page() -> str:
     }}
     h1 {{
       margin: 0;
-      font-size: 28px;
+      font-size: 26px;
     }}
     .site-header {{
       display: flex;
@@ -1757,7 +1764,7 @@ def page() -> str:
     }}
     .run-options {{
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
       gap: 14px;
       align-items: start;
     }}
@@ -1810,7 +1817,6 @@ def page() -> str:
       box-shadow: inset 0 0 0 3px #fff;
     }}
     button {{
-      margin-top: 18px;
       padding: 10px 14px;
       border: 0;
       border-radius: 6px;
@@ -1865,7 +1871,7 @@ def page() -> str:
       align-items: start;
     }}
     .run-button-stack button {{
-      width: 170px;
+      width: 200px;
       margin-top: 0;
     }}
     .run-confirmation {{
@@ -2017,9 +2023,6 @@ def page() -> str:
       opacity: 0.72;
       pointer-events: none;
     }}
-    #download-link {{
-      margin-top: 18px;
-    }}
     .button-secondary {{
       margin-top: 8px;
       background: #255c99;
@@ -2064,6 +2067,36 @@ def page() -> str:
       color: #5f6b76;
       font-size: 13px;
     }}
+    .byline-row {{
+      display: flex;
+      align-items: center;
+      gap: 0 8px;
+      flex-wrap: wrap;
+    }}
+    .lang-toggle {{
+      display: inline-flex;
+      gap: 4px;
+    }}
+    .lang-flag {{
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      padding: 1px 4px;
+      font-size: 15px;
+      line-height: 1.3;
+      cursor: pointer;
+    }}
+    .lang-flag[aria-pressed="true"] {{
+      border-color: #255c99;
+      background: #eef4fb;
+    }}
+    .lang-flag:hover {{
+      background: #eef4fb;
+    }}
+    .lang-flag:focus-visible {{
+      outline: 3px solid #255c99;
+      outline-offset: 1px;
+    }}
     .license {{
       margin: 8px 0 0;
       color: #5f6b76;
@@ -2098,7 +2131,13 @@ def page() -> str:
   <header class="site-header">
     <div class="site-heading">
       <h1>Customizable Transcription</h1>
-      <p class="byline">Created by Steve Covello, 2026</p>
+      <div class="byline-row">
+        <p class="byline">Created by Steve Covello, 2026</p>
+        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+        </div>
+      </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
       <a class="nav-link" href="/" aria-current="page">Transcribe</a>
@@ -2122,13 +2161,13 @@ def page() -> str:
     </div>
     <p class="hint" hidden>Browse opens a native folder dialog.</p>
     <div class="row">
-      <label>Gemini model
+      <label>Model
         <select name="model">
           {model_options}
         </select>
       </label>
-      <label>Gemini API key
-        <input type="password" name="gemini_api_key" autocomplete="off" placeholder="Paste your Gemini API key for this run">
+      <label>API key
+        <input type="password" name="gemini_api_key" autocomplete="off" placeholder="Paste your API key for this run">
         <p class="hint">Used only for this browser session/request. It is not saved to the project files.</p>
       </label>
     </div>
@@ -2274,6 +2313,7 @@ def test_mode_page() -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Test Mode - Model Comparison</title>
+  <script src="/static/i18n.js" defer></script>
   <script>
     document.addEventListener("click", function (event) {{
       const link = event.target.closest("a.download");
@@ -2397,14 +2437,31 @@ def test_mode_page() -> str:
       settingsAlertReturnFocus = null;
     }}
 
+    function providerForModel(model) {{
+      return model && model.startsWith("claude-") ? "claude" : "gemini";
+    }}
+
+    function looksLikeClaudeKey(key) {{
+      return key.trim().startsWith("sk-ant-");
+    }}
+
+    function keyMatchesProvider(model, key) {{
+      const provider = providerForModel(model);
+      const looksClaude = looksLikeClaudeKey(key);
+      return provider === "claude" ? looksClaude : !looksClaude;
+    }}
+
     function missingRunSettingMessage() {{
       const missing = [];
       const sourceFolderDisplay = document.getElementById("source-folder-display");
       if (!sourceFolderDisplay || sourceFolderDisplay.dataset.selected !== "true") {{
         missing.push("choose a source folder");
       }}
-      if (!document.querySelector('[name="gemini_api_key"]').value.trim()) {{
-        missing.push("paste a Gemini API key");
+      if (!document.querySelector('[name="api_key_a"]').value.trim()) {{
+        missing.push("paste an API key for Model A");
+      }}
+      if (!document.querySelector('[name="api_key_b"]').value.trim()) {{
+        missing.push("paste an API key for Model B");
       }}
       if (!document.querySelector('[name="profile_id"]').value) {{
         missing.push("select a prompt profile");
@@ -2416,18 +2473,36 @@ def test_mode_page() -> str:
       return `Before running transcription, please ${{rest}} and ${{last}}.`;
     }}
 
+    function apiKeyMismatchMessage() {{
+      const modelASelect = document.querySelector('[name="model_a"]');
+      const modelBSelect = document.querySelector('[name="model_b"]');
+      const apiKeyA = document.querySelector('[name="api_key_a"]').value.trim();
+      const apiKeyB = document.querySelector('[name="api_key_b"]').value.trim();
+      const problems = [];
+      if (modelASelect && apiKeyA && !keyMatchesProvider(modelASelect.value, apiKeyA)) {{
+        const provider = providerForModel(modelASelect.value) === "claude" ? "Claude" : "Gemini";
+        problems.push(`The Model A API key doesn't look like a ${{provider}} key.`);
+      }}
+      if (modelBSelect && apiKeyB && !keyMatchesProvider(modelBSelect.value, apiKeyB)) {{
+        const provider = providerForModel(modelBSelect.value) === "claude" ? "Claude" : "Gemini";
+        problems.push(`The Model B API key doesn't look like a ${{provider}} key.`);
+      }}
+      return problems.join(" ");
+    }}
+
     function updateRunButton(running) {{
       const runButton = document.getElementById("run-button");
       if (!runButton) return;
       const confirmButton = document.getElementById("confirm-run-button");
       const profileSelected = Boolean(document.querySelector('[name="profile_id"]').value);
-      const apiKeyEntered = Boolean(document.querySelector('[name="gemini_api_key"]').value.trim());
+      const apiKeyAEntered = Boolean(document.querySelector('[name="api_key_a"]').value.trim());
+      const apiKeyBEntered = Boolean(document.querySelector('[name="api_key_b"]').value.trim());
       runButton.disabled = Boolean(running);
       if (confirmButton && running) confirmButton.disabled = true;
       if (running) {{
         runButton.title = "A test run is already in progress.";
-      }} else if (!apiKeyEntered) {{
-        runButton.title = "Paste your Gemini API key before running.";
+      }} else if (!apiKeyAEntered || !apiKeyBEntered) {{
+        runButton.title = "Paste an API key for both Model A and Model B before running.";
       }} else if (!profileSelected) {{
         runButton.title = "Select a prompt profile before running.";
       }} else {{
@@ -2604,6 +2679,13 @@ def test_mode_page() -> str:
           showSettingsAlert(missingMessage);
           return;
         }}
+        const mismatchMessage = apiKeyMismatchMessage();
+        if (mismatchMessage) {{
+          event.preventDefault();
+          resetPreflight();
+          showSettingsAlert(mismatchMessage);
+          return;
+        }}
         event.preventDefault();
         runPreflightCheck();
         return;
@@ -2770,14 +2852,13 @@ def test_mode_page() -> str:
           hideSettingsAlert();
         }});
       }}
-      const apiKeyInput = document.querySelector('[name="gemini_api_key"]');
-      if (apiKeyInput) {{
-        apiKeyInput.addEventListener("input", () => {{
+      document.querySelectorAll('[name="api_key_a"], [name="api_key_b"]').forEach((input) => {{
+        input.addEventListener("input", () => {{
           updateRunButton(false);
           resetPreflight();
           hideSettingsAlert();
         }});
-      }}
+      }});
       document.querySelectorAll('[name="order"]').forEach((input) => {{
         input.addEventListener("change", () => {{
           setOrderHint();
@@ -2872,7 +2953,7 @@ def test_mode_page() -> str:
     }}
     h1 {{
       margin: 0;
-      font-size: 28px;
+      font-size: 26px;
     }}
     .site-header {{
       display: flex;
@@ -3048,7 +3129,7 @@ def test_mode_page() -> str:
     }}
     .run-options {{
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
       gap: 14px;
       align-items: start;
     }}
@@ -3080,7 +3161,6 @@ def test_mode_page() -> str:
       margin: 0;
     }}
     button {{
-      margin-top: 18px;
       padding: 10px 14px;
       border: 0;
       border-radius: 6px;
@@ -3135,7 +3215,7 @@ def test_mode_page() -> str:
       align-items: start;
     }}
     .run-button-stack button {{
-      width: 170px;
+      width: 200px;
       margin-top: 0;
     }}
     .run-confirmation {{
@@ -3312,6 +3392,36 @@ def test_mode_page() -> str:
       color: #5f6b76;
       font-size: 13px;
     }}
+    .byline-row {{
+      display: flex;
+      align-items: center;
+      gap: 0 8px;
+      flex-wrap: wrap;
+    }}
+    .lang-toggle {{
+      display: inline-flex;
+      gap: 4px;
+    }}
+    .lang-flag {{
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      padding: 1px 4px;
+      font-size: 15px;
+      line-height: 1.3;
+      cursor: pointer;
+    }}
+    .lang-flag[aria-pressed="true"] {{
+      border-color: #255c99;
+      background: #eef4fb;
+    }}
+    .lang-flag:hover {{
+      background: #eef4fb;
+    }}
+    .lang-flag:focus-visible {{
+      outline: 3px solid #255c99;
+      outline-offset: 1px;
+    }}
     .license {{
       margin: 8px 0 0;
       color: #5f6b76;
@@ -3407,9 +3517,6 @@ def test_mode_page() -> str:
     #add-to-batch-button {{
       margin-top: 6px;
     }}
-    #refresh-status-button {{
-      margin-top: 18px;
-    }}
     .compare-table {{
       width: 100%;
       margin-top: 14px;
@@ -3457,8 +3564,14 @@ def test_mode_page() -> str:
 <main id="main-content" tabindex="-1">
   <header class="site-header">
     <div class="site-heading">
-      <h1>Test Mode: Model Comparison</h1>
-      <p class="byline">Created by Steve Covello, 2026</p>
+      <h1>Test Mode</h1>
+      <div class="byline-row">
+        <p class="byline">Created by Steve Covello, 2026</p>
+        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+        </div>
+      </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
       <a class="nav-link" href="/">Transcribe</a>
@@ -3467,7 +3580,7 @@ def test_mode_page() -> str:
       <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
     </nav>
   </header>
-  <p class="hint">Runs the same source images and prompt profile through different Gemini models to compare performance.</p>
+  <p class="hint">Runs the same source images and prompt profile through different models to compare performance.</p>
   <form method="post" action="/test-mode/run">
     <div class="path-control">
       <label>Source folder</label>
@@ -3495,6 +3608,15 @@ def test_mode_page() -> str:
       </label>
     </div>
     <div class="row">
+      <label>API key for Model A
+        <input type="password" name="api_key_a" autocomplete="off" placeholder="Paste the API key for Model A">
+      </label>
+      <label>API key for Model B
+        <input type="password" name="api_key_b" autocomplete="off" placeholder="Paste the API key for Model B">
+      </label>
+    </div>
+    <p class="hint">Each key must match its model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model). Used for every run in the queue. Not saved to the project files.</p>
+    <div class="row">
       <label>Batch label (optional)
         <input type="text" name="batch_label" placeholder="Example: Flash-Lite vs 3.6 Flash">
       </label>
@@ -3506,10 +3628,6 @@ def test_mode_page() -> str:
       <ul class="queue-list">
         {queue_list_html}
       </ul>
-    </label>
-    <label>Gemini API key
-      <input type="password" name="gemini_api_key" autocomplete="off" placeholder="Paste your Gemini API key for this run">
-      <p class="hint">Used for every run in the queue. Not saved to the project files.</p>
     </label>
     <div class="run-options">
       <fieldset>
@@ -3608,45 +3726,28 @@ def test_mode_page() -> str:
 </html>"""
 
 
-PROMPT_BUILDER_TEMPLATE_ID = "chiusa-sclafani-battesimi-v3"
-
 PROMPT_BUILDER_SECTION_HELP = {
     "role_context": (
-        "Defines who the AI is, what it's transcribing, and the ground rules for "
-        "accuracy. Replace the project-specific details — the location, the "
-        "register type (baptisms, marriages, deaths...), the parish or archive name, "
-        "the date range, and any page-layout notes (columns, page numbering, running "
-        "order) that match your own source images. Keep the overall shape: an "
-        "uncertainty protocol (never guess a name, use [illegible] instead) and "
-        "fidelity rules (preserve spelling, don't silently correct the scribe) are "
-        "what keep a transcription trustworthy for genealogical research — most "
-        "projects will want to keep these close to as-is."
+        "Answer these questions to define who the AI is, what it's transcribing, and "
+        "the ground rules for accuracy: your record type, source language, era, "
+        "place, and page layout. The uncertainty protocol (never guess a name, use "
+        "[illegible] instead) and fidelity rules (preserve spelling, don't silently "
+        "correct the scribe) are generated automatically — every profile gets them, "
+        "no matter what you select below."
     ),
     "reference_context": (
-        "Gives the AI your project's own ground truth: the standard formula your "
-        "register's entries follow, an abbreviation key for the hand and language, "
-        "and a name lexicon (surnames and given names actually attested in your "
-        "source, ideally frequency-tiered) so it can break ties between similar "
-        "letterforms without inventing names that aren't real. Almost everything "
-        "here is specific to your project and should be replaced — but keep the "
-        "structure (formula, then abbreviation key, then lexicon) and the rule that "
-        "a lexicon only breaks ties, it never overrules what's on the page."
+        "Answer these questions to give the AI your project's own ground truth: the "
+        "standard formula your register's entries follow, an abbreviation key for "
+        "the hand and language, and — optionally — a name lexicon (surnames and "
+        "given names actually attested in your source) so it can break ties between "
+        "similar letterforms without inventing names that aren't real. A lexicon "
+        "only ever breaks ties; it never overrules what's on the page."
     ),
     "output_format": (
-        "Defines the exact text format the AI must output. This feeds downstream "
-        "tooling (the Word document writer, and a spreadsheet parser if you build "
-        "one), so exact phrasing matters more than it looks — a rephrased sentence "
-        "can silently leave a spreadsheet column blank. Keep the block structure "
-        "(locator, marginal heading, date, notes, transcription, translation, each "
-        "separated by a blank line) and the discipline of exact required phrasings. "
-        "The locator line (Page/Entry number) should stay a pure navigation aid, not "
-        "a transcription — number sequentially yourself if your register has no "
-        "entry numbers of its own, or transcribe the register's own numbers if it "
-        "does. The marginal heading, if your register has one, should be a verbatim "
-        "transcription of what's actually written there, not an invented summary — "
-        "omit that block entirely for registers with no separate heading. Update the "
-        "worked examples and any parser-specific wording to match your own register "
-        "and your own downstream tooling."
+        "Answer these questions to define the exact text format the AI must output. "
+        "Choose whether you want a translation at all, and in which language(s) — "
+        "the locator line and block structure below are generated for you from "
+        "that choice and your Section 1 answers."
     ),
 }
 
@@ -3663,48 +3764,235 @@ PROMPT_BUILDER_CORE_RULES = [
 ]
 
 
+PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
+    "battesimi": {
+        "label": "Church Battesimi",
+        "has_marginal_heading_default": True,
+        "marginal_heading_placeholder": "[child's name] filius/filia [father] et [mother] [surname]",
+        "formula_fields": [
+            ("formula_body", "Entry structure - write out the structure used in each entry", "Ego Sac.os D. [CELEBRANT] ... hodie baptizavi infantem ... natum/natam ex [FATHER] et [MOTHER] [SURNAME], cui nomen imposui [CHILD'S NAME]. P.nus/P.na/PP. fuit/fuere [GODPARENT(S)].", False),
+        ],
+        "role_vocab": [
+            "P.nus / Patrinus = godfather (one male)",
+            "P.na / Patrina = godmother (one female)",
+            "PP. / Patrini = two or more godparents",
+            "fuit = singular verb, fuere/fuerunt = plural verb",
+        ],
+    },
+    "matrimoni": {
+        "label": "Church Matrimoni",
+        "has_marginal_heading_default": True,
+        "marginal_heading_placeholder": "[Groom] et [Bride]",
+        "formula_fields": [
+            ("formula_groom", "Groom's formula", "the groom clause: name, then \"filius [Father] et [Mother]\"", False),
+            ("formula_bride", "Bride's formula", "the bride clause: name, then \"filia [Father] et [Mother]\"", False),
+            ("formula_witness", "Witness formula", "how witnesses are introduced, e.g. \"Testes fuerunt [Witness1] et [Witness2]\"", True),
+        ],
+        "role_vocab": [
+            "Testis / Testes = witness(es)",
+            "sponsus = groom",
+            "sponsa = bride",
+        ],
+    },
+    "morti": {
+        "label": "Church Morti",
+        "has_marginal_heading_default": True,
+        "marginal_heading_placeholder": "[deceased's name]",
+        "formula_fields": [
+            ("formula_body", "Entry structure - write out the structure used in each entry", "...obiit [NAME], [AGE] annorum, filius/filia [FATHER] et [MOTHER] ...", False),
+        ],
+        "role_vocab": [
+            "vidua = widow",
+            "viduus = widower",
+            "conjux / uxor = spouse / wife",
+        ],
+    },
+    "civil_birth": {
+        "label": "Civil Birth",
+        "has_marginal_heading_default": False,
+        "marginal_heading_placeholder": "a short name-only note in the margin, if this register has one",
+        "formula_fields": [
+            ("formula_act", "Act formula", "the declaration formula: \"[DECLARANT] presented a child born of [FATHER] and [MOTHER] ... to whom was given the name [CHILD]\"", False),
+        ],
+        "role_vocab": [
+            "Declarant may be the father, a midwife, or another witness",
+            "Grandfather names are sometimes given for both parents",
+        ],
+    },
+    "civil_marriage": {
+        "label": "Civil Marriage",
+        "has_marginal_heading_default": False,
+        "marginal_heading_placeholder": "a short name-only note in the margin, if this register has one",
+        "formula_fields": [
+            ("formula_act", "Act formula", "the declaration formula for the civil marriage act", False),
+        ],
+        "role_vocab": [
+            "Age and occupation are commonly stated for both spouses",
+            "Witnesses are often named in the running text, not a separate column",
+        ],
+    },
+    "civil_death": {
+        "label": "Civil Death",
+        "has_marginal_heading_default": False,
+        "marginal_heading_placeholder": "a short name-only note in the margin, if this register has one",
+        "formula_fields": [
+            ("formula_act", "Act formula", "the declaration formula for the civil death act", False),
+        ],
+        "role_vocab": [
+            "Informant is often a relative or neighbor",
+            "Age and occupation are commonly stated",
+        ],
+    },
+}
+
+# Rendered in a fixed 2-column grid (.pb-checklist-2col, 8 items -> 4 rows).
+# Column width auto-fits the longer label in each column, so nothing here
+# needs a specific position to avoid wrapping -- unlike the earlier 3-column
+# layout this replaced, where "D. = Don / Dominus (courtesy title for clergy
+# and gentry)" had to be placed last to land in the one column wide enough
+# for it.
+PROMPT_BUILDER_COMMON_ABBREVIATIONS = [
+    ("Sac.os", "sacerdos", "priest"),
+    ("Cap.us", "capellanus", "chaplain"),
+    ("Eccl.ae", "ecclesiae", "of the church"),
+    ("Par.lis", "parochialis", "parish (adj.)"),
+    ("S.ti", "Sancti", "of Saint"),
+    ("jug.", "jugales", "married couple"),
+    ("d.ti", "dicti", "of the said"),
+    ("D.", "Don / Dominus", "courtesy title for clergy and gentry"),
+]
+
+PROMPT_BUILDER_SCRIBAL_QUIRKS = [
+    "long ſ is easily mistaken for f",
+    "u and v are not distinguished",
+    "a macron or tilde over a vowel marks an omitted n or m",
+    "doubled consonants are inconsistent",
+    "terminal -us is often a superscript loop",
+]
+
+PROMPT_BUILDER_RELATIVE_DATE_TERMS = [
+    "nudius tertius = day before yesterday",
+    "hodie = today",
+    "hac nocte = last night",
+    "die praeterita = yesterday",
+    "ejusdem = of the same (month)",
+]
+
+PROMPT_BUILDER_RELATIONSHIP_TERMS = [
+    "uxor = wife of",
+    "soror = sister of",
+    "frater = brother of",
+    "filius/filia = son/daughter of",
+]
+
+
+def pb_record_type_options_html() -> str:
+    church = ["battesimi", "matrimoni", "morti"]
+    civil = ["civil_birth", "civil_marriage", "civil_death"]
+
+    def options(keys: list[str]) -> str:
+        return "\n".join(
+            f'          <option value="{key}">{html.escape(PROMPT_BUILDER_RECORD_TYPES[key]["label"])}</option>'
+            for key in keys
+        )
+
+    return (
+        f'<optgroup label="Church Records">\n{options(church)}\n        </optgroup>\n'
+        f'        <optgroup label="Civil Records">\n{options(civil)}\n        </optgroup>'
+    )
+
+
+def pb_info_button_html(panel_id: str, text: str) -> str:
+    # A small "i" button that toggles a popup panel with plain-language help
+    # text -- wired generically in prompt-builder.js (click/Escape/outside-
+    # click to close), so this function only has to emit matching markup.
+    return (
+        f'<span class="pb-info-wrap">'
+        f'<button type="button" class="pb-info-btn" aria-expanded="false" aria-controls="{panel_id}" aria-label="More information">i</button>'
+        f'<span class="pb-info-panel" id="{panel_id}" role="note" hidden>{html.escape(text)}</span>'
+        f'</span>'
+    )
+
+
+def pb_checklist_html(name: str, values: list[str]) -> str:
+    # Everything a checklist offers is a plausible-by-default fact about the
+    # kind of register being described (a common abbreviation, a common
+    # scribal habit...), so every preset starts checked; unchecking one is a
+    # user override, not the normal path.
+    items = [
+        f'<label class="pb-checkbox"><input type="checkbox" name="{name}" value="{html.escape(value)}" checked>{html.escape(value)}</label>'
+        for value in values
+    ]
+    return "\n        ".join(items)
+
+
+def pb_common_abbrev_checklist_html() -> str:
+    items = []
+    for written, expansion, meaning in PROMPT_BUILDER_COMMON_ABBREVIATIONS:
+        value = html.escape(f"{written}|{expansion}|{meaning}")
+        label_text = html.escape(f"{written} = {expansion} ({meaning})")
+        items.append(f'<label class="pb-checkbox"><input type="checkbox" name="commonAbbrev" value="{value}" checked>{label_text}</label>')
+    return "\n        ".join(items)
+
+
+def pb_formula_fields_html(type_key: str, config: dict) -> str:
+    # placeholder here is live, pre-filled textarea content (not a `placeholder`
+    # attribute) -- the user edits the sample formula in place rather than
+    # typing into an empty box.
+    rows = []
+    for key, label, placeholder, optional in config["formula_fields"]:
+        note = " (optional — leave blank if this register has none)" if optional else ""
+        rows.append(
+            f'      <label>{html.escape(label)}{note}\n'
+            f'        <textarea name="{type_key}_{key}" rows="2">{html.escape(placeholder)}</textarea>\n'
+            f'      </label>'
+        )
+    return "\n".join(rows)
+
+
+def pb_section2_type_group_html(type_key: str) -> str:
+    config = PROMPT_BUILDER_RECORD_TYPES[type_key]
+    checked = " checked" if config["has_marginal_heading_default"] else ""
+    formula_hidden = "" if config["has_marginal_heading_default"] else " hidden"
+    marginal_placeholder = html.escape(config["marginal_heading_placeholder"])
+    formula_html = pb_formula_fields_html(type_key, config)
+    role_vocab_html = pb_checklist_html(f"{type_key}_roleVocab", config["role_vocab"])
+    return f"""    <div class="pb-type-group" data-record-type="{type_key}" hidden>
+      <div class="pb-inline-row">
+        <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasMarginalHeading" class="pb-marginal-toggle"{checked}> This register has a separate margin for each entry that states the name</label>{pb_info_button_html(f"pb-info-marginal-{type_key}", "Many church and civil registers write a short note in the margin next to each entry -- often just the name(s) involved -- as a running index down the side of the page. If your register does this, check the box and describe the pattern below, for example \"[child's name] filius/filia [father] et [mother] [surname].\" The AI will transcribe this margin note as its own \"Marginal Heading\" block, kept separate from the entry's main body text -- useful because the two occasionally disagree (a different spelling, a different name order), and both readings are worth preserving.")}
+      </div>
+      <div class="pb-marginal-formula"{formula_hidden}>
+        <label>Marginal heading structure
+          <textarea name="{type_key}_formula_marginalHeading" rows="2">{marginal_placeholder}</textarea>
+        </label>
+      </div>
+{formula_html}
+      <p class="hint">Role-clause vocabulary for {html.escape(config["label"])} (optional){pb_info_button_html(f"pb-info-rolevocab-{type_key}", 'These are the role-specific words this register uses for the people named in an entry -- terms like "P.nus" for a single godfather or "PP." for two or more godparents. Checking a term tells the AI to recognize it and use it correctly when working out who filled which role. Leave a term unchecked if it never appears in your register.')}</p>
+      <div class="pb-checklist pb-checklist-2col">
+        {role_vocab_html}
+      </div>
+    </div>"""
+
+
 def prompt_builder_page(
-    role_context: str | None = None,
-    reference_context: str | None = None,
-    output_format: str | None = None,
     new_profile_name: str = "",
     message: str = "",
     message_kind: str = "",
 ) -> str:
-    template_profile = load_profile(PROMPT_BUILDER_TEMPLATE_ID)
-    template_role = str(template_profile.get("role_context", ""))
-    template_reference = str(template_profile.get("reference_context", ""))
-    template_format = str(template_profile.get("output_format", ""))
-
-    if role_context is None:
-        role_context = template_role
-    if reference_context is None:
-        reference_context = template_reference
-    if output_format is None:
-        output_format = template_format
-
-    escaped_role = html.escape(role_context)
-    escaped_reference = html.escape(reference_context)
-    escaped_format = html.escape(output_format)
     escaped_name = html.escape(new_profile_name)
-
-    role_words = len(role_context.split())
-    reference_words = len(reference_context.split())
-    format_words = len(output_format.split())
 
     banner_html = ""
     if message:
         banner_class = "pb-banner-success" if message_kind == "success" else "pb-banner-error"
         banner_html = f'<div class="pb-banner {banner_class}" role="status">{html.escape(message)}</div>'
 
-    template_json = json.dumps(
-        {
-            "role_context": template_role,
-            "reference_context": template_reference,
-            "output_format": template_format,
-        }
-    ).replace("</", "<\\/")
     core_rules_json = json.dumps(PROMPT_BUILDER_CORE_RULES).replace("</", "<\\/")
+    record_type_options = pb_record_type_options_html()
+    section2_type_groups = "\n".join(pb_section2_type_group_html(key) for key in PROMPT_BUILDER_RECORD_TYPES)
+    relative_date_checklist = pb_checklist_html("relativeDateTerms", PROMPT_BUILDER_RELATIVE_DATE_TERMS)
+    relationship_checklist = pb_checklist_html("relationshipTerms", PROMPT_BUILDER_RELATIONSHIP_TERMS)
+    scribal_checklist = pb_checklist_html("scribalQuirks", PROMPT_BUILDER_SCRIBAL_QUIRKS)
+    common_abbrev_checklist = pb_common_abbrev_checklist_html()
 
     return f"""<!doctype html>
 <html lang="en">
@@ -3712,6 +4000,7 @@ def prompt_builder_page(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Prompt Builder</title>
+  <script src="/static/i18n.js" defer></script>
   <style>
     :root {{
       color-scheme: light dark;
@@ -3730,7 +4019,7 @@ def prompt_builder_page(
     }}
     h1 {{
       margin: 0;
-      font-size: 28px;
+      font-size: 26px;
     }}
     .site-header {{
       display: flex;
@@ -3816,7 +4105,7 @@ def prompt_builder_page(
     .skip-link:focus {{
       top: 0;
     }}
-    input[type="text"], textarea {{
+    input[type="text"], textarea, select {{
       box-sizing: border-box;
       width: 100%;
       margin-top: 6px;
@@ -3828,7 +4117,7 @@ def prompt_builder_page(
       color: #1f2933;
     }}
     textarea {{
-      min-height: 260px;
+      min-height: 70px;
       resize: vertical;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 13px;
@@ -3841,7 +4130,6 @@ def prompt_builder_page(
       font-weight: 400;
     }}
     button {{
-      margin-top: 18px;
       padding: 10px 14px;
       border: 0;
       border-radius: 6px;
@@ -3858,6 +4146,10 @@ def prompt_builder_page(
       outline: 3px solid rgba(37, 92, 153, 0.32);
       outline-offset: 2px;
     }}
+    button:disabled {{
+      background: #8d99a6;
+      cursor: not-allowed;
+    }}
     #pb-save-button {{
       background: #22863a;
     }}
@@ -3865,8 +4157,13 @@ def prompt_builder_page(
       background: #176f2c;
       filter: none;
     }}
-    .button-secondary {{
+    .button-secondary, .button-tiny {{
       background: #53616f;
+    }}
+    .button-tiny {{
+      padding: 6px 10px;
+      font-size: 13px;
+      margin-top: 8px;
     }}
     .panel-title {{
       margin: 0 0 10px;
@@ -3876,6 +4173,36 @@ def prompt_builder_page(
       margin: 0;
       color: #5f6b76;
       font-size: 13px;
+    }}
+    .byline-row {{
+      display: flex;
+      align-items: center;
+      gap: 0 8px;
+      flex-wrap: wrap;
+    }}
+    .lang-toggle {{
+      display: inline-flex;
+      gap: 4px;
+    }}
+    .lang-flag {{
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      padding: 1px 4px;
+      font-size: 15px;
+      line-height: 1.3;
+      cursor: pointer;
+    }}
+    .lang-flag[aria-pressed="true"] {{
+      border-color: #255c99;
+      background: #eef4fb;
+    }}
+    .lang-flag:hover {{
+      background: #eef4fb;
+    }}
+    .lang-flag:focus-visible {{
+      outline: 3px solid #255c99;
+      outline-offset: 1px;
     }}
     .license {{
       margin: 8px 0 0;
@@ -3960,6 +4287,161 @@ def prompt_builder_page(
       color: #3d4852;
       font-size: 13px;
     }}
+    .pb-field-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0 16px;
+    }}
+    .pb-checklist {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 2px 16px;
+      margin-top: 6px;
+    }}
+    .pb-checklist-tight {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 18px;
+    }}
+    .pb-checklist-2col {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(max-content, 1fr));
+      column-gap: 24px;
+      row-gap: 2px;
+    }}
+    .pb-checklist-2col .pb-checkbox {{
+      white-space: nowrap;
+    }}
+    .pb-checkbox {{
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-weight: 400;
+      margin-top: 6px;
+    }}
+    .pb-inline-row {{
+      display: flex;
+      align-items: center;
+    }}
+    .pb-inline-row .pb-checkbox {{
+      flex: 0 0 auto;
+    }}
+    .pb-checkbox input[type="checkbox"] {{
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      min-width: 16px;
+      margin: 0;
+      border: 1.5px solid #8a8377;
+      border-radius: 3px;
+      background: #fff;
+      position: relative;
+      cursor: pointer;
+    }}
+    .pb-checkbox input[type="checkbox"]:checked {{
+      border-color: #255c99;
+    }}
+    .pb-checkbox input[type="checkbox"]:checked::after {{
+      content: "";
+      position: absolute;
+      left: 4px;
+      top: 0px;
+      width: 4px;
+      height: 8px;
+      border: solid #255c99;
+      border-width: 0 2px 2px 0;
+      transform: rotate(40deg);
+    }}
+    .pb-checkbox input[type="checkbox"]:focus-visible {{
+      outline: 3px solid rgba(37, 92, 153, 0.32);
+      outline-offset: 2px;
+    }}
+    .pb-info-wrap {{
+      position: relative;
+      display: inline-block;
+      margin-left: 6px;
+      vertical-align: middle;
+    }}
+    .pb-info-btn {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border-radius: 50%;
+      background: #5f6b76;
+      color: #fff;
+      font-size: 12px;
+      font-style: italic;
+      font-family: Georgia, "Times New Roman", serif;
+      line-height: 1;
+      vertical-align: middle;
+    }}
+    .pb-info-btn:hover {{
+      background: #45505a;
+    }}
+    .pb-info-panel {{
+      position: absolute;
+      z-index: 20;
+      top: 24px;
+      left: 0;
+      width: max-content;
+      max-width: 320px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #1f2933;
+      color: #eef2f6;
+      font-size: 12.5px;
+      font-weight: 400;
+      line-height: 1.45;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    }}
+    .pb-type-group {{
+      border-top: 1px dashed #d9d4c8;
+      padding-top: 10px;
+      margin-top: 10px;
+    }}
+    .pb-marginal-formula {{
+      margin: 4px 0 10px 23px;
+    }}
+    .pb-row {{
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 8px;
+      align-items: start;
+      margin-top: 8px;
+    }}
+    .pb-row label {{
+      margin-top: 0;
+      font-weight: 400;
+      font-size: 13px;
+    }}
+    #pb-abbrev-rows .pb-row {{
+      grid-template-columns: 1fr 1fr 1fr auto;
+    }}
+    .pb-row-simple {{
+      grid-template-columns: 1fr auto;
+    }}
+    .pb-row-remove {{
+      margin-top: 22px;
+      background: #8a2c1d;
+      flex: 0 0 auto;
+    }}
+    .pb-preview {{
+      min-height: 90px;
+      max-height: 260px;
+      overflow: auto;
+      white-space: pre-wrap;
+      background: #15191f;
+      color: #e8edf2;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+    }}
     #pb-preview-content {{
       min-height: 150px;
       max-height: 420px;
@@ -3979,81 +4461,20 @@ def prompt_builder_page(
         padding-top: 20px;
       }}
       .site-header {{ align-items: stretch; }}
+      .pb-row, #pb-abbrev-rows .pb-row {{ grid-template-columns: 1fr; }}
+      .pb-row-remove {{ margin-top: 4px; }}
+      .pb-checklist-2col {{ grid-template-columns: 1fr; }}
+      .pb-checklist-2col .pb-checkbox {{ white-space: normal; }}
+      .pb-info-panel {{ max-width: calc(100vw - 60px); }}
     }}
     @media (max-width: 520px) {{
       .site-header {{ flex-direction: column; }}
     }}
   </style>
   <script>
-    const PB_TEMPLATE = {template_json};
-    const PB_CORE_RULES = {core_rules_json};
-    const PB_DEFAULT_ROLE = "You are an expert paleographer and historian specializing in handwritten archival records. Use only the user-supplied local reference material and what is visible in the source image; do not rely on assumptions from any unrelated locality.";
-    const PB_DEFAULT_FORMAT = "Italian Transcription:\\n[Continuous, source-faithful transcription.]\\n\\nEnglish Translation:\\n[Faithful English translation.]";
-
-    function pbWordCount(text) {{
-      const trimmed = (text || "").trim();
-      return trimmed ? trimmed.split(/\\s+/).length : 0;
-    }}
-
-    function pbUpdateCounts() {{
-      document.getElementById("wc-role_context").textContent = pbWordCount(document.querySelector('[name="role_context"]').value) + " words";
-      document.getElementById("wc-reference_context").textContent = pbWordCount(document.querySelector('[name="reference_context"]').value) + " words";
-      document.getElementById("wc-output_format").textContent = pbWordCount(document.querySelector('[name="output_format"]').value) + " words";
-    }}
-
-    function pbAssembleFullPrompt(role, reference, format) {{
-      const roleText = role.trim() ? role : PB_DEFAULT_ROLE;
-      const formatText = format.trim() ? format : PB_DEFAULT_FORMAT;
-      const rules = PB_CORE_RULES.map(function (r) {{ return "- " + r; }}).join("\\n");
-      let scaffold = "# ROLE AND LOCAL CONTEXT\\n" + roleText + "\\n\\n# CORE TRANSCRIPTION RULES\\n" + rules + "\\n\\n# OUTPUT FORMAT\\n" + formatText;
-      const sections = [scaffold];
-      if (reference.trim()) {{
-        sections.push(
-          "# USER-SUPPLIED GROUND TRUTH AND REFERENCE MATERIAL\\n" +
-          "Use the following material as the primary local knowledge base for this run. " +
-          "It may include JSON dictionaries, names, places, formulas, abbreviations, sample " +
-          "transcriptions/translations, or other ground-truth notes. Do not invent content " +
-          "from this reference; use it only to resolve or constrain readings visible in the source image.\\n\\n" +
-          "```text\\n" + reference + "\\n```"
-        );
-      }}
-      return sections.join("\\n\\n");
-    }}
-
-    function pbUpdatePreview() {{
-      const role = document.querySelector('[name="role_context"]').value;
-      const reference = document.querySelector('[name="reference_context"]').value;
-      const format = document.querySelector('[name="output_format"]').value;
-      document.getElementById("pb-preview-content").textContent = pbAssembleFullPrompt(role, reference, format);
-    }}
-
-    function pbRefresh() {{
-      pbUpdateCounts();
-      pbUpdatePreview();
-    }}
-
-    function pbResetToTemplate() {{
-      if (!confirm("Reset all three sections back to the template? This discards your current edits.")) return;
-      document.querySelector('[name="role_context"]').value = PB_TEMPLATE.role_context || "";
-      document.querySelector('[name="reference_context"]').value = PB_TEMPLATE.reference_context || "";
-      document.querySelector('[name="output_format"]').value = PB_TEMPLATE.output_format || "";
-      pbRefresh();
-    }}
-
-    function pbSetAllOpen(open) {{
-      document.querySelectorAll("details.pb-section").forEach(function (d) {{ d.open = open; }});
-    }}
-
-    document.addEventListener("DOMContentLoaded", function () {{
-      ["role_context", "reference_context", "output_format"].forEach(function (name) {{
-        document.querySelector('[name="' + name + '"]').addEventListener("input", pbRefresh);
-      }});
-      document.getElementById("pb-expand-all").addEventListener("click", function () {{ pbSetAllOpen(true); }});
-      document.getElementById("pb-collapse-all").addEventListener("click", function () {{ pbSetAllOpen(false); }});
-      document.getElementById("pb-reset-template").addEventListener("click", pbResetToTemplate);
-      pbRefresh();
-    }});
+    window.PB_CORE_RULES = {core_rules_json};
   </script>
+  <script src="/static/prompt-builder.js" defer></script>
   </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -4061,7 +4482,13 @@ def prompt_builder_page(
   <header class="site-header">
     <div class="site-heading">
       <h1>Prompt Builder</h1>
-      <p class="byline">Created by Steve Covello, 2026</p>
+      <div class="byline-row">
+        <p class="byline">Created by Steve Covello, 2026</p>
+        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+        </div>
+      </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
       <a class="nav-link" href="/">Transcribe</a>
@@ -4070,54 +4497,198 @@ def prompt_builder_page(
       <a class="nav-link" href="/prompt-builder" aria-current="page">Prompt Builder</a>
     </nav>
   </header>
-  <p class="hint">Starts you from a template built from our most refined profile, split into the same three parts every profile uses. Edit the parts that describe your own project — each section below says what to change and what to leave alone — then save it as a new profile. It becomes available on the Transcribe and Test Mode pages after you reload those tabs (they load the profile list once, when the page opens).</p>
+  <p class="hint">Pick from presets below to describe your register. The app assembles a complete transcription profile from your answers. It becomes available on the Transcribe and Test Mode pages, but you must reload those pages first before they will appear.</p>
   {banner_html}
-  <form method="post" action="/prompt-builder/save-profile">
+  <form method="post" action="/prompt-builder/save-profile" id="pb-questionnaire-form">
+    <input type="hidden" name="role_context">
+    <input type="hidden" name="reference_context">
+    <input type="hidden" name="output_format">
     <div class="pb-toolbar">
       <button type="button" id="pb-expand-all" class="button-secondary">Expand all</button>
       <button type="button" id="pb-collapse-all" class="button-secondary">Collapse all</button>
-      <button type="button" id="pb-reset-template" class="button-secondary">Reset to template</button>
+      <button type="button" id="pb-reset-form" class="button-secondary">Reset form</button>
     </div>
 
     <details class="pb-section" open>
       <summary>
-        <span class="pb-summary-text">1. Role &amp; Style</span>
-        <span class="pb-word-count" id="wc-role_context">{role_words} words</span>
+        <span class="pb-summary-text">1. Role &amp; Local Context</span>
+        <span class="pb-word-count" id="wc-role_context">0 words</span>
       </summary>
       <p class="pb-section-caption">{PROMPT_BUILDER_SECTION_HELP["role_context"]}</p>
-      <textarea name="role_context" spellcheck="false">{escaped_role}</textarea>
+
+      <div class="pb-field-grid">
+        <label>Record type
+          <select name="recordType">
+            {record_type_options}
+          </select>
+        </label>
+
+        <label>Source language
+          <select name="language">
+            <option value="Latin">Latin</option>
+            <option value="Italian">Italian</option>
+            <option value="Latin and Italian mixed">Latin and Italian mixed</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="pb-field-grid">
+        <label>Era
+          <input type="text" name="era" placeholder="e.g. 18th-century">
+        </label>
+        <label>Locality
+          <input type="text" name="locality" placeholder="e.g. Chiusa Sclafani">
+        </label>
+        <label>Province / region
+          <input type="text" name="province" placeholder="e.g. province of Palermo, Sicily">
+        </label>
+        <label>Institution name
+          <input type="text" name="institution" placeholder="e.g. the parish church of San Nicolò di Bari">
+        </label>
+        <label>Volume / date range covered
+          <input type="text" name="volumeRange" placeholder="e.g. 1752-1759">
+        </label>
+        <label>Hand / script descriptor (optional)
+          <input type="text" name="handDescriptor" placeholder="e.g. Sicilian ecclesiastical chancery hand">
+        </label>
+      </div>
+
+      <div class="pb-field-grid">
+        <label>Page layout
+          <select name="pageLayout">
+            <option value="one_page">One page per image</option>
+            <option value="two_facing" selected>Two facing pages, read left then right</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+
+        <label>Page-numbering scheme
+          <select name="pageNumberScheme">
+            <option value="none">No page numbers</option>
+            <option value="one_per_image">One number per image</option>
+            <option value="two_per_image" selected>Two numbers, one per facing page</option>
+            <option value="native_acts">Register has its own act/entry numbers</option>
+          </select>
+        </label>
+      </div>
+      <div id="pb-page-number-corner-row">
+        <label>Where are the page numbers?
+          <input type="text" name="pageNumberCorner" placeholder="e.g. upper corner, left page's number upper-left, right page's upper-right">
+        </label>
+      </div>
+
+      <div class="pb-inline-row">
+        <label class="pb-checkbox"><input type="checkbox" name="latinDeclension" checked> Include Latin grammatical case-declension guidance</label>{pb_info_button_html("pb-info-declension", 'Latin nouns and names change their ending depending on their grammatical role in the sentence -- this is called declension. The same person can appear in more than one form within a single entry: Franciscus (nominative, as the subject), Francisci (genitive, "of Francis"), Francisco (dative/ablative, "to/from Francis"). This is not a spelling error or an inconsistency to fix -- each form is correct for its context. Turning this on adds guidance so the AI recognizes these variants as the same name and transcribes each form exactly as written, instead of "normalizing" one to match another.')}
+      </div>
+
+      <div class="pb-field-grid">
+        <label>Month-abbreviation convention
+          <select name="monthConvention">
+            <option value="latin_march" selected>Latin March-counting (7bris-10bris)</option>
+            <option value="standard">Standard month names</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+
+        <label>Hour convention
+          <select name="hourConvention">
+            <option value="italian_hours" selected>Italian hours, counted from sunset</option>
+            <option value="clock_time">Standard clock time</option>
+            <option value="not_applicable">Not applicable</option>
+          </select>
+        </label>
+      </div>
+
+      <p class="hint">Relative-date vocabulary</p>
+      <div class="pb-checklist pb-checklist-2col">
+        {relative_date_checklist}
+      </div>
+      <div id="pb-relativedate-rows"></div>
+      <button type="button" id="pb-add-relativedate" class="button-tiny">Add another term</button>
     </details>
 
     <details class="pb-section">
       <summary>
         <span class="pb-summary-text">2. Reference Material</span>
-        <span class="pb-word-count" id="wc-reference_context">{reference_words} words</span>
+        <span class="pb-word-count" id="wc-reference_context">0 words</span>
       </summary>
       <p class="pb-section-caption">{PROMPT_BUILDER_SECTION_HELP["reference_context"]}</p>
-      <textarea name="reference_context" spellcheck="false">{escaped_reference}</textarea>
+
+{section2_type_groups}
+
+      <p class="hint">Entry variants (optional) — e.g. an emergency or conditional variant of the standard formula</p>
+      <div id="pb-variant-rows"></div>
+      <button type="button" id="pb-add-variant" class="button-tiny">Add a variant</button>
+
+      <p class="hint">Relationship-note vocabulary</p>
+      <div class="pb-checklist">
+        {relationship_checklist}
+      </div>
+      <div id="pb-relationship-rows"></div>
+      <button type="button" id="pb-add-relationship" class="button-tiny">Add another term</button>
+
+      <p class="hint">Abbreviation key — common terms (toggle on what applies)</p>
+      <div class="pb-checklist pb-checklist-2col">
+        {common_abbrev_checklist}
+      </div>
+      <div id="pb-abbrev-rows"></div>
+      <button type="button" id="pb-add-abbrev" class="button-tiny">Add an abbreviation</button>
+
+      <p class="hint">Scribal / paleographic quirks{pb_info_button_html("pb-info-scribal", 'Paleographic quirks are common habits of a scribe\'s handwriting that can look like errors but are not -- things like a long ſ that resembles an f, or a macron over a vowel marking a dropped letter. Checking these tells the AI what to expect from this hand, so it does not misread a normal scribal habit as an unfamiliar name or a typo.')}</p>
+      <div class="pb-checklist pb-checklist-2col">
+        {scribal_checklist}
+      </div>
+      <div id="pb-scribal-rows"></div>
+      <button type="button" id="pb-add-scribal" class="button-tiny">Add another quirk</button>
+
+      <label class="pb-checkbox"><input type="checkbox" name="surnameParticleRule" checked> Apply the standard Italian surname-particle rule (de/di/d'/lo/la/le/li stay with the surname, never normalized)</label>
+
+      <label><span>Name lexicon{pb_info_button_html("pb-info-lexicon", "Adding a lexicon greatly increases the likelihood that the AI system will bias towards a correct identification of a name.")}</span>
+        <textarea name="nameLexicon" rows="4" placeholder="Paste known family names and given names - either as &quot;Given Surname&quot; or &quot;Surname, Given name&quot;"></textarea>
+      </label>
     </details>
 
     <details class="pb-section">
       <summary>
         <span class="pb-summary-text">3. Output Format</span>
-        <span class="pb-word-count" id="wc-output_format">{format_words} words</span>
+        <span class="pb-word-count" id="wc-output_format">0 words</span>
       </summary>
       <p class="pb-section-caption">{PROMPT_BUILDER_SECTION_HELP["output_format"]}</p>
-      <textarea name="output_format" spellcheck="false">{escaped_format}</textarea>
+
+      <p class="hint">Translation is optional — leave both unchecked for a transcription-only output with no translation at all</p>
+      <div class="pb-checklist pb-checklist-tight">
+        <label class="pb-checkbox"><input type="checkbox" name="translateEnglish" value="English">English</label>
+        <label class="pb-checkbox"><input type="checkbox" name="translateItalian" value="Italian">Italian</label>
+      </div>
+
+      <div id="pb-honorifics-section">
+        <p class="hint">Honorifics kept inside a role clause — everything else moves to Notes{pb_info_button_html("pb-info-honorifics", 'This is about how a person\'s title gets written in a translation when they\'re named in a role -- a godparent, a witness, an informant. A "role clause" is the little phrase that introduces that person (e.g. "The godfather was Don Carolus Calsi").')}</p>
+        <div class="pb-checklist pb-checklist-tight">
+          <label class="pb-checkbox"><input type="checkbox" name="honorifics" value="Don" checked>Don</label>
+          <label class="pb-checkbox"><input type="checkbox" name="honorifics" value="Master" checked>Master</label>
+        </div>
+        <div id="pb-honorific-rows"></div>
+        <button type="button" id="pb-add-honorific" class="button-tiny">Add another honorific</button>
+      </div>
+
+      <div class="pb-inline-row">
+        <label class="pb-checkbox"><input type="checkbox" name="confidenceRationale" checked> Require a stated confidence rating with a one-line rationale in Notes</label>{pb_info_button_html("pb-info-confidence", 'Adds a rule requiring every entry\'s Notes to state a confidence level -- High, Medium, or Low -- with a one-line reason, for example "Medium: surname legible but ink-faded." This gives you a fast way to spot entries worth a second look without re-reading every transcription line by line.')}
+      </div>
     </details>
 
     <details class="pb-section">
       <summary>
         <span class="pb-summary-text">Full prompt preview</span>
-        <span class="pb-word-count">as sent to Gemini</span>
+        <span class="pb-word-count">as sent to the model</span>
       </summary>
       <p class="pb-section-caption">Read-only. This is the three sections above assembled exactly the way the app builds the real system prompt — including the fixed rules and headers it adds automatically — so you can see what the AI actually receives.</p>
       <pre id="pb-preview-content"></pre>
     </details>
 
     <label>Save this as a new profile
-      <input type="text" name="new_profile_name" value="{escaped_name}" placeholder="e.g. Caiazzo Battesimi 1780s" autocomplete="off">
-      <p class="hint">Creates a new profile file; it never overwrites the template.</p>
+      <input type="text" name="new_profile_name" value="{escaped_name}" placeholder="e.g. Caiazzo Battesimi 1780s" autocomplete="off" required>
+      <p class="hint">Creates a new profile file; it never overwrites another profile.</p>
     </label>
     <button id="pb-save-button" type="submit">Save Profile</button>
   </form>
@@ -4535,17 +5106,21 @@ def run_job(form: FormData, output_file: Path) -> None:
 
 def run_test_job(
     form: FormData,
-    run_specs: list[tuple[str, str, str, Path, Path]],
+    run_specs: list[tuple[str, str, str, str, Path, Path]],
 ) -> None:
     """Run every queued (batch, model) pair's full image batch, one after another.
 
-    run_specs is (run_id, label, model, markdown_file, output_file). Each
-    iteration is an independent run_batch() call: its own TranscriptionConfig,
-    its own markdown/docx output files, and its own fresh Gemini client
-    (created inside run_batch via make_client). Nothing from one run — its
-    output text, its log, anything — is read back into another run's prompt
-    or config, so every run in the queue is unaffected by whatever the others
-    produced, no matter how many pairs are queued.
+    run_specs is (run_id, label, model, api_key, markdown_file, output_file).
+    Each entry already carries the API key for its own model slot (Model A's
+    key for every "-a" run, Model B's key for every "-b" run — see run_test()
+    below) so a queue that mixes Gemini and Claude pairs still sends each run
+    to the right provider with the right key. Each iteration is an
+    independent run_batch() call: its own TranscriptionConfig, its own
+    markdown/docx output files, and its own fresh client (created inside
+    run_batch via make_client). Nothing from one run — its output text, its
+    log, anything — is read back into another run's prompt or config, so
+    every run in the queue is unaffected by whatever the others produced, no
+    matter how many pairs are queued.
     """
     try:
         image_folder = load_source_folder()
@@ -4561,10 +5136,9 @@ def run_test_job(
         source_count = preflight_source_file_type(image_folder, file_type)
         add_test_log(f"Found {source_count} {file_type_display(file_type)} source file(s) for this run.")
 
-        api_key_value = pasted_value(form, "gemini_api_key") or None
         reverse_order = form.getfirst("order", "oldest") != "oldest"
 
-        for run_id, label, model, markdown_file, output_file in run_specs:
+        for run_id, label, model, api_key_value, markdown_file, output_file in run_specs:
             if test_stop_event.is_set():
                 add_test_log(f"Stopped before {label} started.")
                 break
@@ -4573,9 +5147,9 @@ def run_test_job(
                 test_state["current_run_id"] = run_id
 
             tag = f"[{label}: {model}]"
-            add_test_log(f"{tag} Checking Gemini API key before starting image processing...")
+            add_test_log(f"{tag} Checking API key before starting image processing...")
             validate_api_key(PROJECT_DIR, model, api_key_value)
-            add_test_log(f"{tag} Gemini API key validated. Starting run.")
+            add_test_log(f"{tag} API key validated. Starting run.")
 
             config = TranscriptionConfig(
                 image_folder=image_folder,
@@ -4639,6 +5213,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path.startswith("/xls-conversion/"):
             self.serve_xls_asset(parsed.path.removeprefix("/xls-conversion/"))
+            return
+
+        if parsed.path.startswith("/static/"):
+            self.serve_static_asset(parsed.path.removeprefix("/static/"))
             return
 
         if parsed.path == "/status":
@@ -4855,7 +5433,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = parse_json_body(self)
             model = str(payload.get("model", "") or "")
             if model not in MODELS:
-                raise RuntimeError("Select a Gemini model before converting.")
+                raise RuntimeError("Select a model before converting.")
             api_key_value = str(payload.get("gemini_api_key", "") or "").strip()
             if not api_key_value:
                 raise RuntimeError("Paste a Gemini API key before converting.")
@@ -4888,7 +5466,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = parse_json_body(self)
             model = str(payload.get("model", "") or "")
             if model not in MODELS:
-                raise RuntimeError("Select a Gemini model before running preflight.")
+                raise RuntimeError("Select a model before running preflight.")
             api_key_value = str(payload.get("gemini_api_key", "") or "").strip()
             if not api_key_value:
                 raise RuntimeError("Paste a Gemini API key before running preflight.")
@@ -4929,6 +5507,39 @@ class Handler(BaseHTTPRequestHandler):
 
         content_types = {
             ".html": "text/html; charset=utf-8",
+            ".js": "text/javascript; charset=utf-8",
+            ".css": "text/css; charset=utf-8",
+        }
+        content_type = content_types.get(path.suffix.lower())
+        if not content_type:
+            self.send_error(404)
+            return
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def serve_static_asset(self, relative_path: str) -> None:
+        relative = Path(relative_path or "")
+        if not relative_path or relative.is_absolute() or ".." in relative.parts:
+            self.send_error(404)
+            return
+
+        path = (STATIC_DIR / relative).resolve()
+        try:
+            path.relative_to(STATIC_DIR.resolve())
+        except ValueError:
+            self.send_error(404)
+            return
+
+        if not path.is_file():
+            self.send_error(404)
+            return
+
+        content_types = {
             ".js": "text/javascript; charset=utf-8",
             ".css": "text/css; charset=utf-8",
         }
@@ -5010,9 +5621,6 @@ class Handler(BaseHTTPRequestHandler):
             )
             self.respond(
                 prompt_builder_page(
-                    role_context=profile.get("role_context", ""),
-                    reference_context=profile.get("reference_context", ""),
-                    output_format=profile.get("output_format", ""),
                     new_profile_name="",
                     message=message,
                     message_kind="success",
@@ -5021,9 +5629,6 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self.respond(
                 prompt_builder_page(
-                    role_context=role_context,
-                    reference_context=reference_context,
-                    output_format=output_format,
                     new_profile_name=new_profile_name,
                     message=f"Could not save: {exc}",
                     message_kind="error",
@@ -5127,12 +5732,24 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             form = parse_post_form(self)
-            api_key_value = pasted_value(form, "gemini_api_key")
-            if not api_key_value:
-                raise RuntimeError("Paste a Gemini API key before running transcription.")
+            api_key_a = pasted_value(form, "api_key_a")
+            api_key_b = pasted_value(form, "api_key_b")
+            if not api_key_a or not api_key_b:
+                raise RuntimeError("Paste an API key for both Model A and Model B before running.")
             file_type = selected_file_type(form)
             preflight_source_file_type(load_source_folder(), file_type)
             batches = resolve_run_batches(form)
+            for batch in batches:
+                if not key_matches_provider(batch["model_a"], api_key_a):
+                    provider = provider_for_model(batch["model_a"]).capitalize()
+                    raise RuntimeError(
+                        f"\"{batch['label']}\": the Model A API key doesn't look like a {provider} key."
+                    )
+                if not key_matches_provider(batch["model_b"], api_key_b):
+                    provider = provider_for_model(batch["model_b"]).capitalize()
+                    raise RuntimeError(
+                        f"\"{batch['label']}\": the Model B API key doesn't look like a {provider} key."
+                    )
             profile = resolve_profile_for_run(form)
             profile_id = profile["id"]
             save_selected_profile_id(profile_id)
@@ -5148,15 +5765,18 @@ class Handler(BaseHTTPRequestHandler):
             order = "oldest"
 
         stem = output_stem()
-        run_specs: list[tuple[str, str, str, Path, Path]] = []
+        run_specs: list[tuple[str, str, str, str, Path, Path]] = []
         runs_init: dict[str, dict[str, str]] = {}
         for batch in batches:
-            for slot, model in (("a", batch["model_a"]), ("b", batch["model_b"])):
+            for slot, model, api_key_value in (
+                ("a", batch["model_a"], api_key_a),
+                ("b", batch["model_b"], api_key_b),
+            ):
                 run_id = f"{batch['batch_id']}-{slot}"
                 label = f"{batch['label']} · Model {slot.upper()}"
                 output_file = test_destination_output_file(profile_id, run_id, model, stem)
                 markdown_file = PROJECT_DIR / "outputs" / f"{output_file.stem}.md"
-                run_specs.append((run_id, label, model, markdown_file, output_file))
+                run_specs.append((run_id, label, model, api_key_value, markdown_file, output_file))
                 run_state = new_test_run_state()
                 run_state.update(
                     {

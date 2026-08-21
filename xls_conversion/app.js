@@ -1,11 +1,14 @@
 (function () {
   const LABELS = {
-    battesimi: "battesimi",
-    matrimoni: "matrimoni",
-    morti: "morti",
+    battesimi: "Church Battesimi",
+    matrimoni: "Church Matrimoni",
+    morti: "Church Morti",
+    civil_birth: "Civil Birth",
+    civil_marriage: "Civil Marriage",
+    civil_death: "Civil Death",
   };
 
-  const AI_READY = new Set(["battesimi"]);
+  const AI_READY = new Set(["battesimi", "matrimoni", "morti", "civil_birth", "civil_marriage", "civil_death"]);
 
   let sourceFilename = "";
   let sourceText = "";
@@ -29,11 +32,10 @@
   const outputPanel = document.getElementById("outputPanel");
   const downloadButton = document.getElementById("downloadButton");
   const downloadCsvButton = document.getElementById("downloadCsvButton");
+  const recordType = document.getElementById("recordType");
 
   sourceFile.addEventListener("change", uploadSource);
-  document.querySelectorAll('[name="recordType"]').forEach((input) => {
-    input.addEventListener("change", handleSettingsChange);
-  });
+  recordType.addEventListener("change", handleSettingsChange);
   imageRange.addEventListener("input", handleSettingsChange);
   geminiModel.addEventListener("change", handleSettingsChange);
   geminiApiKey.addEventListener("input", handleApiKeyInput);
@@ -45,7 +47,7 @@
   downloadCsvButton.addEventListener("click", () => downloadOutput("csv"));
 
   function selectedRecordType() {
-    return document.querySelector('[name="recordType"]:checked').value;
+    return recordType.value;
   }
 
   async function uploadSource() {
@@ -357,7 +359,7 @@
 
   function reset() {
     sourceFile.value = "";
-    document.querySelector('[name="recordType"][value="battesimi"]').checked = true;
+    recordType.value = "battesimi";
     imageRange.value = "";
     geminiModel.value = "gemini-3.6-flash";
     geminiApiKey.value = "";

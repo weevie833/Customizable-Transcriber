@@ -945,6 +945,20 @@ def call_gemini_json(
         "max_output_tokens": 8192,
         "temperature": 0,
     }
+    # Gemini 3.x models think by default, with no cap unless one is set here --
+    # for a "Pro" reasoning-tier model that can burn a very long time (and a
+    # good chunk of the 8192-token output budget) reasoning before it ever
+    # emits the JSON, on every sequential per-image-block call this function
+    # makes (see parse_generic()'s loop). This is a structured-extraction pass
+    # over text the model has already read, not a hard reasoning problem, so
+    # MEDIUM keeps real reasoning capacity for genuinely ambiguous fields
+    # without the unbounded default's runaway latency. Only 3.x exposes
+    # thinking_level -- 2.5-series models use a token-count thinking_budget
+    # instead, so this deliberately leaves gemini-2.5-pro untouched rather
+    # than guessing at an equivalent budget for a model that wasn't reported
+    # as slow.
+    if model.startswith("gemini-3") and hasattr(types, "ThinkingConfig"):
+        config_options["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MEDIUM)
     started = time.monotonic()
     try:
         response = client.models.generate_content(

@@ -469,10 +469,6 @@
     }
 
     var notesLines = ["Notes carries everything the other blocks cannot: scribal errors, conflicting dates, marginalia, your confidence when a reading is weak, and any disagreement between blocks."];
-    var confidence = document.querySelector('[name="confidenceRationale"]');
-    if (confidence && confidence.checked) {
-      notesLines.push("State an explicit confidence rating -- `Confidence: High/Medium/Low` -- with a one-line rationale whenever a reading rests on inference rather than directly on the letterforms.");
-    }
     parts.push("# NOTES\n\n" + notesLines.join(" "));
 
     var checklist = ["# FINAL CHECK BEFORE YOU OUTPUT", "",
@@ -646,7 +642,7 @@
   }
 
   function addVariantRow() {
-    addRow(
+    return addRow(
       "pb-variant-rows",
       '<input type="text" class="pb-variant-name" placeholder="Variant name, e.g. emergency home baptism">' +
       '<input type="text" class="pb-variant-markers" placeholder="Marker phrases that identify it">'
@@ -654,7 +650,7 @@
   }
 
   function addAbbrevRow() {
-    addRow(
+    return addRow(
       "pb-abbrev-rows",
       '<input type="text" class="pb-abbrev-written" placeholder="Written, e.g. Sac.os">' +
       '<input type="text" class="pb-abbrev-expansion" placeholder="Expansion">' +
@@ -663,13 +659,161 @@
   }
 
   function addSimpleRow(containerId, placeholder) {
-    addRow(containerId, '<input type="text" class="pb-simple-value" placeholder="' + placeholder + '">', "pb-row-simple");
+    return addRow(containerId, '<input type="text" class="pb-simple-value" placeholder="' + placeholder + '">', "pb-row-simple");
+  }
+
+  // ---- Load an existing profile back into the questionnaire ----
+  //
+  // save_prompt_builder_profile() on the server writes every field this
+  // form knows about into pb_answers (see pbSerializeAnswers below) for any
+  // profile saved from this page. Loading one back just replays that
+  // snapshot into the form -- it never tries to parse the assembled prose,
+  // which is a one-way, lossy operation the rest of this app has always
+  // deliberately avoided (see CLAUDE.md's Prompt Builder notes).
+  //
+  // Repeatable rows (variants, abbreviations, and the four simple-value
+  // lists) carry no `name` attribute -- they're read positionally via
+  // pbRows()/pbSimpleValues() elsewhere in this file -- so they're captured
+  // and restored separately from the plain named fields below.
+  var PB_ROW_CONTAINERS = {
+    "pb-variant-rows": { classNames: ["pb-variant-name", "pb-variant-markers"], build: addVariantRow },
+    "pb-abbrev-rows": { classNames: ["pb-abbrev-written", "pb-abbrev-expansion", "pb-abbrev-meaning"], build: addAbbrevRow },
+    "pb-relativedate-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-relativedate-rows", "Add another term"); } },
+    "pb-scribal-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-scribal-rows", "Add another quirk"); } },
+    "pb-honorific-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-honorific-rows", "Add another honorific"); } },
+    "pb-relationship-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-relationship-rows", "Add another term"); } },
+  };
+
+  function pbSerializeAnswers() {
+    var form = document.getElementById("pb-questionnaire-form");
+    var data = { fields: {}, checked: {}, rows: {} };
+    if (!form) return data;
+
+    form.querySelectorAll("input[name], textarea[name], select[name]").forEach(function (el) {
+      if (el.type === "hidden" || el.closest(".pb-row")) return;
+      if (el.type === "checkbox" || el.type === "radio") {
+        // Record the group even when nothing in it is checked -- otherwise
+        // restoring can't tell "the user unchecked every item" apart from
+        // "this snapshot has no opinion, leave the HTML default checked".
+        if (!data.checked[el.name]) data.checked[el.name] = [];
+        if (el.checked) data.checked[el.name].push(el.value);
+      } else {
+        data.fields[el.name] = el.value;
+      }
+    });
+
+    Object.keys(PB_ROW_CONTAINERS).forEach(function (containerId) {
+      data.rows[containerId] = pbRows(containerId, PB_ROW_CONTAINERS[containerId].classNames);
+    });
+
+    return data;
+  }
+
+  function pbRestoreAnswers(data) {
+    var form = document.getElementById("pb-questionnaire-form");
+    if (!form || !data) return;
+
+    Object.keys(data.fields || {}).forEach(function (name) {
+      var el = form.querySelector('[name="' + name + '"]');
+      if (!el) return;
+      el.value = data.fields[name];
+      el.dataset.touched = "1";
+    });
+
+    // Compare against the live `.value` property, not an attribute selector --
+    // a checkbox with no `value=` attribute in the markup (e.g. latinDeclension)
+    // still has a real `.value` of "on", but no matching `[value="on"]` attribute
+    // to select on. Every name recorded during serialize is set here, including
+    // groups saved with nothing checked, so an explicit "unchecked everything"
+    // answer is restored as such rather than falling back to the HTML default.
+    Object.keys(data.checked || {}).forEach(function (name) {
+      var wanted = data.checked[name] || [];
+      form.querySelectorAll('[name="' + name + '"]').forEach(function (el) {
+        el.checked = wanted.indexOf(el.value) !== -1;
+      });
+    });
+
+    Object.keys(PB_ROW_CONTAINERS).forEach(function (containerId) {
+      var container = document.getElementById(containerId);
+      if (container) container.innerHTML = "";
+      var config = PB_ROW_CONTAINERS[containerId];
+      (data.rows && data.rows[containerId] || []).forEach(function (row) {
+        var rowEl = config.build();
+        if (!rowEl) return;
+        config.classNames.forEach(function (className, index) {
+          var field = rowEl.querySelector("." + className);
+          if (field) field.value = row[index] || "";
+        });
+      });
+    });
+
+    updateRecordTypeVisibility();
+    updateTranslationVisibility();
+    pbRefresh();
+  }
+
+  function pbSetEditing(profileId, label) {
+    var idField = document.getElementById("pb-edit-profile-id");
+    if (idField) idField.value = profileId;
+    var nameField = document.querySelector('[name="new_profile_name"]');
+    if (nameField) nameField.value = label;
+    var status = document.getElementById("pb-editing-status");
+    if (status) {
+      status.hidden = false;
+      status.textContent = 'Editing "' + label + '". "Update Profile" below overwrites it; "Save as New Profile" creates a separate copy instead.';
+    }
+    var updateButton = document.getElementById("pb-update-button");
+    if (updateButton) updateButton.hidden = false;
+    var loadSelect = document.getElementById("pb-load-select");
+    if (loadSelect) loadSelect.value = profileId;
+  }
+
+  function pbClearEditing() {
+    var idField = document.getElementById("pb-edit-profile-id");
+    if (idField) idField.value = "";
+    var status = document.getElementById("pb-editing-status");
+    if (status) status.hidden = true;
+    var updateButton = document.getElementById("pb-update-button");
+    if (updateButton) updateButton.hidden = true;
+    var loadSelect = document.getElementById("pb-load-select");
+    if (loadSelect) loadSelect.value = "";
+  }
+
+  function wireProfileLoader() {
+    var loadSelect = document.getElementById("pb-load-select");
+    if (loadSelect) {
+      loadSelect.addEventListener("change", function () {
+        var profileId = loadSelect.value;
+        if (!profileId) { pbClearEditing(); return; }
+        var entry = (window.PB_SAVED_PROFILES || {})[profileId];
+        if (!entry) return;
+        pbRestoreAnswers(entry.answers);
+        pbSetEditing(profileId, entry.label);
+      });
+    }
+
+    var form = document.getElementById("pb-questionnaire-form");
+    if (form) {
+      form.addEventListener("submit", function () {
+        var answersField = document.getElementById("pb-answers-json");
+        if (answersField) answersField.value = JSON.stringify(pbSerializeAnswers());
+      });
+    }
+
+    // If the previous save attempt failed, the server re-renders this page
+    // with whatever was submitted so it isn't lost -- restore it, and keep
+    // "Update Profile" pointed at the same profile if that's what was
+    // being edited. See save_prompt_builder_profile()'s except branch.
+    if (window.PB_RESTORE_ON_ERROR) {
+      pbRestoreAnswers(window.PB_RESTORE_ON_ERROR);
+      if (window.PB_RESTORE_EDIT_ID) pbSetEditing(window.PB_RESTORE_EDIT_ID, window.PB_RESTORE_EDIT_LABEL);
+    }
   }
 
   function resetForm() {
     if (!window.confirm("Clear every questionnaire answer? This cannot be undone.")) return;
     document.getElementById("pb-questionnaire-form").reset();
-    ["pb-variant-rows", "pb-abbrev-rows", "pb-relativedate-rows", "pb-scribal-rows", "pb-honorific-rows", "pb-relationship-rows"].forEach(function (id) {
+    Object.keys(PB_ROW_CONTAINERS).forEach(function (id) {
       var container = document.getElementById(id);
       if (container) container.innerHTML = "";
     });
@@ -682,6 +826,7 @@
     if (monthSelect) delete monthSelect.dataset.touched;
     var languageSelect = document.querySelector('[name="language"]');
     if (languageSelect) delete languageSelect.dataset.touched;
+    pbClearEditing();
     updateRecordTypeVisibility();
   }
 
@@ -756,6 +901,7 @@
     if (collapseButton) collapseButton.addEventListener("click", function () { pbSetAllOpen(false); });
 
     wireInfoButtons();
+    wireProfileLoader();
     updateTranslationVisibility();
     updateRecordTypeVisibility();
 

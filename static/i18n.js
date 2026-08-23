@@ -30,6 +30,7 @@
     "XLSX Conversion": "Conversione XLSX",
     "Test Mode": "Modalità di test",
     "Prompt Builder": "Generatore di prompt",
+    "Primary navigation": "Navigazione principale",
     "Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA). Not for commercial use. Attribution required.":
       "Pubblicato con licenza Creative Commons Attribuzione-NonCommerciale-CondividiAllo stesso modo (CC BY-NC-SA). Vietato l'uso commerciale. È richiesta l'attribuzione.",
     "Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA).":
@@ -81,6 +82,9 @@
 
     // Transcribe page
     "Customizable Transcription": "Trascrizione personalizzabile",
+    "Use the Prompt Builder page to create prompts, or bypass the Prompt Builder and place your prompt in the sections below. Manual prompts cannot be edited in the Prompt Builder.":
+      "Usa la pagina Prompt Builder per creare i prompt, oppure aggira il Prompt Builder e inserisci il tuo prompt nelle sezioni qui sotto. I prompt inseriti manualmente non possono essere modificati nel Prompt Builder.",
+    "Manual Prompt Override": "Prompt manuale personalizzato",
     "Save new custom profile as": "Salva nuovo profilo personalizzato come",
     "Leave blank to update the selected profile. Enter a new name to save the three boxes below as a reusable profile.":
       "Lascia vuoto per aggiornare il profilo selezionato. Inserisci un nuovo nome per salvare le tre caselle qui sotto come profilo riutilizzabile.",
@@ -89,16 +93,12 @@
     "Role and local context": "Ruolo e contesto locale",
     "Plain text. Shows the profile role plus tone and style. Edit this box to update the selected profile or create a new version when you run transcription.":
       "Testo semplice. Mostra il ruolo del profilo, oltre a tono e stile. Modifica questa casella per aggiornare il profilo selezionato o creare una nuova versione quando avvii la trascrizione.",
-    "Example: You are an expert paleographer specializing in 18th-century Palermo, Sicily baptism records...":
-      "Esempio: Sei un paleografo esperto specializzato nei registri di battesimo del XVIII secolo di Palermo, Sicilia...",
     "Ground truth and reference material": "Materiale di riferimento e dati verificati",
     "Plain text. Shows the profile technical reference, taxonomy, dictionaries, names, places, formulas, and ground truth material.":
       "Testo semplice. Mostra i riferimenti tecnici del profilo, la tassonomia, i dizionari, i nomi, i luoghi, le formule e il materiale di riferimento verificato.",
-    "Paste reference content here": "Incolla qui il contenuto di riferimento",
     "Output format": "Formato di output",
     "Plain text. Shows the profile output structure and transcription/translation examples.":
       "Testo semplice. Mostra la struttura di output del profilo e gli esempi di trascrizione/traduzione.",
-    "Paste output format here": "Incolla qui il formato di output",
     "The profile sections below are plain text fields. The app handles JSON formatting automatically when it saves, so quotes, brackets, and commas typed here will not break the profile file.":
       "Le sezioni del profilo qui sotto sono campi di testo semplice. L'app gestisce automaticamente la formattazione JSON al salvataggio, quindi virgolette, parentesi e virgole digitate qui non danneggeranno il file del profilo.",
 
@@ -109,8 +109,11 @@
     "Model A": "Modello A",
     "Model B": "Modello B",
     "Batch label (optional)": "Etichetta del batch (opzionale)",
+    "Example: Flash-Lite vs 3.6 Flash": "Esempio: Flash-Lite vs 3.6 Flash",
     "Add to Batch": "Aggiungi al batch",
     "Batch queue": "Coda dei batch",
+    "No batches queued yet. Click \"Add to Batch\" to queue the Model A/B pair above, or leave the queue empty and just run this one pair directly.":
+      "Nessun batch ancora in coda. Fai clic su \"Aggiungi al batch\" per accodare la coppia Modello A/B sopra, oppure lascia la coda vuota ed esegui direttamente questa singola coppia.",
     "Batches:": "Batch:",
     "Test Mode runs the profile as saved — edit or create profiles from the Transcribe page.":
       "La Modalità di test esegue il profilo così com'è salvato — modifica o crea profili dalla pagina Trascrivi.",
@@ -145,6 +148,12 @@
     "Save this as a new profile": "Salva come nuovo profilo",
     "e.g. Caiazzo Battesimi 1780s": "es. Caiazzo Battesimi 1780s",
     "Creates a new profile file; it never overwrites another profile.": "Crea un nuovo file di profilo; non sovrascrive mai un altro profilo.",
+    "Load an existing profile to edit": "Carica un profilo esistente da modificare",
+    "Start a new profile": "Inizia un nuovo profilo",
+    "Only profiles created or edited in Prompt Builder can be loaded here -- a profile written by hand or edited only on the Transcribe page's free-text editor isn't listed. Loading one fills in this questionnaire with its saved answers; saving updates that same profile unless you choose \"Save as a new profile\" below instead.":
+      "Qui è possibile caricare solo i profili creati o modificati nel Prompt Builder — un profilo scritto a mano o modificato solo nell'editor a testo libero della pagina Trascrivi non è elencato. Caricandone uno, il questionario viene compilato con le sue risposte salvate; salvando si aggiorna lo stesso profilo, a meno che tu non scelga \"Salva come nuovo profilo\" qui sotto.",
+    "Update Profile": "Aggiorna profilo",
+    "Save as New Profile": "Salva come nuovo profilo",
     "Answer these questions to define who the AI is, what it's transcribing, and the ground rules for accuracy: your record type, source language, era, place, and page layout. The uncertainty protocol (never guess a name, use [illegible] instead) and fidelity rules (preserve spelling, don't silently correct the scribe) are generated automatically — every profile gets them, no matter what you select below.":
       "Rispondi a queste domande per definire chi è l'IA, cosa sta trascrivendo e le regole di base per l'accuratezza: il tipo di registro, la lingua di origine, l'epoca, il luogo e l'impaginazione della pagina. Il protocollo per l'incertezza (non indovinare mai un nome, usa invece [illeggibile]) e le regole di fedeltà (conserva l'ortografia, non correggere silenziosamente lo scriba) vengono generati automaticamente — ogni profilo li riceve, indipendentemente da cosa selezioni qui sotto.",
     "Answer these questions to give the AI your project's own ground truth: the standard formula your register's entries follow, an abbreviation key for the hand and language, and — optionally — a name lexicon (surnames and given names actually attested in your source) so it can break ties between similar letterforms without inventing names that aren't real. A lexicon only ever breaks ties; it never overrules what's on the page.":
@@ -202,16 +211,27 @@
     "More information": "Ulteriori informazioni",
     "Latin nouns and names change their ending depending on their grammatical role in the sentence -- this is called declension. The same person can appear in more than one form within a single entry: Franciscus (nominative, as the subject), Francisci (genitive, \"of Francis\"), Francisco (dative/ablative, \"to/from Francis\"). This is not a spelling error or an inconsistency to fix -- each form is correct for its context. Turning this on adds guidance so the AI recognizes these variants as the same name and transcribes each form exactly as written, instead of \"normalizing\" one to match another.":
       "I sostantivi e i nomi latini cambiano desinenza a seconda del loro ruolo grammaticale nella frase — questo si chiama declinazione. La stessa persona può comparire in più di una forma all'interno di una singola voce: Franciscus (nominativo, come soggetto), Francisci (genitivo, \"di Francesco\"), Francisco (dativo/ablativo, \"a/da Francesco\"). Non si tratta di un errore di ortografia o di un'incoerenza da correggere — ogni forma è corretta nel proprio contesto. Attivando questa opzione si aggiunge un'indicazione affinché l'IA riconosca queste varianti come lo stesso nome e trascriva ogni forma esattamente come scritta, invece di \"normalizzarne\" una per farla corrispondere a un'altra.",
-    "These are the role-specific words this register uses for the people named in an entry -- terms like \"P.nus\" for a single godfather or \"PP.\" for two or more godparents. Checking a term tells the AI to recognize it and use it correctly when working out who filled which role. Leave a term unchecked if it never appears in your register.":
-      "Queste sono le parole specifiche per ruolo che questo registro utilizza per le persone nominate in una voce — termini come \"P.nus\" per un singolo padrino o \"PP.\" per due o più padrini/madrine. Selezionare un termine indica all'IA di riconoscerlo e di usarlo correttamente per stabilire chi ha ricoperto quale ruolo. Lascia deselezionato un termine se non compare mai nel tuo registro.",
+    "These are the role-specific words this register uses for the people named in an entry -- for example, a different term depending on whether one person filled the role or several did. Checking a term tells the AI to recognize it and use it correctly when working out who filled which role. Leave a term unchecked if it never appears in your register.":
+      "Queste sono le parole specifiche per ruolo che questo registro utilizza per le persone nominate in una voce — per esempio, un termine diverso a seconda che il ruolo sia stato ricoperto da una sola persona o da più persone. Selezionare un termine indica all'IA di riconoscerlo e di usarlo correttamente per stabilire chi ha ricoperto quale ruolo. Lascia deselezionato un termine se non compare mai nel tuo registro.",
     "Paleographic quirks are common habits of a scribe's handwriting that can look like errors but are not -- things like a long ſ that resembles an f, or a macron over a vowel marking a dropped letter. Checking these tells the AI what to expect from this hand, so it does not misread a normal scribal habit as an unfamiliar name or a typo.":
       "Le particolarità paleografiche sono abitudini comuni della grafia di uno scriba che possono sembrare errori ma non lo sono — cose come una ſ lunga che assomiglia a una f, o un macron sopra una vocale che indica una lettera omessa. Selezionare queste opzioni indica all'IA cosa aspettarsi da questa grafia, così da non scambiare un'abitudine scribale normale per un nome sconosciuto o un errore di battitura.",
     "This is about how a person's title gets written in a translation when they're named in a role -- a godparent, a witness, an informant. A \"role clause\" is the little phrase that introduces that person (e.g. \"The godfather was Don Carolus Calsi\").":
       "Questo riguarda il modo in cui il titolo di una persona viene scritto in una traduzione quando viene nominata in un ruolo — un padrino, un testimone, un dichiarante. Una \"formula di ruolo\" è la breve frase che introduce quella persona (ad es. \"Il padrino era Don Carolus Calsi\").",
     "Many church and civil registers write a short note in the margin next to each entry -- often just the name(s) involved -- as a running index down the side of the page. If your register does this, check the box and describe the pattern below, for example \"[child's name] filius/filia [father] et [mother] [surname].\" The AI will transcribe this margin note as its own \"Marginal Heading\" block, kept separate from the entry's main body text -- useful because the two occasionally disagree (a different spelling, a different name order), and both readings are worth preserving.":
       "Molti registri ecclesiastici e civili riportano una breve nota a margine accanto a ogni voce — spesso solo il nome o i nomi coinvolti — come una sorta di indice lungo il bordo della pagina. Se il tuo registro fa questo, seleziona la casella e descrivi lo schema qui sotto, ad esempio \"[nome del figlio] filius/filia [padre] et [madre] [cognome].\" L'IA trascriverà questa nota a margine come un blocco \"Marginal Heading\" a sé stante, separato dal corpo principale della voce — utile perché i due talvolta non concordano (un'ortografia diversa, un ordine dei nomi diverso), ed entrambe le letture meritano di essere conservate.",
-    "Adds a rule requiring every entry's Notes to state a confidence level -- High, Medium, or Low -- with a one-line reason, for example \"Medium: surname legible but ink-faded.\" This gives you a fast way to spot entries worth a second look without re-reading every transcription line by line.":
-      "Aggiunge una regola che richiede che le Note di ogni voce indichino un livello di affidabilità — Alto, Medio o Basso — con una motivazione di una riga, ad esempio \"Medio: cognome leggibile ma inchiostro sbiadito.\" Questo ti offre un modo rapido per individuare le voci che meritano un secondo controllo senza dover rileggere ogni trascrizione riga per riga.",
+    "Many church and civil registers write a short note in the margin next to each entry -- often just the name(s) involved -- as a running index down the side of the page. If your register does this, check the box and describe the pattern below, for example \"[Groom] et [Bride].\" The AI will transcribe this margin note as its own \"Marginal Heading\" block, kept separate from the entry's main body text -- useful because the two occasionally disagree (a different spelling, a different name order), and both readings are worth preserving.":
+      "Molti registri ecclesiastici e civili riportano una breve nota a margine accanto a ogni voce — spesso solo il nome o i nomi coinvolti — come una sorta di indice lungo il bordo della pagina. Se il tuo registro fa questo, seleziona la casella e descrivi lo schema qui sotto, ad esempio \"[Sposo] et [Sposa].\" L'IA trascriverà questa nota a margine come un blocco \"Marginal Heading\" a sé stante, separato dal corpo principale della voce — utile perché i due talvolta non concordano (un'ortografia diversa, un ordine dei nomi diverso), ed entrambe le letture meritano di essere conservate.",
+    "Many church and civil registers write a short note in the margin next to each entry -- often just the name(s) involved -- as a running index down the side of the page. If your register does this, check the box and describe the pattern below, for example \"[deceased's name].\" The AI will transcribe this margin note as its own \"Marginal Heading\" block, kept separate from the entry's main body text -- useful because the two occasionally disagree (a different spelling, a different name order), and both readings are worth preserving.":
+      "Molti registri ecclesiastici e civili riportano una breve nota a margine accanto a ogni voce — spesso solo il nome o i nomi coinvolti — come una sorta di indice lungo il bordo della pagina. Se il tuo registro fa questo, seleziona la casella e descrivi lo schema qui sotto, ad esempio \"[nome del defunto].\" L'IA trascriverà questa nota a margine come un blocco \"Marginal Heading\" a sé stante, separato dal corpo principale della voce — utile perché i due talvolta non concordano (un'ortografia diversa, un ordine dei nomi diverso), ed entrambe le letture meritano di essere conservate.",
+    "Many church and civil registers write a short note in the margin next to each entry -- often just the name(s) involved -- as a running index down the side of the page. If your register does this, check the box and describe the pattern below, for example \"[Child's name].\" The AI will transcribe this margin note as its own \"Marginal Heading\" block, kept separate from the entry's main body text -- useful because the two occasionally disagree (a different spelling, a different name order), and both readings are worth preserving.":
+      "Molti registri ecclesiastici e civili riportano una breve nota a margine accanto a ogni voce — spesso solo il nome o i nomi coinvolti — come una sorta di indice lungo il bordo della pagina. Se il tuo registro fa questo, seleziona la casella e descrivi lo schema qui sotto, ad esempio \"[Nome del bambino].\" L'IA trascriverà questa nota a margine come un blocco \"Marginal Heading\" a sé stante, separato dal corpo principale della voce — utile perché i due talvolta non concordano (un'ortografia diversa, un ordine dei nomi diverso), ed entrambe le letture meritano di essere conservate.",
+    "Many church and civil registers write a short note in the margin next to each entry -- often just the name(s) involved -- as a running index down the side of the page. If your register does this, check the box and describe the pattern below, for example \"[Groom's name] and [Bride's name].\" The AI will transcribe this margin note as its own \"Marginal Heading\" block, kept separate from the entry's main body text -- useful because the two occasionally disagree (a different spelling, a different name order), and both readings are worth preserving.":
+      "Molti registri ecclesiastici e civili riportano una breve nota a margine accanto a ogni voce — spesso solo il nome o i nomi coinvolti — come una sorta di indice lungo il bordo della pagina. Se il tuo registro fa questo, seleziona la casella e descrivi lo schema qui sotto, ad esempio \"[Nome dello sposo] e [Nome della sposa].\" L'IA trascriverà questa nota a margine come un blocco \"Marginal Heading\" a sé stante, separato dal corpo principale della voce — utile perché i due talvolta non concordano (un'ortografia diversa, un ordine dei nomi diverso), ed entrambe le letture meritano di essere conservate.",
+    "Many church and civil registers write a short note in the margin next to each entry -- often just the name(s) involved -- as a running index down the side of the page. If your register does this, check the box and describe the pattern below, for example \"[Deceased's name].\" The AI will transcribe this margin note as its own \"Marginal Heading\" block, kept separate from the entry's main body text -- useful because the two occasionally disagree (a different spelling, a different name order), and both readings are worth preserving.":
+      "Molti registri ecclesiastici e civili riportano una breve nota a margine accanto a ogni voce — spesso solo il nome o i nomi coinvolti — come una sorta di indice lungo il bordo della pagina. Se il tuo registro fa questo, seleziona la casella e descrivi lo schema qui sotto, ad esempio \"[Nome del defunto].\" L'IA trascriverà questa nota a margine come un blocco \"Marginal Heading\" a sé stante, separato dal corpo principale della voce — utile perché i due talvolta non concordano (un'ortografia diversa, un ordine dei nomi diverso), ed entrambe le letture meritano di essere conservate.",
+    "This is the exact standing phrase your register repeats in every entry, written out with the parts that change -- names, dates, roles -- marked as bracketed placeholders like [FATHER] or [WITNESS]. It teaches the AI where each real name or date sits in the sentence, even past abbreviations. Edit the sample text below to match your own register's actual wording.":
+      "Questa è la formula fissa che il tuo registro ripete in ogni voce, scritta per esteso con le parti che cambiano — nomi, date, ruoli — indicate come segnaposto tra parentesi quadre, ad esempio [PADRE] o [TESTIMONE]. Questo insegna all'IA dove si trova ogni nome o data reale nella frase, anche oltre le abbreviazioni. Modifica il testo di esempio qui sotto per farlo corrispondere alla formulazione reale del tuo registro.",
+    "Testis fuit = singular verb, Testes fuerunt = plural verb": "Testis fuit = verbo singolare, Testes fuerunt = verbo plurale",
 
     // Prompt Builder — Section 2 questionnaire fields
     "This register has a separate margin for each entry that states the name": "Questo registro ha un margine separato per ogni voce che riporta il nome",
@@ -259,6 +279,14 @@
     "Written, e.g. Sac.os": "Come scritto, ad es. Sac.os",
     "Expansion": "Espansione",
     "Meaning": "Significato",
+    "Sac.os = sacerdos (priest)": "Sac.os = sacerdos (sacerdote)",
+    "Cap.us = capellanus (chaplain)": "Cap.us = capellanus (cappellano)",
+    "Eccl.ae = ecclesiae (of the church)": "Eccl.ae = ecclesiae (della chiesa)",
+    "Par.lis = parochialis (parish (adj.))": "Par.lis = parochialis (parrocchiale (agg.))",
+    "S.ti = Sancti (of Saint)": "S.ti = Sancti (di San/Santo)",
+    "jug. = jugales (married couple)": "jug. = jugales (coppia sposata)",
+    "d.ti = dicti (of the said)": "d.ti = dicti (del suddetto)",
+    "D. = Don / Dominus (courtesy title for clergy and gentry)": "D. = Don / Dominus (titolo di cortesia per clero e nobiltà)",
     "Scribal / paleographic quirks": "Particolarità scribali / paleografiche",
     "long ſ is easily mistaken for f": "la ſ lunga è facilmente confusa con la f",
     "u and v are not distinguished": "u e v non sono distinte",
@@ -273,14 +301,21 @@
       "Incolla cognomi e nomi noti — nel formato \"Nome Cognome\" oppure \"Cognome, Nome\"",
     "Adding a lexicon greatly increases the likelihood that the AI system will bias towards a correct identification of a name.":
       "Aggiungere un lessico aumenta notevolmente la probabilità che il sistema di IA si orienti verso un'identificazione corretta di un nome.",
+    "Example entry": "Voce di esempio",
+    "Paste in a completed 100% accurate entry in the native language of the sources for this project. This will be used as a critically important formatting reference for the AI to generate the proper output.":
+      "Incolla una voce completa e accurata al 100% nella lingua originale delle fonti di questo progetto. Verrà usata come riferimento di formattazione fondamentale affinché l'IA generi l'output corretto.",
+    "Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers.":
+      "Incolla un testo di esempio accurato al 100% dal tuo materiale di origine, esattamente come è stato trascritto — senza etichette o intestazioni.",
 
     // Prompt Builder — Section 3 questionnaire fields
     "Translation is optional — leave both unchecked for a transcription-only output with no translation at all":
       "La traduzione è facoltativa — lascia entrambe le caselle deselezionate per un output di sola trascrizione senza alcuna traduzione",
     "English": "Inglese",
+    "Translation style options": "Opzioni di stile della traduzione",
+    "Expand abbreviations": "Espandi le abbreviazioni",
+    "Convert names to ENG or IT equivalents": "Converti i nomi negli equivalenti inglesi o italiani",
     "Honorifics kept inside a role clause — everything else moves to Notes": "Titoli onorifici mantenuti nella formula di ruolo — tutto il resto va nelle Note",
     "Add another honorific": "Aggiungi un altro titolo onorifico",
-    "Require a stated confidence rating with a one-line rationale in Notes": "Richiedi una valutazione di affidabilità dichiarata con una motivazione di una riga nelle Note",
     "Remove": "Rimuovi",
 
     // XLS Conversion page
@@ -307,14 +342,31 @@
     "Select a Microsoft Word DOCX file containing the completed transcription and English translations.":
       "Seleziona un file DOCX di Microsoft Word contenente la trascrizione completata e le traduzioni in inglese.",
     "Choose DOCX file": "Scegli file DOCX",
+    "or drag and drop it here": "oppure trascinalo qui",
     "No file selected": "Nessun file selezionato",
+    "The XLSX Conversion system is designed to convert transcriptions and translations generated by the Transcribe tool in this app. Transcriptions created from other methods might not convert accurately.":
+      "Il sistema di conversione XLSX è progettato per convertire trascrizioni e traduzioni generate dallo strumento Trascrivi di questa app. Le trascrizioni create con altri metodi potrebbero non essere convertite in modo accurato.",
+    "Transcribed image range": "Intervallo di immagini trascritte",
     "Image range": "Intervallo immagini",
     "Example: 004-100 or 004-100,118": "Esempio: 004-100 oppure 004-100,118",
-    "Required. Gemini reviews the transcription for existing English translation material in your selected range before processing.":
-      "Obbligatorio. Gemini controlla la trascrizione per verificare la presenza di materiale di traduzione in inglese nell'intervallo selezionato prima dell'elaborazione.",
+    "Required. This controls how much material you want processed from your source.":
+      "Obbligatorio. Determina la quantità di materiale che vuoi elaborare dalla tua fonte.",
+    "Process all": "Elabora tutto",
+    "Ignores the range above and processes every image found in the uploaded transcription.":
+      "Ignora l'intervallo sopra ed elabora ogni immagine trovata nella trascrizione caricata.",
+    "Choose output language(s)": "Scegli la lingua o le lingue di output",
+    "Detect which languages this transcription contains, then choose how to convert them.":
+      "Rileva quali lingue contiene questa trascrizione, poi scegli come convertirle.",
+    "The source document does not contain preset data to identify the languages in the content. Click to manually detect the languages and select the next process for final output.":
+      "Il documento di origine non contiene dati preimpostati per identificare le lingue nel contenuto. Fai clic per rilevare manualmente le lingue e selezionare il processo successivo per l'output finale.",
+    "Detect Languages": "Rileva lingue",
+    "Output": "Output",
+    "One language → one spreadsheet": "Una lingua → un foglio di calcolo",
+    "Two languages → two spreadsheets": "Due lingue → due fogli di calcolo",
+    "Two languages → one spreadsheet, two tabs": "Due lingue → un foglio di calcolo, due schede",
     "Preflight and convert": "Controllo preliminare e conversione",
-    "Confirm that every requested image is present and contains English translation material before creating the spreadsheet output.":
-      "Conferma che ogni immagine richiesta sia presente e contenga materiale di traduzione in inglese prima di creare il foglio di calcolo di output.",
+    "Confirm that every requested image is present and contains the selected language's material before creating the spreadsheet output.":
+      "Conferma che ogni immagine richiesta sia presente e contenga il materiale nella lingua selezionata prima di creare il foglio di calcolo di output.",
     "Convert": "Converti",
     "Override Preflight and Convert": "Ignora il controllo preliminare e converti",
     "Converting the records. AI extraction may take several minutes.":

@@ -848,7 +848,7 @@
     imageRange.value = "";
     imageRange.disabled = false;
     processAll.checked = false;
-    geminiModel.value = "gemini-3.6-flash";
+    geminiModel.value = "gemini-3.1-pro-preview";
     geminiApiKey.value = "";
     clearSource();
     invalidatePreflight();

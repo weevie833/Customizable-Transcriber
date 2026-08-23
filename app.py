@@ -752,6 +752,15 @@ def load_custom_profiles() -> list[dict[str, str]]:
         profile_id = str(data.get("id") or path.stem)
         label = str(data.get("label") or profile_id)
         translation_languages = data.get("translation_languages")
+        # pb_answers carries the Prompt Builder questionnaire's structured answers
+        # (record type, checkboxes, repeatable rows) for profiles saved from that
+        # page -- it's what lets Prompt Builder load a profile back in for editing
+        # instead of only ever creating new ones. A profile saved elsewhere (the
+        # Transcribe page's free-text editor, or hand-authored JSON like most
+        # profiles predating this feature) has no such structure to recover, so
+        # this is simply absent for them -- profiles_for_browser() never includes
+        # it, so it can't leak into the Transcribe/Test Mode page snapshots.
+        pb_answers = data.get("pb_answers")
         profiles.append({
             "id": profile_id,
             "label": label,
@@ -762,6 +771,7 @@ def load_custom_profiles() -> list[dict[str, str]]:
             "native_language": str(data.get("native_language", "")),
             "translation_languages": list(translation_languages) if isinstance(translation_languages, list) else [],
             "record_type": str(data.get("record_type", "")),
+            "pb_answers": pb_answers if isinstance(pb_answers, dict) else None,
         })
     return profiles
 
@@ -811,6 +821,7 @@ def save_custom_profile(
     native_language: str = "",
     translation_languages: list[str] | None = None,
     record_type: str = "",
+    pb_answers: dict | None = None,
 ) -> dict[str, str]:
     label = name.strip()
     if not label:
@@ -840,8 +851,54 @@ def save_custom_profile(
         "translation_languages": list(translation_languages or []),
         "record_type": record_type.strip(),
     }
+    if pb_answers:
+        # Structured Prompt Builder questionnaire state -- see load_custom_profiles()
+        # for why this is kept separate from the three prose fields above.
+        profile["pb_answers"] = pb_answers
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     custom_profile_path(profile_id).write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
+    return profile
+
+
+def update_full_profile(
+    profile_id: str,
+    label: str,
+    role_context: str,
+    reference_context: str,
+    output_format: str,
+    native_language: str = "",
+    translation_languages: list[str] | None = None,
+    record_type: str = "",
+    pb_answers: dict | None = None,
+) -> dict[str, str]:
+    """Overwrite an existing Prompt Builder-created profile in place, by id.
+
+    Unlike save_custom_profile(), this never picks a new id -- write_profile()
+    files by profile["id"], not by label, so changing the label here is safe
+    and never orphans the original file. Used by Prompt Builder's "Update
+    profile" action once a profile with stored pb_answers has been loaded
+    back into the questionnaire; see save_prompt_builder_profile().
+    """
+    profile = load_profile(profile_id)
+    if profile["id"] != profile_id:
+        # load_profile() silently falls back to the default profile when the
+        # id isn't found -- without this guard a stale edit_profile_id would
+        # overwrite the wrong file.
+        raise RuntimeError(f'Profile "{profile_id}" no longer exists. Save as a new profile instead.')
+    if not any((role_context, reference_context, output_format)):
+        raise RuntimeError("Paste role, reference, or output-format content before updating a profile.")
+
+    label = label.strip() or profile["label"]
+    profile["label"] = label
+    profile["role_context"] = role_context
+    profile["reference_context"] = reference_context
+    profile["output_format"] = output_format
+    profile["native_language"] = native_language.strip()
+    profile["translation_languages"] = list(translation_languages or [])
+    profile["record_type"] = record_type.strip()
+    if pb_answers:
+        profile["pb_answers"] = pb_answers
+    write_profile(profile)
     return profile
 
 
@@ -968,7 +1025,13 @@ def neutral_system_scaffold(tool: str, role_context: str, output_format: str) ->
         "- Do not preserve source line breaks; use continuous paragraphs unless the output format requires separate fields.\n"
         "- Do not summarize, modernize, normalize, or invent missing words.\n"
         "- Use brackets for uncertain readings, for example [Rovella?] or [illegible].\n"
-        "- If part of the page is unreadable, mark only that portion as [illegible].\n\n"
+        "- If part of the page is unreadable, mark only that portion as [illegible].\n"
+        "- If the output format defines a block that transcribes one specific location on the page separately "
+        "from the entry body (for example, a marginal heading), that block must contain only what is written "
+        "in that location. Never copy, infer, or supplement it with content from another block, another "
+        "location on the page, or the entry formula -- even when the same information genuinely appears "
+        "elsewhere in the entry. If two such blocks disagree, transcribe each exactly as it appears in its own "
+        "location and flag the disagreement; do not resolve it by editing either block.\n\n"
         "# OUTPUT FORMAT\n"
         + format_text
     )
@@ -1699,7 +1762,7 @@ def page() -> str:
     }}
     .skip-link {{
       position: absolute;
-      top: -40px;
+      top: -43px;
       left: 8px;
       z-index: 100;
       padding: 10px 16px;
@@ -1930,6 +1993,40 @@ def page() -> str:
     }}
     .profile-work-area > .hint:first-child + label {{
       margin-top: 0;
+    }}
+    details.manual-override-section {{
+      margin: 20px -18px -18px;
+      padding: 14px 18px;
+      border-top: 1px solid #d9d4c8;
+      border-radius: 0 0 8px 8px;
+      background: #f4f5f6;
+    }}
+    details.manual-override-section summary {{
+      cursor: pointer;
+      list-style: none;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 2px 0;
+    }}
+    details.manual-override-section summary::-webkit-details-marker {{
+      display: none;
+    }}
+    details.manual-override-section summary::before {{
+      content: "\\25B8";
+      margin-right: 8px;
+      color: #255c99;
+      display: inline-block;
+      transition: transform 0.12s ease;
+    }}
+    details.manual-override-section[open] summary::before {{
+      transform: rotate(90deg);
+    }}
+    details.manual-override-section .profile-work-area {{
+      margin: 14px 0 0;
+      padding: 0;
+      border-top: none;
+      border-radius: 0;
+      background: none;
     }}
     .run-confirmation-settings[hidden] {{
       display: none;
@@ -2228,6 +2325,7 @@ def page() -> str:
       <input type="hidden" name="profile_action" value="use">
       <input type="hidden" name="duplicate_profile_action" value="">
     </label>
+    <p class="hint">Use the Prompt Builder page to create prompts, or bypass the Prompt Builder and place your prompt in the sections below. Manual prompts cannot be edited in the Prompt Builder.</p>
     <div class="actions run-actions">
       <div class="run-button-stack">
         <button id="run-button" type="submit" disabled>Preflight Check</button>
@@ -2243,28 +2341,31 @@ def page() -> str:
         <span id="run-status" class="run-status" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>
       </span>
     </div>
-    <div class="profile-work-area">
-      <p class="hint">The profile sections below are plain text fields. The app handles JSON formatting automatically when it saves, so quotes, brackets, and commas typed here will not break the profile file.</p>
-      <label>Save new custom profile as
-      <p class="hint">Leave blank to update the selected profile. Enter a new name to save the three boxes below as a reusable profile.</p>
-      <div class="profile-save-row">
-        <input type="text" name="new_profile_name" value="{escaped_new_profile_name}" placeholder="Example: Palermo baptisms">
-        <button id="profile-save-button" type="submit" formaction="/save-profile" formmethod="post" {disabled}>Save Profile</button>
+    <details class="manual-override-section">
+      <summary>Manual Prompt Override</summary>
+      <div class="profile-work-area">
+        <p class="hint">The profile sections below are plain text fields. The app handles JSON formatting automatically when it saves, so quotes, brackets, and commas typed here will not break the profile file.</p>
+        <label>Save new custom profile as
+        <p class="hint">Leave blank to update the selected profile. Enter a new name to save the three boxes below as a reusable profile.</p>
+        <div class="profile-save-row">
+          <input type="text" name="new_profile_name" value="{escaped_new_profile_name}" placeholder="Example: Palermo baptisms">
+          <button id="profile-save-button" type="submit" formaction="/save-profile" formmethod="post" {disabled}>Save Profile</button>
+        </div>
+        </label>
+        <label>Role and local context
+        <p class="hint">Plain text. Shows the profile role plus tone and style. Edit this box to update the selected profile or create a new version when you run transcription.</p>
+        <textarea name="role_context">{escaped_role_context}</textarea>
+        </label>
+        <label>Ground truth and reference material
+        <p class="hint">Plain text. Shows the profile technical reference, taxonomy, dictionaries, names, places, formulas, and ground truth material.</p>
+        <textarea name="reference_context">{escaped_reference_context}</textarea>
+        </label>
+        <label>Output format
+        <p class="hint">Plain text. Shows the profile output structure and transcription/translation examples.</p>
+        <textarea name="output_format">{escaped_output_format}</textarea>
+        </label>
       </div>
-      </label>
-      <label>Role and local context
-      <p class="hint">Plain text. Shows the profile role plus tone and style. Edit this box to update the selected profile or create a new version when you run transcription.</p>
-      <textarea name="role_context" placeholder="Example: You are an expert paleographer specializing in 18th-century Palermo, Sicily baptism records...">{escaped_role_context}</textarea>
-      </label>
-      <label>Ground truth and reference material
-      <p class="hint">Plain text. Shows the profile technical reference, taxonomy, dictionaries, names, places, formulas, and ground truth material.</p>
-      <textarea name="reference_context" placeholder="Paste reference content here">{escaped_reference_context}</textarea>
-      </label>
-      <label>Output format
-      <p class="hint">Plain text. Shows the profile output structure and transcription/translation examples.</p>
-      <textarea name="output_format" placeholder="Paste output format here">{escaped_output_format}</textarea>
-      </label>
-    </div>
+    </details>
   </form>
   <section class="panel">
     <h2 class="panel-title">Progress Console</h2>
@@ -3055,7 +3156,7 @@ def test_mode_page() -> str:
     }}
     .skip-link {{
       position: absolute;
-      top: -40px;
+      top: -43px;
       left: 8px;
       z-index: 100;
       padding: 10px 16px;
@@ -3394,6 +3495,9 @@ def test_mode_page() -> str:
     .button-secondary {{
       margin-top: 8px;
       background: #255c99;
+    }}
+    #refresh-status-button {{
+      margin-top: 0;
     }}
     button:disabled {{
       background: #8d99a6;
@@ -4046,6 +4150,9 @@ def prompt_builder_page(
     new_profile_name: str = "",
     message: str = "",
     message_kind: str = "",
+    restore_answers: dict | None = None,
+    restore_edit_id: str = "",
+    restore_edit_label: str = "",
 ) -> str:
     escaped_name = html.escape(new_profile_name)
 
@@ -4055,6 +4162,26 @@ def prompt_builder_page(
         banner_html = f'<div class="pb-banner {banner_class}" role="status">{html.escape(message)}</div>'
 
     core_rules_json = json.dumps(PROMPT_BUILDER_CORE_RULES).replace("</", "<\\/")
+
+    # Profiles loadable back into the questionnaire -- only those saved from
+    # Prompt Builder itself carry the structured pb_answers a reload needs.
+    # A hand-authored or Transcribe-page-edited profile has no such record and
+    # simply isn't offered here; see load_custom_profiles(). Embedded as data,
+    # not fetched on selection, matching the same "snapshot on page render"
+    # pattern already used for the profile list on the Transcribe/Test Mode
+    # pages -- reload this page after saving elsewhere to see a fresh list.
+    loadable_profiles = [profile for profile in load_custom_profiles() if profile.get("pb_answers")]
+    load_profile_options = "\n".join(
+        f'<option value="{html.escape(profile["id"])}">{html.escape(profile["label"])}</option>'
+        for profile in loadable_profiles
+    )
+    saved_profiles_json = json.dumps(
+        {profile["id"]: {"label": profile["label"], "answers": profile["pb_answers"]} for profile in loadable_profiles}
+    ).replace("</", "<\\/")
+    restore_answers_json = json.dumps(restore_answers).replace("</", "<\\/") if restore_answers else "null"
+    restore_edit_id_json = json.dumps(restore_edit_id)
+    restore_edit_label_json = json.dumps(restore_edit_label)
+
     record_type_options = pb_record_type_options_html()
     section2_type_groups = "\n".join(pb_section2_type_group_html(key) for key in PROMPT_BUILDER_RECORD_TYPES)
     relative_date_checklist = pb_checklist_html("relativeDateTerms", PROMPT_BUILDER_RELATIVE_DATE_TERMS)
@@ -4159,7 +4286,7 @@ def prompt_builder_page(
     }}
     .skip-link {{
       position: absolute;
-      top: -40px;
+      top: -43px;
       left: 8px;
       z-index: 100;
       padding: 10px 16px;
@@ -4338,6 +4465,32 @@ def prompt_builder_page(
       background: #fbeae7;
       color: #8a2c1d;
       border: 1px solid #eec3ba;
+    }}
+    .pb-load-bar {{
+      background: #eef4fb;
+      border: 1px solid #c7d9ec;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 14px;
+    }}
+    .pb-load-bar label {{
+      max-width: 420px;
+    }}
+    .pb-editing-status {{
+      color: #255c99;
+      font-weight: 650;
+    }}
+    .pb-save-actions {{
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }}
+    #pb-update-button {{
+      background: #255c99;
+    }}
+    #pb-update-button:not(:disabled):hover {{
+      background: #1c4779;
+      filter: none;
     }}
     details.pb-section {{
       background: #ffffff;
@@ -4582,6 +4735,10 @@ def prompt_builder_page(
   </style>
   <script>
     window.PB_CORE_RULES = {core_rules_json};
+    window.PB_SAVED_PROFILES = {saved_profiles_json};
+    window.PB_RESTORE_ON_ERROR = {restore_answers_json};
+    window.PB_RESTORE_EDIT_ID = {restore_edit_id_json};
+    window.PB_RESTORE_EDIT_LABEL = {restore_edit_label_json};
   </script>
   <script src="/static/prompt-builder.js" defer></script>
   </head>
@@ -4615,6 +4772,20 @@ def prompt_builder_page(
     <input type="hidden" name="native_language">
     <input type="hidden" name="translation_languages">
     <input type="hidden" name="record_type">
+    <input type="hidden" name="edit_profile_id" id="pb-edit-profile-id" value="">
+    <input type="hidden" name="pb_answers_json" id="pb-answers-json">
+
+    <div class="pb-load-bar" id="pb-load-bar">
+      <label>Load an existing profile to edit
+        <select id="pb-load-select">
+          <option value="">Start a new profile</option>
+          {load_profile_options}
+        </select>
+      </label>
+      <p class="hint">Only profiles created or edited in Prompt Builder can be loaded here -- a profile written by hand or edited only on the Transcribe page's free-text editor isn't listed. Loading one fills in this questionnaire with its saved answers; saving updates that same profile unless you choose "Save as a new profile" below instead.</p>
+      <p class="hint pb-editing-status" id="pb-editing-status" hidden></p>
+    </div>
+
     <div class="pb-toolbar">
       <button type="button" id="pb-expand-all" class="button-tiny">Expand all</button>
       <button type="button" id="pb-collapse-all" class="button-tiny">Collapse all</button>
@@ -4801,9 +4972,6 @@ def prompt_builder_page(
         <button type="button" id="pb-add-honorific" class="button-tiny">Add another honorific</button>
       </div>
 
-      <div class="pb-inline-row">
-        <label class="pb-checkbox"><input type="checkbox" name="confidenceRationale" checked> Require a stated confidence rating with a one-line rationale in Notes</label>{pb_info_button_html("pb-info-confidence", 'Adds a rule requiring every entry\'s Notes to state a confidence level -- High, Medium, or Low -- with a one-line reason, for example "Medium: surname legible but ink-faded." This gives you a fast way to spot entries worth a second look without re-reading every transcription line by line.')}
-      </div>
     </details>
 
     <details class="pb-section">
@@ -4815,11 +4983,14 @@ def prompt_builder_page(
       <pre id="pb-preview-content"></pre>
     </details>
 
-    <label>Save this as a new profile
+    <label id="pb-name-label">Save this as a new profile
       <input type="text" name="new_profile_name" value="{escaped_name}" placeholder="e.g. Caiazzo Battesimi 1780s" autocomplete="off" required>
-      <p class="hint">Creates a new profile file; it never overwrites another profile.</p>
+      <p class="hint" id="pb-name-hint">Creates a new profile file; it never overwrites another profile.</p>
     </label>
-    <button id="pb-save-button" type="submit">Save Profile</button>
+    <div class="pb-save-actions">
+      <button id="pb-update-button" type="submit" name="save_mode" value="update" hidden>Update Profile</button>
+      <button id="pb-save-button" type="submit" name="save_mode" value="new">Save as New Profile</button>
+    </div>
   </form>
   <footer class="license">Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA). Not for commercial use. Attribution required.</footer>
 </main>
@@ -4857,29 +5028,68 @@ def header_box_element(
     native_language: str,
     translation_languages: list[str],
     record_type: str = "",
+    model: str = "",
+    profile_label: str = "",
 ) -> ElementTree.Element:
     """A bordered, shaded box stamped at the top of the transcription DOCX,
-    declaring what this document contains: record type, native language, and
-    any translations. Written deterministically from the saved profile's own
-    fields -- not inferred from the model's output -- so it's a fact the app
-    already knows, not a guess made after the fact. Prompt Builder profiles
-    only for now (see CLAUDE.md); a profile with no native_language set
-    produces no box at all, which is what write_docx() checks before calling
-    this. record_type is the same key/label pair XLS Conversion's own "Source
+    declaring what this document contains: record type, native language, any
+    translations, and (for human comparison tracking only -- the XLSX
+    Conversion parser never reads these two lines) which AI model and which
+    prompt profile produced this run. Written deterministically from the
+    saved profile's own fields and the run's own config -- not inferred from
+    the model's output -- so it's a fact the app already knows, not a guess
+    made after the fact.
+
+    The record-type/native-language/translations lines are Prompt Builder
+    profiles only for now (see CLAUDE.md) and are omitted individually when
+    their value is blank -- a manual-override profile has none of them set.
+    The model/profile lines have no such restriction and are shown whenever
+    the caller has them, which is unconditionally for every real run; the
+    whole box is only skipped when write_docx() has nothing at all to put in
+    it. record_type is the same key/label pair XLS Conversion's own "Source
     material" dropdown uses (PROMPT_BUILDER_RECORD_TYPES), so that page can
     match the label back to a dropdown option without a separate lookup
     table; an unrecognized or blank key just omits the line."""
     ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-    translations_line = ", ".join(translation_languages) if translation_languages else "None"
     record_type_label = PROMPT_BUILDER_RECORD_TYPES.get(record_type, {}).get("label", "")
+    # This box is generated once, server-side, and baked into a downloaded file --
+    # there is no browser toggle to retranslate it after the fact the way i18n.js
+    # retranslates the live pages, and no signal at generation time for which
+    # language the transcriber prefers. So the three machine-parsed lines below
+    # (Record type / Native-language transcription / Translations produced) stay
+    # English-only, exactly as xls_conversion/app.js's regexes require -- but the
+    # purely human-facing lines (the two instructional sentences, and the AI
+    # model / prompt profile tracking lines) are bilingual, EN then IT, so an
+    # Italian-speaking user gets a native-language read of this box without
+    # touching anything the parser depends on.
     lines = [
         ("DO NOT EDIT OR DELETE THIS BLOCK", True),
-        ("Used by the XLSX Conversion tool to identify what this document contains.", False),
+        ("NON MODIFICARE O ELIMINARE QUESTO BLOCCO", True),
+        (
+            "Native language, record type, and translations (if present) are read by the "
+            "XLSX Conversion tool. AI model and prompt profile are recorded here for "
+            "comparison tracking only.",
+            False,
+        ),
+        (
+            "La lingua nativa, il tipo di registro e le traduzioni (se presenti) vengono lette "
+            "dallo strumento di conversione XLSX. Il modello IA e il profilo prompt sono "
+            "registrati qui solo a scopo di tracciamento e confronto.",
+            False,
+        ),
     ]
     if record_type_label:
         lines.append((f"Record type: {record_type_label}", False))
-    lines.append((f"Native-language transcription: {native_language}", False))
-    lines.append((f"Translations produced: {translations_line}", False))
+    if native_language.strip():
+        translations_line = ", ".join(translation_languages) if translation_languages else "None"
+        lines.append((f"Native-language transcription: {native_language}", False))
+        lines.append((f"Translations produced: {translations_line}", False))
+    if model.strip():
+        lines.append((f"AI model: {model}", False))
+        lines.append((f"Modello IA: {model}", False))
+    if profile_label.strip():
+        lines.append((f"Prompt profile: {profile_label}", False))
+        lines.append((f"Profilo prompt: {profile_label}", False))
 
     tbl = ElementTree.Element(f"{{{ns}}}tbl")
     tbl_pr = ElementTree.SubElement(tbl, f"{{{ns}}}tblPr")
@@ -4948,11 +5158,19 @@ def write_docx(
     native_language: str = "",
     translation_languages: list[str] | None = None,
     record_type: str = "",
+    model: str = "",
+    profile_label: str = "",
 ) -> None:
     output_docx.parent.mkdir(parents=True, exist_ok=True)
     header_box = (
-        header_box_element(native_language.strip(), translation_languages or [], record_type.strip())
-        if native_language.strip()
+        header_box_element(
+            native_language.strip(),
+            translation_languages or [],
+            record_type.strip(),
+            model.strip(),
+            profile_label.strip(),
+        )
+        if native_language.strip() or model.strip() or profile_label.strip()
         else None
     )
     with zipfile.ZipFile(output_docx, "w", zipfile.ZIP_DEFLATED) as output:
@@ -5301,6 +5519,8 @@ def run_job(form: FormData, output_file: Path) -> None:
                 native_language=str(profile.get("native_language", "")),
                 translation_languages=list(profile.get("translation_languages") or []),
                 record_type=str(profile.get("record_type", "")),
+                model=config.model,
+                profile_label=str(profile.get("label", "")),
             )
         else:
             add_log(f"Markdown output was not found for Word export: {markdown_file}")
@@ -5901,6 +6121,9 @@ class Handler(BaseHTTPRequestHandler):
         reference_context = ""
         output_format = ""
         new_profile_name = ""
+        edit_profile_id = ""
+        save_mode = "new"
+        pb_answers: dict | None = None
         try:
             form = parse_post_form(self)
             new_profile_name = pasted_value(form, "new_profile_name")
@@ -5912,20 +6135,49 @@ class Handler(BaseHTTPRequestHandler):
                 value.strip() for value in pasted_value(form, "translation_languages").split(",") if value.strip()
             ]
             record_type = pasted_value(form, "record_type")
-            profile = save_custom_profile(
-                new_profile_name,
-                role_context,
-                reference_context,
-                output_format,
-                replace_existing=False,
-                native_language=native_language,
-                translation_languages=translation_languages,
-                record_type=record_type,
-            )
-            message = (
-                f'Saved profile "{profile["label"]}". Reload the Transcribe or Test Mode '
-                "tab to see it in the profile list there."
-            )
+            edit_profile_id = pasted_value(form, "edit_profile_id")
+            save_mode = form.getfirst("save_mode", "new") or "new"
+
+            pb_answers_raw = pasted_value(form, "pb_answers_json")
+            if pb_answers_raw:
+                try:
+                    parsed = json.loads(pb_answers_raw)
+                    pb_answers = parsed if isinstance(parsed, dict) else None
+                except json.JSONDecodeError:
+                    pb_answers = None  # don't fail the whole save over a malformed snapshot
+
+            if save_mode == "update" and edit_profile_id:
+                profile = update_full_profile(
+                    edit_profile_id,
+                    new_profile_name,
+                    role_context,
+                    reference_context,
+                    output_format,
+                    native_language=native_language,
+                    translation_languages=translation_languages,
+                    record_type=record_type,
+                    pb_answers=pb_answers,
+                )
+                message = (
+                    f'Updated profile "{profile["label"]}". Reload the Transcribe or Test Mode '
+                    "tab to see the change there."
+                )
+            else:
+                profile = save_custom_profile(
+                    new_profile_name,
+                    role_context,
+                    reference_context,
+                    output_format,
+                    replace_existing=False,
+                    native_language=native_language,
+                    translation_languages=translation_languages,
+                    record_type=record_type,
+                    pb_answers=pb_answers,
+                )
+                message = (
+                    f'Saved profile "{profile["label"]}". Reload the Transcribe or Test Mode '
+                    "tab to see it in the profile list there."
+                )
             self.respond(
                 prompt_builder_page(
                     new_profile_name="",
@@ -5939,6 +6191,9 @@ class Handler(BaseHTTPRequestHandler):
                     new_profile_name=new_profile_name,
                     message=f"Could not save: {exc}",
                     message_kind="error",
+                    restore_answers=pb_answers,
+                    restore_edit_id=edit_profile_id if save_mode == "update" else "",
+                    restore_edit_label=new_profile_name,
                 )
             )
 

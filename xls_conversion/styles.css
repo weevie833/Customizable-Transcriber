@@ -27,7 +27,7 @@ body {
 
 .skip-link {
   position: absolute;
-  top: -40px;
+  top: -43px;
   left: 8px;
   z-index: 100;
   padding: 10px 16px;
@@ -142,6 +142,10 @@ h2 {
   font-size: 15px;
   line-height: 1.3;
   cursor: pointer;
+  /* Override the generic button/.button rule's min-height: 42px (further up
+     this file) -- without this the flag buttons render taller here than on
+     the other 3 pages, whose own generic button rule has no min-height. */
+  min-height: auto;
 }
 
 .lang-flag[aria-pressed="true"] {

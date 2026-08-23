@@ -519,6 +519,18 @@
     document.querySelector('[name="reference_context"]').value = reference;
     document.querySelector('[name="output_format"]').value = format;
 
+    // Fed straight through to the saved profile JSON (not part of the
+    // assembled prose above) -- lets write_docx() stamp a deterministic
+    // "what does this document contain" box at the top of every transcription
+    // this profile produces, instead of XLSX Conversion having to guess from
+    // the output later. See CLAUDE.md's Prompt Builder section. record_type
+    // reuses the same key selectedRecordType() already returns for the
+    // questionnaire itself -- XLS Conversion's own "Source material" select
+    // uses identical keys/labels, so no separate mapping is needed anywhere.
+    document.querySelector('[name="native_language"]').value = pbVal("language");
+    document.querySelector('[name="translation_languages"]').value = translationLanguages().join(",");
+    document.querySelector('[name="record_type"]').value = selectedRecordType();
+
     document.getElementById("wc-role_context").textContent = pbWordCount(role) + " words";
     document.getElementById("wc-reference_context").textContent = pbWordCount(reference) + " words";
     document.getElementById("wc-output_format").textContent = pbWordCount(format) + " words";

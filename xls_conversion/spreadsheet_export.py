@@ -5,6 +5,7 @@ import io
 import re
 import zipfile
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from xml.sax.saxutils import escape
 
 
@@ -17,6 +18,21 @@ BATTESIMI_COLUMN_WIDTHS = [
     12, 12, 11, 11, 11, 11, 11, 11, 19, 19,
     11, 19, 19, 32, 19, 19, 32, 34, 26, 42,
 ]
+
+
+@dataclass(frozen=True)
+class SheetSpec:
+    """One worksheet's worth of inputs for rows_to_xlsx_multi -- the same
+    per-sheet fields rows_to_xlsx() already takes as separate arguments."""
+
+    group_headers: Sequence[str]
+    column_headers: Sequence[str]
+    fields: Sequence[str]
+    rows: Iterable[dict[str, str]]
+    sheet_name: str
+    numeric_columns: frozenset[int] = BATTESIMI_NUMERIC_COLUMNS
+    padded_column: int | None = BATTESIMI_PADDED_COLUMN
+    column_widths: Sequence[int] | None = None
 
 
 def rows_to_csv(
@@ -44,21 +60,63 @@ def rows_to_xlsx(
     padded_column: int | None = BATTESIMI_PADDED_COLUMN,
     column_widths: Sequence[int] | None = None,
 ) -> bytes:
-    data_rows = [[row.get(field, "") for field in fields] for row in rows]
-    all_rows = [list(group_headers), list(column_headers), *data_rows]
-    widths = list(column_widths) if column_widths is not None else BATTESIMI_COLUMN_WIDTHS
-    worksheet_xml = _worksheet_xml(all_rows, numeric_columns, padded_column, widths)
+    return rows_to_xlsx_multi(
+        [
+            SheetSpec(
+                group_headers=group_headers,
+                column_headers=column_headers,
+                fields=fields,
+                rows=rows,
+                sheet_name=sheet_name,
+                numeric_columns=numeric_columns,
+                padded_column=padded_column,
+                column_widths=column_widths,
+            )
+        ]
+    )
+
+
+def rows_to_xlsx_multi(sheets: Sequence[SheetSpec]) -> bytes:
+    """Same workbook shell rows_to_xlsx() always wrote, extended to carry any
+    number of worksheets -- used for the "two languages, one workbook, two
+    tabs" XLS Conversion output. A single-sheet call produces byte-for-byte
+    the same part layout rows_to_xlsx() always has (one sheet1.xml, rId1 for
+    the worksheet, rId2 for styles)."""
+    if not sheets:
+        raise ValueError("rows_to_xlsx_multi requires at least one sheet.")
+
+    sheet_entries: list[tuple[int, str, str]] = []
+    for index, spec in enumerate(sheets, start=1):
+        data_rows = [[row.get(field, "") for field in spec.fields] for row in spec.rows]
+        all_rows = [list(spec.group_headers), list(spec.column_headers), *data_rows]
+        widths = list(spec.column_widths) if spec.column_widths is not None else BATTESIMI_COLUMN_WIDTHS
+        worksheet_xml = _worksheet_xml(all_rows, spec.numeric_columns, spec.padded_column, widths)
+        sheet_entries.append((index, spec.sheet_name, worksheet_xml))
+
+    content_type_overrides = "\n".join(
+        f'  <Override PartName="/xl/worksheets/sheet{index}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        for index, _name, _xml in sheet_entries
+    )
+    sheet_list_xml = "".join(
+        f'<sheet name="{escape(name)}" sheetId="{index}" r:id="rId{index}"/>'
+        for index, name, _xml in sheet_entries
+    )
+    styles_rid = len(sheet_entries) + 1
+    worksheet_rels = "\n".join(
+        f'  <Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{index}.xml"/>'
+        for index, _name, _xml in sheet_entries
+    )
 
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
             "[Content_Types].xml",
-            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+{content_type_overrides}
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
@@ -97,19 +155,20 @@ def rows_to_xlsx(
             f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="{escape(sheet_name)}" sheetId="1" r:id="rId1"/></sheets>
+  <sheets>{sheet_list_xml}</sheets>
 </workbook>""",
         )
         archive.writestr(
             "xl/_rels/workbook.xml.rels",
-            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+{worksheet_rels}
+  <Relationship Id="rId{styles_rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>""",
         )
         archive.writestr("xl/styles.xml", _styles_xml())
-        archive.writestr("xl/worksheets/sheet1.xml", worksheet_xml)
+        for index, _name, worksheet_xml in sheet_entries:
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", worksheet_xml)
     return output.getvalue()
 
 

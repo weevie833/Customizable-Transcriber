@@ -32,7 +32,12 @@ from transcription_bot.core import (
     run_batch,
     validate_api_key,
 )
-from xls_conversion.ai_parser import parse_records_with_ai, preflight_records_with_ai
+from xls_conversion.ai_parser import (
+    combine_language_xlsx,
+    detect_languages,
+    parse_records_with_ai,
+    preflight_records_with_ai,
+)
 from test_mode.comparison import score_transcription
 
 
@@ -352,6 +357,8 @@ def save_xls_preflight(
     text: str,
     image_range: str,
     model: str,
+    target_language: str,
+    process_all: bool,
 ) -> str:
     token = secrets.token_urlsafe(24)
     with xls_preflight_lock:
@@ -362,6 +369,8 @@ def save_xls_preflight(
             "source_hash": source_hash(text),
             "image_range": image_range.strip(),
             "model": model,
+            "target_language": target_language.strip().lower(),
+            "process_all": process_all,
             "ok": result.get("ok") is True,
         }
     return token
@@ -373,6 +382,8 @@ def validate_xls_preflight(
     text: str,
     image_range: str,
     model: str,
+    target_language: str,
+    process_all: bool,
     ignore_failure: bool,
 ) -> None:
     with xls_preflight_lock:
@@ -384,10 +395,12 @@ def validate_xls_preflight(
         or preflight["source_hash"] != source_hash(text)
         or preflight["image_range"] != image_range.strip()
         or preflight["model"] != model
+        or preflight["target_language"] != target_language.strip().lower()
+        or preflight["process_all"] != process_all
     ):
         raise RuntimeError("The source or settings changed. Run preflight again before converting.")
     if preflight["ok"] is not True and not ignore_failure:
-        raise RuntimeError("Preflight found missing images or English translations.")
+        raise RuntimeError("Preflight found missing images or target-language material.")
 
 
 def destination_output_file(profile_id: str) -> Path:
@@ -738,6 +751,7 @@ def load_custom_profiles() -> list[dict[str, str]]:
         data = normalize_profile_sections(data)
         profile_id = str(data.get("id") or path.stem)
         label = str(data.get("label") or profile_id)
+        translation_languages = data.get("translation_languages")
         profiles.append({
             "id": profile_id,
             "label": label,
@@ -745,6 +759,9 @@ def load_custom_profiles() -> list[dict[str, str]]:
             "role_context": str(data.get("role_context", "")),
             "reference_context": str(data.get("reference_context", "")),
             "output_format": str(data.get("output_format", "")),
+            "native_language": str(data.get("native_language", "")),
+            "translation_languages": list(translation_languages) if isinstance(translation_languages, list) else [],
+            "record_type": str(data.get("record_type", "")),
         })
     return profiles
 
@@ -791,6 +808,9 @@ def save_custom_profile(
     reference_context: str,
     output_format: str,
     replace_existing: bool = False,
+    native_language: str = "",
+    translation_languages: list[str] | None = None,
+    record_type: str = "",
 ) -> dict[str, str]:
     label = name.strip()
     if not label:
@@ -813,6 +833,12 @@ def save_custom_profile(
         "role_context": role_context,
         "reference_context": reference_context,
         "output_format": output_format,
+        # Prompt Builder-only for now (see CLAUDE.md) -- a profile saved from
+        # the Transcribe page's manual free-text editor has neither field set,
+        # which is exactly what tells write_docx() to skip the header box.
+        "native_language": native_language.strip(),
+        "translation_languages": list(translation_languages or []),
+        "record_type": record_type.strip(),
     }
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     custom_profile_path(profile_id).write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
@@ -1120,7 +1146,7 @@ def page() -> str:
     function showCompletionAlert() {{
       if (completionAlertShown) return;
       completionAlertShown = true;
-      showSettingsAlert("Batch completed. Scroll down and review the the Progress Console and click the Download Document button.");
+      showSettingsAlert("Scroll down and review the Progress Console and click the Download Document button.", "Batch completed");
     }}
 
     function profileFields() {{
@@ -1241,11 +1267,13 @@ def page() -> str:
 
     let settingsAlertReturnFocus = null;
 
-    function showSettingsAlert(message) {{
+    function showSettingsAlert(message, title = "Run settings needed") {{
       const alert = document.getElementById("settings-alert");
+      const titleNode = document.getElementById("settings-alert-title");
       const messageNode = document.getElementById("settings-alert-message");
       if (!alert || !messageNode) return;
       settingsAlertReturnFocus = document.activeElement;
+      if (titleNode) titleNode.textContent = title;
       messageNode.textContent = message;
       alert.hidden = false;
       playAlertSound();
@@ -2390,7 +2418,7 @@ def test_mode_page() -> str:
     function showCompletionAlert() {{
       if (completionAlertShown) return;
       completionAlertShown = true;
-      showSettingsAlert("Batch run completed. Scroll down and review the Progress Console and download each model's document.");
+      showSettingsAlert("Scroll down and review the Progress Console and download each model's document.", "Batch completed");
     }}
 
     function playAlertSound() {{
@@ -2416,11 +2444,13 @@ def test_mode_page() -> str:
 
     let settingsAlertReturnFocus = null;
 
-    function showSettingsAlert(message) {{
+    function showSettingsAlert(message, title = "Run settings needed") {{
       const alert = document.getElementById("settings-alert");
+      const titleNode = document.getElementById("settings-alert-title");
       const messageNode = document.getElementById("settings-alert-message");
       if (!alert || !messageNode) return;
       settingsAlertReturnFocus = document.activeElement;
+      if (titleNode) titleNode.textContent = title;
       messageNode.textContent = message;
       alert.hidden = false;
       playAlertSound();
@@ -4582,6 +4612,9 @@ def prompt_builder_page(
     <input type="hidden" name="role_context">
     <input type="hidden" name="reference_context">
     <input type="hidden" name="output_format">
+    <input type="hidden" name="native_language">
+    <input type="hidden" name="translation_languages">
+    <input type="hidden" name="record_type">
     <div class="pb-toolbar">
       <button type="button" id="pb-expand-all" class="button-tiny">Expand all</button>
       <button type="button" id="pb-collapse-all" class="button-tiny">Collapse all</button>
@@ -4820,11 +4853,81 @@ def root_rels_xml() -> bytes:
 </Relationships>"""
 
 
-def document_xml(text: str) -> bytes:
+def header_box_element(
+    native_language: str,
+    translation_languages: list[str],
+    record_type: str = "",
+) -> ElementTree.Element:
+    """A bordered, shaded box stamped at the top of the transcription DOCX,
+    declaring what this document contains: record type, native language, and
+    any translations. Written deterministically from the saved profile's own
+    fields -- not inferred from the model's output -- so it's a fact the app
+    already knows, not a guess made after the fact. Prompt Builder profiles
+    only for now (see CLAUDE.md); a profile with no native_language set
+    produces no box at all, which is what write_docx() checks before calling
+    this. record_type is the same key/label pair XLS Conversion's own "Source
+    material" dropdown uses (PROMPT_BUILDER_RECORD_TYPES), so that page can
+    match the label back to a dropdown option without a separate lookup
+    table; an unrecognized or blank key just omits the line."""
+    ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    translations_line = ", ".join(translation_languages) if translation_languages else "None"
+    record_type_label = PROMPT_BUILDER_RECORD_TYPES.get(record_type, {}).get("label", "")
+    lines = [
+        ("DO NOT EDIT OR DELETE THIS BLOCK", True),
+        ("Used by the XLSX Conversion tool to identify what this document contains.", False),
+    ]
+    if record_type_label:
+        lines.append((f"Record type: {record_type_label}", False))
+    lines.append((f"Native-language transcription: {native_language}", False))
+    lines.append((f"Translations produced: {translations_line}", False))
+
+    tbl = ElementTree.Element(f"{{{ns}}}tbl")
+    tbl_pr = ElementTree.SubElement(tbl, f"{{{ns}}}tblPr")
+    tbl_w = ElementTree.SubElement(tbl_pr, f"{{{ns}}}tblW")
+    tbl_w.set(f"{{{ns}}}w", "0")
+    tbl_w.set(f"{{{ns}}}type", "auto")
+    borders = ElementTree.SubElement(tbl_pr, f"{{{ns}}}tblBorders")
+    for edge in ("top", "left", "bottom", "right"):
+        border = ElementTree.SubElement(borders, f"{{{ns}}}{edge}")
+        border.set(f"{{{ns}}}val", "single")
+        border.set(f"{{{ns}}}sz", "12")
+        border.set(f"{{{ns}}}space", "0")
+        border.set(f"{{{ns}}}color", "A33A2B")
+    grid = ElementTree.SubElement(tbl, f"{{{ns}}}tblGrid")
+    ElementTree.SubElement(grid, f"{{{ns}}}gridCol")
+
+    tr = ElementTree.SubElement(tbl, f"{{{ns}}}tr")
+    tc = ElementTree.SubElement(tr, f"{{{ns}}}tc")
+    tc_pr = ElementTree.SubElement(tc, f"{{{ns}}}tcPr")
+    shd = ElementTree.SubElement(tc_pr, f"{{{ns}}}shd")
+    shd.set(f"{{{ns}}}val", "clear")
+    shd.set(f"{{{ns}}}fill", "FBEAE7")
+    tc_margins = ElementTree.SubElement(tc_pr, f"{{{ns}}}tcMar")
+    for side in ("top", "left", "bottom", "right"):
+        margin = ElementTree.SubElement(tc_margins, f"{{{ns}}}{side}")
+        margin.set(f"{{{ns}}}w", "150")
+        margin.set(f"{{{ns}}}type", "dxa")
+
+    for line_text, bold in lines:
+        p = ElementTree.SubElement(tc, f"{{{ns}}}p")
+        r = ElementTree.SubElement(p, f"{{{ns}}}r")
+        if bold:
+            r_pr = ElementTree.SubElement(r, f"{{{ns}}}rPr")
+            ElementTree.SubElement(r_pr, f"{{{ns}}}b")
+        t = ElementTree.SubElement(r, f"{{{ns}}}t")
+        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        t.text = line_text
+    return tbl
+
+
+def document_xml(text: str, header_box: ElementTree.Element | None = None) -> bytes:
     ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     ElementTree.register_namespace("w", ns)
     document = ElementTree.Element(f"{{{ns}}}document")
     body = ElementTree.SubElement(document, f"{{{ns}}}body")
+    if header_box is not None:
+        body.append(header_box)
+        body.append(paragraph(""))
     for line in text.splitlines():
         body.append(paragraph(line))
     sect_pr = ElementTree.SubElement(body, f"{{{ns}}}sectPr")
@@ -4839,12 +4942,23 @@ def document_xml(text: str) -> bytes:
     return ElementTree.tostring(document, encoding="utf-8", xml_declaration=True)
 
 
-def write_docx(output_docx: Path, text: str) -> None:
+def write_docx(
+    output_docx: Path,
+    text: str,
+    native_language: str = "",
+    translation_languages: list[str] | None = None,
+    record_type: str = "",
+) -> None:
     output_docx.parent.mkdir(parents=True, exist_ok=True)
+    header_box = (
+        header_box_element(native_language.strip(), translation_languages or [], record_type.strip())
+        if native_language.strip()
+        else None
+    )
     with zipfile.ZipFile(output_docx, "w", zipfile.ZIP_DEFLATED) as output:
         output.writestr("[Content_Types].xml", content_types_xml())
         output.writestr("_rels/.rels", root_rels_xml())
-        output.writestr("word/document.xml", document_xml(text))
+        output.writestr("word/document.xml", document_xml(text, header_box))
 
 
 # --- Comparison report DOCX (Test Mode "Download Comparison Report") ---
@@ -5181,7 +5295,13 @@ def run_job(form: FormData, output_file: Path) -> None:
             cancel_requested=stop_event.is_set,
         )
         if markdown_file.exists():
-            write_docx(output_file, markdown_file.read_text(encoding="utf-8"))
+            write_docx(
+                output_file,
+                markdown_file.read_text(encoding="utf-8"),
+                native_language=str(profile.get("native_language", "")),
+                translation_languages=list(profile.get("translation_languages") or []),
+                record_type=str(profile.get("record_type", "")),
+            )
         else:
             add_log(f"Markdown output was not found for Word export: {markdown_file}")
         failures = count_failures(results)
@@ -5265,7 +5385,12 @@ def run_test_job(
                 cancel_requested=test_stop_event.is_set,
             )
             if markdown_file.exists():
-                write_docx(output_file, markdown_file.read_text(encoding="utf-8"))
+                write_docx(
+                    output_file,
+                    markdown_file.read_text(encoding="utf-8"),
+                    native_language=str(profile.get("native_language", "")),
+                    translation_languages=list(profile.get("translation_languages") or []),
+                )
             else:
                 add_test_log(f"{tag} Markdown output was not found for Word export: {markdown_file}")
             failures = count_failures(results)
@@ -5356,6 +5481,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if urllib.parse.urlparse(self.path).path == "/api/xls-conversion/preflight":
             self.preflight_xls_source()
+            return
+
+        if urllib.parse.urlparse(self.path).path == "/api/xls-conversion/detect-languages":
+            self.detect_xls_languages()
+            return
+
+        if urllib.parse.urlparse(self.path).path == "/api/xls-conversion/combine":
+            self.combine_xls_languages()
             return
 
         if urllib.parse.urlparse(self.path).path == "/api/test-mode/compare":
@@ -5536,12 +5669,17 @@ class Handler(BaseHTTPRequestHandler):
             record_type = str(payload.get("record_type", "") or "")
             text = str(payload.get("text", "") or "")
             image_range = str(payload.get("image_range", "") or "")
+            target_language = str(payload.get("target_language", "") or "")
+            target_role = str(payload.get("target_role", "") or "")
+            process_all = payload.get("process_all") is True
             validate_xls_preflight(
                 token=str(payload.get("preflight_token", "") or ""),
                 record_type=record_type,
                 text=text,
                 image_range=image_range,
                 model=model,
+                target_language=target_language,
+                process_all=process_all,
                 ignore_failure=payload.get("ignore_preflight") is True,
             )
             validate_api_key(PROJECT_DIR, model, api_key_value)
@@ -5552,6 +5690,9 @@ class Handler(BaseHTTPRequestHandler):
                 image_overrides=str(payload.get("image_overrides", "") or ""),
                 api_key=api_key_value,
                 model=model,
+                target_language=target_language,
+                target_role=target_role,
+                process_all=process_all,
             )
             self.respond_json(result)
         except Exception as exc:
@@ -5569,6 +5710,10 @@ class Handler(BaseHTTPRequestHandler):
             record_type = str(payload.get("record_type", "") or "")
             text = str(payload.get("text", "") or "")
             image_range = str(payload.get("image_range", "") or "")
+            target_language = str(payload.get("target_language", "") or "")
+            target_role = str(payload.get("target_role", "") or "")
+            process_all = payload.get("process_all") is True
+            filename = str(payload.get("filename", "") or "")
             validate_api_key(PROJECT_DIR, model, api_key_value)
             result = preflight_records_with_ai(
                 record_type=record_type,
@@ -5576,11 +5721,58 @@ class Handler(BaseHTTPRequestHandler):
                 image_range=image_range,
                 api_key=api_key_value,
                 model=model,
+                target_language=target_language,
+                target_role=target_role,
+                process_all=process_all,
+                filename=filename,
             )
-            token = save_xls_preflight(result, record_type, text, image_range, model)
+            token = save_xls_preflight(result, record_type, text, image_range, model, target_language, process_all)
             result["preflight_token"] = token
             result["source_hash"] = source_hash(text)
             self.respond_json(result)
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
+
+    def detect_xls_languages(self) -> None:
+        try:
+            payload = parse_json_body(self)
+            model = str(payload.get("model", "") or "")
+            if model not in MODELS:
+                raise RuntimeError("Select a model before detecting languages.")
+            api_key_value = str(payload.get("gemini_api_key", "") or "").strip()
+            text = str(payload.get("text", "") or "")
+            image_range = str(payload.get("image_range", "") or "")
+            process_all = payload.get("process_all") is True
+            validate_api_key(PROJECT_DIR, model, api_key_value)
+            result = detect_languages(
+                text=text,
+                image_range=image_range,
+                api_key=api_key_value,
+                model=model,
+                process_all=process_all,
+            )
+            self.respond_json(result)
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
+
+    def combine_xls_languages(self) -> None:
+        try:
+            payload = parse_json_body(self)
+            record_type = str(payload.get("record_type", "") or "")
+            sheets_payload = payload.get("sheets")
+            if not isinstance(sheets_payload, list) or len(sheets_payload) != 2:
+                raise RuntimeError("Combining a workbook requires exactly two language row sets.")
+            sheets: list[tuple[str, list[dict[str, str]]]] = []
+            for item in sheets_payload:
+                if not isinstance(item, dict):
+                    raise RuntimeError("Invalid sheet payload.")
+                language = str(item.get("language", "") or "")
+                rows = item.get("rows")
+                if not language or not isinstance(rows, list):
+                    raise RuntimeError("Each sheet needs a language and its extracted rows.")
+                sheets.append((language, [row for row in rows if isinstance(row, dict)]))
+            xlsx_base64 = combine_language_xlsx(record_type, sheets)
+            self.respond_json({"xlsx_base64": xlsx_base64})
         except Exception as exc:
             self.respond_json({"error": str(exc)}, status=400)
 
@@ -5715,12 +5907,20 @@ class Handler(BaseHTTPRequestHandler):
             role_context = pasted_value(form, "role_context")
             reference_context = pasted_value(form, "reference_context")
             output_format = pasted_value(form, "output_format")
+            native_language = pasted_value(form, "native_language")
+            translation_languages = [
+                value.strip() for value in pasted_value(form, "translation_languages").split(",") if value.strip()
+            ]
+            record_type = pasted_value(form, "record_type")
             profile = save_custom_profile(
                 new_profile_name,
                 role_context,
                 reference_context,
                 output_format,
                 replace_existing=False,
+                native_language=native_language,
+                translation_languages=translation_languages,
+                record_type=record_type,
             )
             message = (
                 f'Saved profile "{profile["label"]}". Reload the Transcribe or Test Mode '

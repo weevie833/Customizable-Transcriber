@@ -178,27 +178,20 @@ small,
 }
 
 .step-heading {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  display: grid;
+  gap: 4px;
   margin-bottom: 18px;
 }
 
-.step-heading > div {
+.panel-row {
   display: grid;
-  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 18px;
 }
 
-.step-number {
-  display: grid;
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--blue);
-  color: #fff;
-  font-weight: 750;
+.panel-row > .panel {
+  margin-bottom: 0;
 }
 
 .upload-box {
@@ -214,7 +207,8 @@ small,
   cursor: pointer;
 }
 
-.upload-box:hover {
+.upload-box:hover,
+.upload-box.dragover {
   border-color: var(--blue);
   background: #f5f9ff;
 }
@@ -296,6 +290,102 @@ summary:focus-visible {
 .field-help {
   font-size: 12px;
   font-weight: 400;
+}
+
+.upload-note {
+  margin-top: 10px;
+}
+
+.alert-text {
+  padding: 9px 12px;
+  margin: 0 0 10px;
+  border: 1px solid rgb(154 103 0 / 35%);
+  border-left: 3px solid var(--amber);
+  border-radius: 6px;
+  background: #fdf6e8;
+  color: #6b4c00;
+}
+
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+fieldset[disabled] {
+  opacity: 0.55;
+}
+
+legend {
+  display: block;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 650;
+  margin-top: 18px;
+}
+
+.radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.radio-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+  font-weight: 500;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.radio-option input {
+  margin: 0;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+  font-weight: 500;
+}
+
+.check input {
+  margin: 0;
+}
+
+.detected-languages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.detected-languages:empty {
+  display: none;
+}
+
+.language-chip {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fbfaf7;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.language-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.language-choices:empty {
+  display: none;
 }
 
 .action-row {
@@ -436,7 +526,8 @@ footer {
   }
 
   .options-grid,
-  .gemini-settings {
+  .gemini-settings,
+  .panel-row {
     grid-template-columns: 1fr;
   }
 }

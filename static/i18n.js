@@ -316,9 +316,9 @@
     "Confirm that every requested image is present and contains English translation material before creating the spreadsheet output.":
       "Conferma che ogni immagine richiesta sia presente e contenga materiale di traduzione in inglese prima di creare il foglio di calcolo di output.",
     "Convert": "Converti",
-    "Ignore Preflight and Convert": "Ignora il controllo preliminare e converti",
-    "Converting the records. Gemini extraction may take several minutes.":
-      "Conversione dei record in corso. L'estrazione con Gemini può richiedere diversi minuti.",
+    "Override Preflight and Convert": "Ignora il controllo preliminare e converti",
+    "Converting the records. AI extraction may take several minutes.":
+      "Conversione dei record in corso. L'estrazione con l'IA può richiedere diversi minuti.",
     "Process Status": "Stato del processo",
     "Upload a DOCX file to begin.": "Carica un file DOCX per iniziare.",
     "Preflight results": "Risultati del controllo preliminare",

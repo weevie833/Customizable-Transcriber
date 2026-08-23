@@ -432,6 +432,15 @@
     });
     parts.push(blockLines.join("\n"));
 
+    var exampleEntry = pbVal("exampleEntry");
+    if (exampleEntry) {
+      parts.push(
+        "# EXAMPLE ENTRY (REFERENCE ONLY)\n\n" +
+        "The following is a verified, complete, 100% accurate transcription of one real entry from this exact register, given purely as a formatting and style reference. Match its conventions -- spelling, abbreviation style, how it handles line breaks -- but do not copy its content into your own output; it is not the entry you are transcribing.\n\n" +
+        exampleEntry
+      );
+    }
+
     if (langs.length) {
       var phrasingLines = ["# REQUIRED PHRASINGS", ""];
       langs.forEach(function (lang) {
@@ -441,6 +450,14 @@
           phrasingLines.push("Open every Italian translation with the date, for example \"Il giorno 23 di settembre 1752.\" Always state the year, even when inferred.", "");
         }
       });
+      var expandAbbrev = document.querySelector('[name="translateExpandAbbreviations"]');
+      if (expandAbbrev && expandAbbrev.checked) {
+        phrasingLines.push("Expand every abbreviation in the translation to its full form -- do not carry an abbreviated form over into translated text.", "");
+      }
+      var convertNames = document.querySelector('[name="translateConvertNames"]');
+      if (convertNames && convertNames.checked) {
+        phrasingLines.push("Convert personal names in the translation to their standard " + langs.join("/") + " equivalent (for example, Ioannes -> John in English, Giovanni in Italian) rather than transliterating the source-language form.", "");
+      }
       var honorifics = pbChecked("honorifics").concat(pbSimpleValues("pb-honorific-rows"));
       if (honorifics.length) {
         phrasingLines.push(
@@ -524,7 +541,20 @@
     var cornerRow = document.getElementById("pb-page-number-corner-row");
     if (cornerRow) cornerRow.hidden = pbVal("pageNumberScheme") !== "two_per_image";
     updateMarginalHeadingVisibility();
-    pbRefresh();
+    updateRecordTypeLanguageDefault();
+    updateLanguageDefaults();
+  }
+
+  // Church records default to Latin, civil records to Italian -- a starting
+  // point, not a hardcoded rule (real exceptions exist: Napoleonic-era civil
+  // acts in French, South Tyrol civil records in German, vernacular-Italian
+  // parish entries). Only applied while the user hasn't picked a language
+  // themselves; same touched-flag pattern as Month-abbreviation convention.
+  function updateRecordTypeLanguageDefault() {
+    var languageSelect = document.querySelector('[name="language"]');
+    if (!languageSelect || languageSelect.dataset.touched) return;
+    var defaultLanguage = selectedRecordType().indexOf("civil_") === 0 ? "Italian" : "Latin";
+    if (languageSelect.value !== defaultLanguage) languageSelect.value = defaultLanguage;
   }
 
   function updateLanguageDefaults() {
@@ -542,6 +572,8 @@
     var langs = translationLanguages();
     var honorificsSection = document.getElementById("pb-honorifics-section");
     if (honorificsSection) honorificsSection.hidden = langs.length === 0;
+    var translationOptionsSection = document.getElementById("pb-translation-options-section");
+    if (translationOptionsSection) translationOptionsSection.hidden = langs.length === 0;
     pbRefresh();
   }
 
@@ -629,6 +661,15 @@
       var container = document.getElementById(id);
       if (container) container.innerHTML = "";
     });
+    // Clear the touched flags too, not just the field values -- form.reset()
+    // only restores values, so without this a field touched before Reset would
+    // permanently stop taking its auto-default afterward. (Fixes the same latent
+    // gap for Month-abbreviation convention, which had this flag already but
+    // nothing ever cleared it.)
+    var monthSelect = document.querySelector('[name="monthConvention"]');
+    if (monthSelect) delete monthSelect.dataset.touched;
+    var languageSelect = document.querySelector('[name="language"]');
+    if (languageSelect) delete languageSelect.dataset.touched;
     updateRecordTypeVisibility();
   }
 
@@ -636,10 +677,44 @@
     document.querySelectorAll("details.pb-section").forEach(function (d) { d.open = open; });
   }
 
+  // Offline-worksheet download button. Independent of i18n.js's DICTIONARY
+  // text-swap (that mechanism only replaces static text nodes/attributes) --
+  // this button also has to swap *which file* it points at, so it reads the
+  // same "tb-lang" localStorage key i18n.js writes and drives its own label,
+  // caption, and href/download filename directly.
+  var WORKSHEET_DOWNLOAD = {
+    en: {
+      label: "Download DOCX (ENG)",
+      caption: "Download DOCX templates of the questionnaire to complete offline, then copy your selections into the app.",
+      href: "/static/prompt-builder-worksheets/prompt-builder-worksheets-en.zip",
+      filename: "prompt-builder-worksheets-en.zip",
+    },
+    it: {
+      label: "Scarica DOCX (IT)",
+      caption: "Scarica i modelli DOCX del questionario da completare offline, poi copia le tue scelte nell'app.",
+      href: "/static/prompt-builder-worksheets/prompt-builder-worksheets-it.zip",
+      filename: "prompt-builder-worksheets-it.zip",
+    },
+  };
+
+  function updateWorksheetDownloadButton() {
+    var link = document.getElementById("pb-download-worksheets");
+    var caption = document.getElementById("pb-download-caption");
+    if (!link && !caption) return;
+    var lang = localStorage.getItem("tb-lang") === "it" ? "it" : "en";
+    var copy = WORKSHEET_DOWNLOAD[lang];
+    if (link) {
+      link.textContent = copy.label;
+      link.setAttribute("href", copy.href);
+      link.setAttribute("download", copy.filename);
+    }
+    if (caption) caption.textContent = copy.caption;
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     document.getElementById("pb-questionnaire-form").addEventListener("input", function (event) {
       if (event.target.name === "recordType") { updateRecordTypeVisibility(); return; }
-      if (event.target.name === "language") { updateLanguageDefaults(); return; }
+      if (event.target.name === "language") { event.target.dataset.touched = "1"; updateLanguageDefaults(); return; }
       if (event.target.name === "pageNumberScheme") { updateRecordTypeVisibility(); return; }
       if (event.target.classList.contains("pb-marginal-toggle")) { updateMarginalHeadingVisibility(); pbRefresh(); return; }
       if (event.target.name === "translateEnglish" || event.target.name === "translateItalian") { updateTranslationVisibility(); return; }
@@ -671,5 +746,10 @@
     wireInfoButtons();
     updateTranslationVisibility();
     updateRecordTypeVisibility();
+
+    updateWorksheetDownloadButton();
+    document.querySelectorAll(".lang-flag").forEach(function (button) {
+      button.addEventListener("click", updateWorksheetDownloadButton);
+    });
   });
 })();

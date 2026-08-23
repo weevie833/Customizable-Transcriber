@@ -3792,6 +3792,7 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
             "Testis / Testes = witness(es)",
             "sponsus = groom",
             "sponsa = bride",
+            "Testis fuit = singular verb, Testes fuerunt = plural verb",
         ],
     },
     "morti": {
@@ -3810,7 +3811,7 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
     "civil_birth": {
         "label": "Civil Birth",
         "has_marginal_heading_default": False,
-        "marginal_heading_placeholder": "a short name-only note in the margin, if this register has one",
+        "marginal_heading_placeholder": "[Child's name]",
         "formula_fields": [
             ("formula_act", "Act formula", "the declaration formula: \"[DECLARANT] presented a child born of [FATHER] and [MOTHER] ... to whom was given the name [CHILD]\"", False),
         ],
@@ -3822,7 +3823,7 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
     "civil_marriage": {
         "label": "Civil Marriage",
         "has_marginal_heading_default": False,
-        "marginal_heading_placeholder": "a short name-only note in the margin, if this register has one",
+        "marginal_heading_placeholder": "[Groom's name] and [Bride's name]",
         "formula_fields": [
             ("formula_act", "Act formula", "the declaration formula for the civil marriage act", False),
         ],
@@ -3834,7 +3835,7 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
     "civil_death": {
         "label": "Civil Death",
         "has_marginal_heading_default": False,
-        "marginal_heading_placeholder": "a short name-only note in the margin, if this register has one",
+        "marginal_heading_placeholder": "[Deceased's name]",
         "formula_fields": [
             ("formula_act", "Act formula", "the declaration formula for the civil death act", False),
         ],
@@ -3935,15 +3936,31 @@ def pb_common_abbrev_checklist_html() -> str:
     return "\n        ".join(items)
 
 
+# Shared by every formula field (Entry structure, Groom's/Bride's/Witness/Act
+# formula) across all 6 types -- generic on purpose, same reasoning as the
+# marginal-heading/role-vocab info texts above: one field-specific example per
+# type per field would be a lot of upkeep for text that says the same thing
+# every time regardless of which formula field or record type it's attached to.
+PB_FORMULA_INFO_TEXT = (
+    "This is the exact standing phrase your register repeats in every entry, written out with the parts that "
+    "change -- names, dates, roles -- marked as bracketed placeholders like [FATHER] or [WITNESS]. It teaches the "
+    "AI where each real name or date sits in the sentence, even past abbreviations. Edit the sample text below to "
+    "match your own register's actual wording."
+)
+
+
 def pb_formula_fields_html(type_key: str, config: dict) -> str:
     # placeholder here is live, pre-filled textarea content (not a `placeholder`
     # attribute) -- the user edits the sample formula in place rather than
-    # typing into an empty box.
+    # typing into an empty box. The label text + note + info button are wrapped
+    # in one <span> (not left as bare siblings) so they land on the label's
+    # first grid row together -- same fix as Name lexicon's label, see there.
     rows = []
     for key, label, placeholder, optional in config["formula_fields"]:
         note = " (optional — leave blank if this register has none)" if optional else ""
+        info_button = pb_info_button_html(f"pb-info-formula-{type_key}-{key}", PB_FORMULA_INFO_TEXT)
         rows.append(
-            f'      <label>{html.escape(label)}{note}\n'
+            f'      <label><span>{html.escape(label)}{note}{info_button}</span>\n'
             f'        <textarea name="{type_key}_{key}" rows="2">{html.escape(placeholder)}</textarea>\n'
             f'      </label>'
         )
@@ -3957,17 +3974,38 @@ def pb_section2_type_group_html(type_key: str) -> str:
     marginal_placeholder = html.escape(config["marginal_heading_placeholder"])
     formula_html = pb_formula_fields_html(type_key, config)
     role_vocab_html = pb_checklist_html(f"{type_key}_roleVocab", config["role_vocab"])
+    # Both info-button texts below are generic on purpose -- they used to hardcode
+    # Battesimi's own example ("[child's name] filius/filia...", "P.nus"/"PP.") and
+    # got reused verbatim for every type via this shared function, so Matrimoni/
+    # Morti/civil users saw Battesimi's vocabulary in their own popups. The marginal
+    # one now quotes each type's own placeholder instead; the role-vocab one no
+    # longer names specific terms at all, since there's no single example that fits
+    # every type's own list.
+    marginal_info_text = (
+        "Many church and civil registers write a short note in the margin next to each entry -- often just the "
+        "name(s) involved -- as a running index down the side of the page. If your register does this, check the "
+        f'box and describe the pattern below, for example "{config["marginal_heading_placeholder"]}." The AI will '
+        'transcribe this margin note as its own "Marginal Heading" block, kept separate from the entry\'s main body '
+        "text -- useful because the two occasionally disagree (a different spelling, a different name order), and "
+        "both readings are worth preserving."
+    )
+    role_vocab_info_text = (
+        "These are the role-specific words this register uses for the people named in an entry -- for example, a "
+        "different term depending on whether one person filled the role or several did. Checking a term tells the "
+        "AI to recognize it and use it correctly when working out who filled which role. Leave a term unchecked if "
+        "it never appears in your register."
+    )
     return f"""    <div class="pb-type-group" data-record-type="{type_key}" hidden>
       <div class="pb-inline-row">
-        <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasMarginalHeading" class="pb-marginal-toggle"{checked}> This register has a separate margin for each entry that states the name</label>{pb_info_button_html(f"pb-info-marginal-{type_key}", "Many church and civil registers write a short note in the margin next to each entry -- often just the name(s) involved -- as a running index down the side of the page. If your register does this, check the box and describe the pattern below, for example \"[child's name] filius/filia [father] et [mother] [surname].\" The AI will transcribe this margin note as its own \"Marginal Heading\" block, kept separate from the entry's main body text -- useful because the two occasionally disagree (a different spelling, a different name order), and both readings are worth preserving.")}
+        <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasMarginalHeading" class="pb-marginal-toggle"{checked}> This register has a separate margin for each entry that states the name</label>{pb_info_button_html(f"pb-info-marginal-{type_key}", marginal_info_text)}
       </div>
       <div class="pb-marginal-formula"{formula_hidden}>
-        <label>Marginal heading structure
+        <label><span>Marginal heading structure{pb_info_button_html(f"pb-info-marginal-structure-{type_key}", marginal_info_text)}</span>
           <textarea name="{type_key}_formula_marginalHeading" rows="2">{marginal_placeholder}</textarea>
         </label>
       </div>
 {formula_html}
-      <p class="hint">Role-clause vocabulary for {html.escape(config["label"])} (optional){pb_info_button_html(f"pb-info-rolevocab-{type_key}", 'These are the role-specific words this register uses for the people named in an entry -- terms like "P.nus" for a single godfather or "PP." for two or more godparents. Checking a term tells the AI to recognize it and use it correctly when working out who filled which role. Leave a term unchecked if it never appears in your register.')}</p>
+      <p class="hint">Role-clause vocabulary for {html.escape(config["label"])} (optional){pb_info_button_html(f"pb-info-rolevocab-{type_key}", role_vocab_info_text)}</p>
       <div class="pb-checklist pb-checklist-2col">
         {role_vocab_html}
       </div>
@@ -4211,12 +4249,49 @@ def prompt_builder_page(
     }}
     .pb-toolbar {{
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
+      align-items: center;
       gap: 10px;
       margin-bottom: 4px;
     }}
     .pb-toolbar button {{
       margin-top: 0;
+      flex: 0 0 auto;
+    }}
+    .pb-download-group {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: auto;
+      min-width: 0;
+    }}
+    .pb-download-group a {{
+      margin-top: 0;
+      white-space: nowrap;
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: #53616f;
+      color: #fff;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }}
+    .pb-download-group a:hover {{
+      filter: brightness(0.92);
+    }}
+    .pb-download-group a:focus-visible {{
+      outline: 3px solid rgba(37, 92, 153, 0.32);
+      outline-offset: 2px;
+    }}
+    .pb-download-caption {{
+      font-size: 13px;
+      color: #5f6b76;
+      text-align: right;
+      flex: 1 1 auto;
+      min-width: 0;
     }}
     .pb-banner {{
       padding: 12px 14px;
@@ -4466,6 +4541,10 @@ def prompt_builder_page(
       .pb-checklist-2col {{ grid-template-columns: 1fr; }}
       .pb-checklist-2col .pb-checkbox {{ white-space: normal; }}
       .pb-info-panel {{ max-width: calc(100vw - 60px); }}
+      .pb-toolbar {{ flex-wrap: wrap; }}
+      .pb-download-group {{ margin-left: 0; flex-basis: 100%; flex-direction: column; align-items: stretch; }}
+      .pb-download-caption {{ text-align: left; max-width: none; flex: 0 0 auto; }}
+      .pb-download-group a {{ text-align: center; }}
     }}
     @media (max-width: 520px) {{
       .site-header {{ flex-direction: column; }}
@@ -4504,9 +4583,13 @@ def prompt_builder_page(
     <input type="hidden" name="reference_context">
     <input type="hidden" name="output_format">
     <div class="pb-toolbar">
-      <button type="button" id="pb-expand-all" class="button-secondary">Expand all</button>
-      <button type="button" id="pb-collapse-all" class="button-secondary">Collapse all</button>
-      <button type="button" id="pb-reset-form" class="button-secondary">Reset form</button>
+      <button type="button" id="pb-expand-all" class="button-tiny">Expand all</button>
+      <button type="button" id="pb-collapse-all" class="button-tiny">Collapse all</button>
+      <button type="button" id="pb-reset-form" class="button-tiny">Reset form</button>
+      <div class="pb-download-group">
+        <span class="pb-download-caption" id="pb-download-caption">Download DOCX templates of the questionnaire to complete offline, then copy your selections into the app.</span>
+        <a id="pb-download-worksheets" href="/static/prompt-builder-worksheets/prompt-builder-worksheets-en.zip" download="prompt-builder-worksheets-en.zip">Download DOCX (ENG)</a>
+      </div>
     </div>
 
     <details class="pb-section" open>
@@ -4656,10 +4739,23 @@ def prompt_builder_page(
       </summary>
       <p class="pb-section-caption">{PROMPT_BUILDER_SECTION_HELP["output_format"]}</p>
 
+      <label>Example entry
+      <p class="hint">Paste in a completed 100% accurate entry in the native language of the sources for this project. This will be used as a critically important formatting reference for the AI to generate the proper output.</p>
+      <textarea name="exampleEntry" rows="6" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea>
+      </label>
+
       <p class="hint">Translation is optional — leave both unchecked for a transcription-only output with no translation at all</p>
       <div class="pb-checklist pb-checklist-tight">
         <label class="pb-checkbox"><input type="checkbox" name="translateEnglish" value="English">English</label>
         <label class="pb-checkbox"><input type="checkbox" name="translateItalian" value="Italian">Italian</label>
+      </div>
+
+      <div id="pb-translation-options-section">
+        <p class="hint">Translation style options</p>
+        <div class="pb-checklist pb-checklist-tight">
+          <label class="pb-checkbox"><input type="checkbox" name="translateExpandAbbreviations" value="expand">Expand abbreviations</label>
+          <label class="pb-checkbox"><input type="checkbox" name="translateConvertNames" value="convert">Convert names to ENG or IT equivalents</label>
+        </div>
       </div>
 
       <div id="pb-honorifics-section">
@@ -5543,7 +5639,16 @@ class Handler(BaseHTTPRequestHandler):
             ".js": "text/javascript; charset=utf-8",
             ".css": "text/css; charset=utf-8",
         }
-        content_type = content_types.get(path.suffix.lower())
+        # Downloadable binaries (Prompt Builder's offline worksheet DOCX/ZIP
+        # files) are also served through this route -- a whitelisted second
+        # set of extensions, sent as attachments, rather than opening the
+        # content_types whitelist above to arbitrary types.
+        download_types = {
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".zip": "application/zip",
+        }
+        suffix = path.suffix.lower()
+        content_type = content_types.get(suffix) or download_types.get(suffix)
         if not content_type:
             self.send_error(404)
             return
@@ -5552,6 +5657,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if suffix in download_types:
+            self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
         self.end_headers()
         self.wfile.write(data)
 

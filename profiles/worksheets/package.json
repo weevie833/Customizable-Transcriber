@@ -1,0 +1,8 @@
+{
+  "name": "prompt-builder-worksheets",
+  "private": true,
+  "description": "Generates the Prompt Builder DOCX worksheets (EN + IT) served from static/prompt-builder-worksheets/. Run: node build.js <output-dir>",
+  "dependencies": {
+    "docx": "^9.0.0"
+  }
+}

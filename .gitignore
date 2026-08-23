@@ -8,3 +8,6 @@ uploads/
 profiles/settings.json
 app_settings.json
 .claude/
+
+# Prompt Builder worksheet build tooling
+profiles/worksheets/node_modules/

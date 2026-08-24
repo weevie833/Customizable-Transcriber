@@ -2353,7 +2353,7 @@ def page() -> str:
     <button id="refresh-status-button" class="button-secondary" type="button">Refresh Status</button>
     <pre id="log">{escaped_log}</pre>
   </section>
-  <footer class="license">Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA). Not for commercial use. Attribution required.</footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license.</footer>
 </main>
 </body>
 </html>"""
@@ -3826,7 +3826,7 @@ def test_mode_page() -> str:
     <div id="progress-rows" class="progress-rows"></div>
     <pre id="log">{escaped_log}</pre>
   </section>
-  <footer class="license">Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA). Not for commercial use. Attribution required.</footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license.</footer>
 </main>
 </body>
 </html>"""
@@ -4964,7 +4964,7 @@ def prompt_builder_page(
       <button id="pb-save-button" type="submit" name="save_mode" value="new">Save as New Profile</button>
     </div>
   </form>
-  <footer class="license">Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA). Not for commercial use. Attribution required.</footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license.</footer>
 </main>
 </body>
 </html>"""

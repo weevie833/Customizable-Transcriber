@@ -31,10 +31,10 @@
     "Test Mode": "Modalità di test",
     "Prompt Builder": "Generatore di prompt",
     "Primary navigation": "Navigazione principale",
-    "Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA). Not for commercial use. Attribution required.":
-      "Pubblicato con licenza Creative Commons Attribuzione-NonCommerciale-CondividiAllo stesso modo (CC BY-NC-SA). Vietato l'uso commerciale. È richiesta l'attribuzione.",
-    "Created under Creative Commons license Attribution-NonCommercial-ShareAlike (CC BY-NC-SA).":
-      "Pubblicato con licenza Creative Commons Attribuzione-NonCommerciale-CondividiAllo stesso modo (CC BY-NC-SA).",
+    "Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license.":
+      "Distribuito sotto licenza GNU Affero General Public License v3.0 (AGPL-3.0). Libero da usare, modificare e condividere — le opere derivate, comprese le versioni ospitate su server, devono rimanere open source sotto la stessa licenza.",
+    "Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).":
+      "Distribuito sotto licenza GNU Affero General Public License v3.0 (AGPL-3.0).",
 
     // Source folder / run controls shared by Transcribe + Test Mode
     "Source folder": "Cartella di origine",

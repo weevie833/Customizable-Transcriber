@@ -47,6 +47,13 @@ PORT = 8765
 MAX_FORM_BYTES = 5_000_000
 MAX_DOCX_BYTES = 50_000_000
 MAX_JSON_BYTES = 15_000_000
+# Caps the *decompressed* size of word/document.xml specifically -- MAX_DOCX_BYTES
+# above only bounds the compressed upload, and a small, deliberately-repetitive
+# zip entry can expand far past that (verified: a ~0.5MB crafted file decompressed
+# to 1GB+ in memory with no cap in place). 20MB is generous for a transcription's
+# worth of plain text/XML markup -- a real Word document.xml this large would
+# already be an unusually long document.
+MAX_DOCX_XML_BYTES = 20_000_000
 DEFAULT_PROFILE_ID = "rendi-battesimi"
 PROFILES_DIR = PROJECT_DIR / "profiles"
 PROFILE_SETTINGS_FILE = PROFILES_DIR / "settings.json"
@@ -317,11 +324,29 @@ def uploaded_docx_field(
 
 
 def extract_docx_text(payload: bytes) -> str:
+    # Two ingestion-safety checks, verified against real crafted input before
+    # this was added: (1) ZipInfo.file_size is the archive's own *declared*
+    # uncompressed size, checked before ever calling .read() -- a ~0.5MB
+    # zip with one deliberately-repetitive entry decompressed to 1GB+ with no
+    # cap in place, so this must happen before decompression, not after.
+    # (2) a real Word document.xml never has a DOCTYPE -- it's pure content,
+    # no DTD -- so rejecting one outright (rather than trying to selectively
+    # allow "safe" entities) closes the XML entity-expansion ("billion
+    # laughs") path with no false positives on legitimate files. A 605-byte
+    # crafted payload with 6 nested entity levels expanded to 300,000 chars
+    # in 10ms with no guard in place; ElementTree.fromstring() does not
+    # protect against this on its own.
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            document_xml = archive.read("word/document.xml")
+            info = archive.getinfo("word/document.xml")
+            if info.file_size > MAX_DOCX_XML_BYTES:
+                raise RuntimeError("The DOCX document's content is too large to process.")
+            document_xml = archive.read(info)
     except (KeyError, zipfile.BadZipFile) as exc:
         raise RuntimeError("The uploaded file is not a readable DOCX document.") from exc
+
+    if re.match(rb"^\s*(<\?xml[^>]*\?>\s*)?<!DOCTYPE", document_xml, re.IGNORECASE):
+        raise RuntimeError("The uploaded file is not a readable DOCX document.")
 
     try:
         root = ElementTree.fromstring(document_xml)

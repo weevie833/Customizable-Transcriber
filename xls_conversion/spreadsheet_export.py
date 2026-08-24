@@ -35,6 +35,22 @@ class SheetSpec:
     column_widths: Sequence[int] | None = None
 
 
+# Leading characters Excel/LibreOffice/Sheets treat as a formula trigger when a
+# CSV cell is opened -- unlike the XLSX writer below, plain CSV carries no
+# cell-type metadata, so the importer guesses type from content alone. Prefixing
+# with a single quote is the standard mitigation (used the same way by GitHub,
+# Splunk, and others) -- it's a no-op for any field value that doesn't already
+# start with one of these, and forces the rest to be read as literal text
+# instead of evaluated.
+_CSV_FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@")
+
+
+def _csv_safe_cell(value: str) -> str:
+    if value and value[0] in _CSV_FORMULA_TRIGGER_CHARS:
+        return "'" + value
+    return value
+
+
 def rows_to_csv(
     group_headers: Sequence[str],
     column_headers: Sequence[str],
@@ -46,7 +62,7 @@ def rows_to_csv(
     writer.writerow(group_headers)
     writer.writerow(column_headers)
     for row in rows:
-        writer.writerow([row.get(field, "") for field in fields])
+        writer.writerow([_csv_safe_cell(row.get(field, "")) for field in fields])
     return "\ufeff" + output.getvalue()
 
 

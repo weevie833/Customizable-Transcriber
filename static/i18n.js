@@ -47,15 +47,17 @@
     "Model": "Modello",
     "API key": "Chiave API",
     "Select a model": "Seleziona un modello",
-    "Used only for this browser session/request. It is not saved to the project files.":
-      "Usata solo per questa sessione/richiesta del browser. Non viene salvata nei file del progetto.",
+    "Used only for this browser session/request. It is not saved to the project files. Submitting a run sends this key and the selected source content directly to your chosen AI provider's API — see PRIVACY.md.":
+      "Usata solo per questa sessione/richiesta del browser. Non viene salvata nei file del progetto. L'avvio di un'esecuzione invia questa chiave e il contenuto sorgente selezionato direttamente all'API del provider IA scelto — consulta PRIVACY.md.",
+    "Used only for this browser session/request. It is not saved to the project files. Converting sends this key and the selected source content directly to your chosen AI provider's API — see PRIVACY.md.":
+      "Usata solo per questa sessione/richiesta del browser. Non viene salvata nei file del progetto. La conversione invia questa chiave e il contenuto sorgente selezionato direttamente all'API del provider IA scelto — consulta PRIVACY.md.",
     "Paste your API key for this run": "Incolla la tua chiave API per questa esecuzione",
     "API key for Model A": "Chiave API per il Modello A",
     "API key for Model B": "Chiave API per il Modello B",
     "Paste the API key for Model A": "Incolla la chiave API per il Modello A",
     "Paste the API key for Model B": "Incolla la chiave API per il Modello B",
-    "Each key must match its model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model). Used for every run in the queue. Not saved to the project files.":
-      "Ogni chiave deve corrispondere al provider del proprio modello (una chiave Gemini per un modello Gemini, una chiave Claude per un modello Claude). Usata per ogni esecuzione della coda. Non viene salvata nei file del progetto.",
+    "Each key must match its model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model). Used for every run in the queue. Not saved to the project files. Submitting a run sends each key and the selected source content directly to that provider's API — see PRIVACY.md.":
+      "Ogni chiave deve corrispondere al provider del proprio modello (una chiave Gemini per un modello Gemini, una chiave Claude per un modello Claude). Usata per ogni esecuzione della coda. Non viene salvata nei file del progetto. L'avvio di un'esecuzione invia ciascuna chiave e il contenuto sorgente selezionato direttamente all'API di quel provider — consulta PRIVACY.md.",
     "Process order": "Ordine di elaborazione",
     "Oldest-to-newest": "Dal più vecchio al più recente",
     "Newest-to-oldest": "Dal più recente al più vecchio",

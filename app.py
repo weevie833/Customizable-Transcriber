@@ -2290,7 +2290,7 @@ def page() -> str:
       </label>
       <label>API key
         <input type="password" name="gemini_api_key" autocomplete="off" placeholder="Paste your API key for this run">
-        <p class="hint">Used only for this browser session/request. It is not saved to the project files.</p>
+        <p class="hint">Used only for this browser session/request. It is not saved to the project files. Submitting a run sends this key and the selected source content directly to your chosen AI provider's API — see PRIVACY.md.</p>
       </label>
     </div>
     <div class="run-options">
@@ -3746,7 +3746,7 @@ def test_mode_page() -> str:
         <input type="password" name="api_key_b" autocomplete="off" placeholder="Paste the API key for Model B">
       </label>
     </div>
-    <p class="hint">Each key must match its model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model). Used for every run in the queue. Not saved to the project files.</p>
+    <p class="hint">Each key must match its model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model). Used for every run in the queue. Not saved to the project files. Submitting a run sends each key and the selected source content directly to that provider's API — see PRIVACY.md.</p>
     <div class="row">
       <label>Batch label (optional)
         <input type="text" name="batch_label" placeholder="Example: Flash-Lite vs 3.6 Flash">

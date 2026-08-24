@@ -151,3 +151,14 @@ Prompt behavior:
 - `profiles/`: saved JSON prompt profiles — the single source of truth the app reads. `profiles/sources/` holds source material (lexicons, corrections, build scripts) that generates specific profiles; it is not itself loaded by the app.
 - `outputs/`: generated Markdown and Word document files.
 - `xls_conversion/`: unified DOCX-to-XLSX/CSV page and source-specific extraction helpers.
+
+## Data & Privacy
+
+This app runs entirely locally — there is no hosted service and no central
+server operated by its authors. The one exception: transcription and
+extraction requests send source content to whichever AI provider (Google
+Gemini or Anthropic Claude) you select, directly from your machine. If
+you're deploying this for an institution (a parish, a diocesan archive) or
+processing material that could involve living individuals, see
+[`PRIVACY.md`](PRIVACY.md) for what that means for GDPR and similar
+regulatory obligations, and who is responsible for what.

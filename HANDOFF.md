@@ -1,5 +1,28 @@
 # Customizable Transcription Interface Handoff
 
+## To-Do — Next Session (added 2026-08-23)
+
+Add a **Privacy** link to the footer on all four pages (Transcribe, Test Mode,
+Prompt Builder, XLS Conversion — same 4 places the license footer text
+already lives, `app.py` ×3 + `xls_conversion/index.html` ×1), pointing to a
+full in-app disclosure page.
+
+Context: `PRIVACY.md` (repo root) is the written data-processing/GDPR notice,
+and the three API-key field hints now say "see PRIVACY.md" — but nothing in
+the running app actually links there, so a user reading that hint has no way
+to reach it without leaving the app and finding the raw file on GitHub/disk.
+Needs an actual route (e.g. `/privacy`) that renders `PRIVACY.md`'s content
+as a real page — reuse the doc's markdown as the source of truth rather than
+duplicating its text into `app.py`, so the two can't drift out of sync the
+way CLAUDE.md and the code did earlier this session. A simple `markdown`
+render step, or even a plain `<pre>`-wrapped read of the file, would satisfy
+"opens to a full disclosure" without needing a rich renderer.
+
+(Note, unrelated to the above: the rest of this HANDOFF.md is stale — it
+describes an old model list and an outdated "don't commit to GitHub without
+asking" instruction that no longer reflects how this project actually works.
+Worth a real rewrite pass sometime, not done here due to context budget.)
+
 ## Current State
 
 This project is a local Python web app running at:

@@ -119,21 +119,6 @@ def _rate(edits: int, total: int) -> float:
     return edits / total
 
 
-def character_error_rate(reference: str, hypothesis: str) -> float:
-    """CER = (I + S + D) / N, N = character count of the reference."""
-    return _rate(*character_edit_stats(reference, hypothesis))
-
-
-def word_error_rate(reference: str, hypothesis: str) -> float:
-    """WER = word-level Levenshtein distance / word count of the reference."""
-    return _rate(*word_edit_stats(reference, hypothesis))
-
-
-def word_error_rate_bag_of_words(reference: str, hypothesis: str) -> float:
-    """WER-BoW = (N - |ref ∩ hyp|) / N — ignores word order (Moysset et al., 2017)."""
-    return _rate(*bag_of_words_mismatch_stats(reference, hypothesis))
-
-
 def score_transcription(reference: str, hypothesis: str) -> dict[str, object]:
     """CER/WER/WER-BoW for one model's native-language transcription against the
     corrected reference, plus the raw edit counts each rate is computed from

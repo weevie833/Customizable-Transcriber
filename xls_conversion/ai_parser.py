@@ -1024,18 +1024,6 @@ def call_ai_json(
     return call_gemini_json(api_key, model, system_prompt, user_message)
 
 
-def call_gemini(
-    api_key: str,
-    model: str,
-    system_prompt: str,
-    user_message: str,
-) -> list[dict[str, object]]:
-    records = call_gemini_json(api_key, model, system_prompt, user_message)
-    if not isinstance(records, list):
-        raise RuntimeError("The AI response must be a JSON array.")
-    return [record for record in records if isinstance(record, dict)]
-
-
 def call_ai(
     api_key: str,
     model: str,

@@ -25,7 +25,6 @@ SUPPORTED_SOURCE_EXTENSIONS = frozenset(
     for extensions in FILE_TYPE_EXTENSIONS.values()
     for extension in extensions
 )
-IMAGE_EXTENSIONS = SUPPORTED_SOURCE_EXTENSIONS
 DEFAULT_MODEL = "gemini-3.1-pro-preview"
 USER_INSTRUCTION = "Transcribe and translate this document word-for-word."
 MONTHS = {
@@ -193,10 +192,6 @@ def source_files(folder: Path, extensions: Iterable[str], reverse_order: bool = 
     if reverse_order:
         files.reverse()
     return files
-
-
-def image_files(folder: Path, reverse_order: bool = False) -> list[Path]:
-    return source_files(folder, IMAGE_EXTENSIONS, reverse_order)
 
 
 def extensions_for_file_type(file_type: str) -> frozenset[str]:

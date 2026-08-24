@@ -550,34 +550,6 @@ def write_profile(profile: dict[str, str]) -> None:
     )
 
 
-def normalize_saved_profiles() -> None:
-    ensure_profiles_dir()
-    for path in PROFILES_DIR.glob("*.json"):
-        if path.name == PROFILE_SETTINGS_FILE.name:
-            continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        original = json.dumps(data, sort_keys=True)
-        data = normalize_profile_sections(data)
-        if json.dumps(data, sort_keys=True) != original:
-            path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-def load_selected_profile_id() -> str:
-    ensure_profiles_dir()
-    if not PROFILE_SETTINGS_FILE.exists():
-        return DEFAULT_PROFILE_ID
-    try:
-        data = json.loads(PROFILE_SETTINGS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return DEFAULT_PROFILE_ID
-    profile_id = str(data.get("selected_profile_id", DEFAULT_PROFILE_ID))
-    if custom_profile_path(profile_id).exists():
-        return profile_id
-    return DEFAULT_PROFILE_ID
-
-
 def save_selected_profile_id(profile_id: str) -> None:
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     PROFILE_SETTINGS_FILE.write_text(

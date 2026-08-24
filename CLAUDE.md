@@ -220,6 +220,10 @@ reloads with every questionnaire answer lost, because there's no way to
 reconstruct structured answers from already-assembled prose. Mitigated by a
 `required` attribute on the name field, not solved.
 
+**Both of the above — no in-place editing, and the save-error regression —
+were superseded in a later session** — see "Later session: profile editing
+added" near the end of this Prompt Builder section.
+
 Same nav bar (`app.py` ×2, `xls_conversion/index.html` ×1) and same
 stale-embedded-snapshot footgun as the rest of the app: Transcribe and Test
 Mode read the profile list once when their page renders, so a profile saved
@@ -503,7 +507,9 @@ with `aria-expanded` kept in sync for screen readers.
   it's useful (a fast way to spot entries worth a second look). Needed
   the same `.pb-inline-row` wrapper fix as the declension checkbox in the
   fourth round, for the same reason (a bare `.pb-checkbox` can't safely
-  sit inline next to a following sibling).
+  sit inline next to a following sibling). **This checkbox was removed
+  entirely in a later session** — see "Later session: profile editing
+  added" near the end of this Prompt Builder section.
 - **Worked Examples section deleted outright** — the hint paragraph, the
   repeatable source/transcription/translation row group, the "Add another
   example" button, and the requirement that gated the Save button on
@@ -511,7 +517,11 @@ with `aria-expanded` kept in sync for screen readers.
   `collectExampleRows()`, `addExampleRow()`, the `# WORKED EXAMPLES` block
   in `buildOutputFormat()`, the save-button disable/title logic in
   `pbRefresh()`, and the `.pb-example-lang-en`/`.pb-example-lang-it`
-  toggling that used to live in `updateTranslationVisibility()`. The
+  toggling that used to live in `updateTranslationVisibility()`. **This is
+  specifically the old *repeatable, multi-row* group — a separate, single,
+  non-repeatable "Example entry" field (`textarea name="exampleEntry"`)
+  still exists in `app.py` and is still consumed by `buildOutputFormat()`
+  via `pbVal("exampleEntry")`; it was never part of this deletion.** The
   stance going in was that output formatting (locator line with image
   filename/number, the per-entry block headers, the no-line-break
   protocol, blank-line spacing between blocks) is already fully specified
@@ -547,6 +557,34 @@ confirmed, while investigating the report: the field's `23px` left
 indent (`.pb-marginal-formula`) under its checkbox is intentional, not a
 bug — it's sized to the checkbox's own 16px width + 7px gap so the
 formula field visually nests under the checkbox's label text.
+
+**Later session: profile editing added; confidence-rationale checkbox
+removed.** Two changes that make some of the text above stale, noted here
+rather than edited in place so the history above stays an accurate record
+of what actually happened at the time:
+
+- **Prompt Builder can now load a previously-saved profile back in and edit
+  it**, instead of only ever creating new ones. Saving from Prompt Builder
+  now writes the questionnaire's structured answers into the profile JSON
+  too (`pb_answers`, alongside the three prose fields), and a "Load an
+  existing profile to edit" selector at the top of the page replays that
+  snapshot into every field, checklist, and repeatable row. "Update
+  Profile" (`update_full_profile()` in `app.py`) overwrites the loaded
+  profile in place, by id — renaming is safe, since the file is keyed by
+  id, not label; "Save as New Profile" forks it instead. **This
+  supersedes the "Saving... always creates a new profile... never edits
+  an existing profile in place" statement above** (from the original
+  rework, before this feature existed) and **fixes the "real regression"
+  noted above it** (a failed save used to wipe every questionnaire
+  answer; a failed save now restores the submitted answers, and which
+  profile was being edited, via the same `pb_answers` snapshot).
+- **The Confidence-rationale checkbox (Fifth round, above) was removed
+  entirely** at the user's request — the checkbox, its info button, and
+  the `Confidence: High/Medium/Low` boilerplate sentence it added to
+  generated prompts are all gone from `app.py` and
+  `static/prompt-builder.js`, along with the sentence itself from the one
+  already-saved profile that had it baked in
+  (`profiles/grimaldi-church-morti-v1.json`).
 
 ## Accessibility (WCAG)
 

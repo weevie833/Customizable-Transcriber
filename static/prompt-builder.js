@@ -638,6 +638,11 @@
     row.innerHTML = rowHtml + ' <button type="button" class="button-tiny pb-row-remove">Remove</button>';
     container.appendChild(row);
     wireRow(row);
+    // New placeholders/labels (and the "Remove" button above) are only ever
+    // written in English -- i18n.js's own load-time pass and lang-flag click
+    // handler can't see DOM that didn't exist yet when they ran. Re-applying
+    // here picks up whatever language is currently active, in Italian or not.
+    if (window.tbRefreshLanguage) window.tbRefreshLanguage();
     return row;
   }
 
@@ -752,6 +757,10 @@
     pbRefresh();
   }
 
+  // Default text restored by pbClearEditing() -- read once, before pbSetEditing()
+  // can ever overwrite it, so the two functions never need to duplicate the string.
+  var PB_NAME_HINT_DEFAULT_TEXT = null;
+
   function pbSetEditing(profileId, label) {
     var idField = document.getElementById("pb-edit-profile-id");
     if (idField) idField.value = profileId;
@@ -766,6 +775,16 @@
     if (updateButton) updateButton.hidden = false;
     var loadSelect = document.getElementById("pb-load-select");
     if (loadSelect) loadSelect.value = profileId;
+    // The name field's hint below is only accurate for "Save as New Profile" --
+    // while editing, "Update Profile" also reads this field (to rename in
+    // place), which #pb-editing-status above already explains. Leaving the
+    // default "never overwrites" text in place here would flatly contradict
+    // it, so swap it while a profile is loaded for editing.
+    var nameHint = document.getElementById("pb-name-hint");
+    if (nameHint) {
+      if (PB_NAME_HINT_DEFAULT_TEXT === null) PB_NAME_HINT_DEFAULT_TEXT = nameHint.textContent;
+      nameHint.textContent = 'Used by both buttons below: "Update Profile" renames and overwrites the profile you loaded; "Save as New Profile" creates a separate copy under this name instead.';
+    }
   }
 
   function pbClearEditing() {
@@ -777,6 +796,8 @@
     if (updateButton) updateButton.hidden = true;
     var loadSelect = document.getElementById("pb-load-select");
     if (loadSelect) loadSelect.value = "";
+    var nameHint = document.getElementById("pb-name-hint");
+    if (nameHint && PB_NAME_HINT_DEFAULT_TEXT !== null) nameHint.textContent = PB_NAME_HINT_DEFAULT_TEXT;
   }
 
   function wireProfileLoader() {

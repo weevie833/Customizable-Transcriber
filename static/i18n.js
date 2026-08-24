@@ -440,6 +440,18 @@
     });
   }
 
+  // Re-applies whatever language is currently active. Exposed for scripts on
+  // other pages (e.g. Prompt Builder) that insert new DOM after page load --
+  // applyLanguage()'s initial pass and the lang-flag click handler below both
+  // only see the DOM as it exists at that moment, so content added later
+  // (a dynamically-inserted repeatable-row placeholder, for example) is never
+  // translated unless something calls this afterward. Safe to call anytime,
+  // including from English (a no-op past the first call, since applyLanguage
+  // restores tbOrig when not Italian).
+  window.tbRefreshLanguage = function () {
+    applyLanguage(localStorage.getItem(STORAGE_KEY) || "en");
+  };
+
   function init() {
     var storedLang = localStorage.getItem(STORAGE_KEY) || "en";
     applyLanguage(storedLang);

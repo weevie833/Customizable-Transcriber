@@ -1,4 +1,12 @@
-google-genai>=1.0.0
-anthropic>=0.40.0
-openpyxl>=3.1
-rapidfuzz>=3.0
+google-genai==2.8.0
+anthropic==1.0.0
+openpyxl==3.1.5
+rapidfuzz==3.14.5
+
+# Not imported directly -- pulled in transitively via google-genai's own
+# google-auth dependency. Pinned here as a floor only, to force a resolver
+# past two versions with known CVEs (PYSEC-2026-3552, PYSEC-2026-3455/6/7)
+# that were actually installed in this project's own environment when audited.
+# See CLAUDE.md's production-readiness-audit notes for the verification.
+cryptography>=50.0.0
+pyasn1>=0.6.4

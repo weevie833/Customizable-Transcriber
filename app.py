@@ -1101,6 +1101,274 @@ def test_status_payload() -> dict[str, object]:
         }
 
 
+def render_markdown_inline(text: str) -> str:
+    escaped = html.escape(text)
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+    return re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", escaped)
+
+
+def render_privacy_markdown(text: str) -> str:
+    """Minimal markdown -> HTML for PRIVACY.md's own subset (#, ##, bold, - and 1. lists,
+    plain paragraphs). Not a general-purpose renderer -- deliberately narrow so this page
+    stays dependency-free (see HANDOFF.md's note that a simple render step is enough).
+    A top-level '# ' heading renders as h2 and '## ' as h3, one level below this page's own
+    <h1>Privacy</h1>, so the document's own title doesn't produce a second <h1>."""
+    blocks: list[str] = []
+    paragraph_lines: list[str] = []
+    list_items: list[str] = []
+    list_tag: str | None = None
+
+    def flush_paragraph() -> None:
+        if paragraph_lines:
+            blocks.append(f"<p>{render_markdown_inline(' '.join(paragraph_lines))}</p>")
+            paragraph_lines.clear()
+
+    def flush_list() -> None:
+        nonlocal list_tag
+        if list_items and list_tag:
+            items_html = "".join(f"<li>{render_markdown_inline(item)}</li>" for item in list_items)
+            blocks.append(f"<{list_tag}>{items_html}</{list_tag}>")
+            list_items.clear()
+        list_tag = None
+
+    for raw_line in text.replace("\r\n", "\n").split("\n"):
+        line = raw_line.rstrip()
+        if not line:
+            flush_paragraph()
+            flush_list()
+            continue
+        if line.startswith("# "):
+            flush_paragraph()
+            flush_list()
+            blocks.append(f"<h2>{render_markdown_inline(line[2:])}</h2>")
+            continue
+        if line.startswith("## "):
+            flush_paragraph()
+            flush_list()
+            blocks.append(f"<h3>{render_markdown_inline(line[3:])}</h3>")
+            continue
+        bullet_match = re.match(r"^- (.+)$", line)
+        numbered_match = re.match(r"^\d+\. (.+)$", line)
+        if bullet_match:
+            flush_paragraph()
+            if list_tag != "ul":
+                flush_list()
+                list_tag = "ul"
+            list_items.append(bullet_match.group(1))
+            continue
+        if numbered_match:
+            flush_paragraph()
+            if list_tag != "ol":
+                flush_list()
+                list_tag = "ol"
+            list_items.append(numbered_match.group(1))
+            continue
+        flush_list()
+        paragraph_lines.append(line)
+
+    flush_paragraph()
+    flush_list()
+    return "\n".join(blocks)
+
+
+def privacy_page() -> str:
+    privacy_text_en = (PROJECT_DIR / "PRIVACY.md").read_text(encoding="utf-8")
+    privacy_text_it = (PROJECT_DIR / "PRIVACY.it.md").read_text(encoding="utf-8")
+    content_html_en = render_privacy_markdown(privacy_text_en)
+    content_html_it = render_privacy_markdown(privacy_text_it)
+
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy</title>
+  <script src="/static/i18n.js" defer></script>
+  <style>
+    :root {{
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }}
+    body {{
+      margin: 0;
+      background: #f7f5f0;
+      color: #1f2933;
+    }}
+    main {{
+      width: min(980px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }}
+    h1 {{
+      margin: 0;
+      font-size: 26px;
+    }}
+    .site-header {{
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 20px;
+    }}
+    .site-heading {{
+      display: grid;
+      gap: 4px;
+    }}
+    .byline {{
+      margin: 0;
+      color: #5f6b76;
+      font-size: 13px;
+    }}
+    .byline-row {{
+      display: flex;
+      align-items: center;
+      gap: 0 8px;
+      flex-wrap: wrap;
+    }}
+    .lang-toggle {{
+      display: inline-flex;
+      gap: 4px;
+    }}
+    .lang-flag {{
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      padding: 1px 4px;
+      font-size: 15px;
+      line-height: 1.3;
+      cursor: pointer;
+    }}
+    .lang-flag[aria-pressed="true"] {{
+      border-color: #255c99;
+      background: #eef4fb;
+    }}
+    .lang-flag:hover {{
+      background: #eef4fb;
+    }}
+    .lang-flag:focus-visible {{
+      outline: 3px solid #255c99;
+      outline-offset: 1px;
+    }}
+    .site-nav {{
+      display: flex;
+      flex: 0 0 auto;
+      gap: 4px;
+      align-items: center;
+    }}
+    .nav-link {{
+      display: inline-block;
+      padding: 8px 10px 7px;
+      border-bottom: 3px solid transparent;
+      color: #255c99;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }}
+    .nav-link:hover {{
+      border-bottom-color: #9eb8d7;
+      background: #eef4fb;
+      color: #173f6d;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }}
+    .nav-link:focus-visible {{
+      outline: 3px solid #255c99;
+      outline-offset: 2px;
+      border-radius: 2px;
+    }}
+    .skip-link {{
+      position: absolute;
+      top: -43px;
+      left: 8px;
+      z-index: 100;
+      padding: 10px 16px;
+      background: #255c99;
+      color: #fff;
+      border-radius: 0 0 6px 6px;
+      text-decoration: none;
+      font-weight: 700;
+      transition: top 0.15s ease;
+    }}
+    .skip-link:focus {{
+      top: 0;
+    }}
+    .panel {{
+      background: #ffffff;
+      border: 1px solid #d9d4c8;
+      border-radius: 8px;
+      padding: 24px 28px;
+      margin-bottom: 18px;
+    }}
+    .panel h2 {{
+      margin-top: 0;
+      font-size: 21px;
+    }}
+    .panel h3 {{
+      font-size: 17px;
+      margin-top: 26px;
+    }}
+    .panel p {{
+      margin: 12px 0;
+    }}
+    .panel ul, .panel ol {{
+      margin: 12px 0;
+      padding-left: 24px;
+    }}
+    .panel li {{
+      margin: 6px 0;
+    }}
+    .license {{
+      margin: 8px 0 0;
+      color: #5f6b76;
+      font-size: 12px;
+    }}
+    .license a {{
+      color: #255c99;
+    }}
+    @media (max-width: 720px) {{
+      .site-header {{ align-items: stretch; }}
+    }}
+    @media (max-width: 520px) {{
+      .site-header {{ flex-direction: column; }}
+    }}
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content" tabindex="-1">
+  <header class="site-header">
+    <div class="site-heading">
+      <h1>Privacy</h1>
+      <div class="byline-row">
+        <p class="byline">Created by Steve Covello, 2026</p>
+        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+        </div>
+      </div>
+    </div>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link" href="/">Transcribe</a>
+      <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
+      <a class="nav-link" href="/test-mode">Test Mode</a>
+      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
+    </nav>
+  </header>
+  <section class="panel">
+    <div data-lang-block="en">
+    {content_html_en}
+    </div>
+    <div data-lang-block="it" hidden>
+    {content_html_it}
+    </div>
+  </section>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a></footer>
+</main>
+</body>
+</html>"""
+
+
 def page() -> str:
     with lock:
         running = bool(state["running"])
@@ -2224,6 +2492,9 @@ def page() -> str:
       color: #5f6b76;
       font-size: 12px;
     }}
+    .license a {{
+      color: #255c99;
+    }}
     @media (max-width: 720px) {{
       main {{
         width: min(100% - 28px, 980px);
@@ -2378,7 +2649,7 @@ def page() -> str:
     <button id="refresh-status-button" class="button-secondary" type="button">Refresh Status</button>
     <pre id="log">{escaped_log}</pre>
   </section>
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license.</footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a></footer>
 </main>
 </body>
 </html>"""
@@ -3558,6 +3829,9 @@ def test_mode_page() -> str:
       color: #5f6b76;
       font-size: 12px;
     }}
+    .license a {{
+      color: #255c99;
+    }}
     .queue-list {{
       list-style: none;
       margin: 6px 0 0;
@@ -3851,7 +4125,7 @@ def test_mode_page() -> str:
     <div id="progress-rows" class="progress-rows"></div>
     <pre id="log">{escaped_log}</pre>
   </section>
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license.</footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a></footer>
 </main>
 </body>
 </html>"""
@@ -3942,37 +4216,51 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
     "civil_birth": {
         "label": "Civil Birth",
         "has_marginal_heading_default": False,
-        "marginal_heading_placeholder": "[Child's name]",
+        "marginal_heading_placeholder": "Numero [Act #]\n[Child's given name] [Child's surname]",
         "formula_fields": [
             ("formula_act", "Act formula", "the declaration formula: \"[DECLARANT] presented a child born of [FATHER] and [MOTHER] ... to whom was given the name [CHILD]\"", False),
+            ("formula_witness", "Witness formula", "how witnesses are introduced, e.g. \"alla presenza di [WITNESS1] d'anni [AGE] di professione [OCCUPATION] domiciliato in [TOWN], e di [WITNESS2] d'anni [AGE] di professione [OCCUPATION] domiciliato in [TOWN]\"", True),
         ],
         "role_vocab": [
-            "Declarant may be the father, a midwife, or another witness",
+            "The declarant's name, age, occupation, and domicile appear right after the opening clause, before the birth is described",
             "Grandfather names are sometimes given for both parents",
+            "Don = courtesy title for clergy or gentry",
+            "Master = courtesy title for a young or unmarried man",
         ],
+        # Civil Birth only for now -- the general role_vocab checklist has no
+        # "Add another" mechanism anywhere else in the app; this flag opts one
+        # type's checklist into it (see pb_section2_type_group_html()) without
+        # changing the mechanism for every other type.
+        "role_vocab_extendable": True,
     },
     "civil_marriage": {
         "label": "Civil Marriage",
         "has_marginal_heading_default": False,
-        "marginal_heading_placeholder": "[Groom's name] and [Bride's name]",
+        "marginal_heading_placeholder": "Numero [Act #]\n[Groom's name] e [Bride's name]",
         "formula_fields": [
             ("formula_act", "Act formula", "the declaration formula for the civil marriage act", False),
+            ("formula_witness", "Witness formula", "how witnesses are introduced, e.g. \"in presenza di [WITNESS1] d'anni [AGE] di professione [OCCUPATION] domiciliato in [TOWN], di [WITNESS2] d'anni [AGE]...\" -- civil marriage acts commonly name four", True),
         ],
         "role_vocab": [
             "Age and occupation are commonly stated for both spouses",
-            "Witnesses are often named in the running text, not a separate column",
+            "Witnesses are often named in the running text",
         ],
+        # These two read better stacked than side by side -- each is a full
+        # sentence, unlike the short "term = meaning" items the 2-column
+        # layout was designed for (see other types' role_vocab lists).
+        "role_vocab_stacked": True,
     },
     "civil_death": {
         "label": "Civil Death",
         "has_marginal_heading_default": False,
-        "marginal_heading_placeholder": "[Deceased's name]",
+        "marginal_heading_placeholder": "Numero [Act #]\n[Deceased's name]",
         "formula_fields": [
             ("formula_act", "Act formula", "the declaration formula for the civil death act", False),
         ],
         "role_vocab": [
-            "Informant is often a relative or neighbor",
+            "The informant's name, age, occupation, and domicile appear right after the opening clause, before the deceased is described",
             "Age and occupation are commonly stated",
+            "The deceased's parentage is sometimes stated as unknown (e.g. \"ignoti genitori\") rather than named -- transcribe that statement literally rather than omitting it",
         ],
     },
 }
@@ -4098,6 +4386,63 @@ def pb_formula_fields_html(type_key: str, config: dict) -> str:
     return "\n".join(rows)
 
 
+def pb_civil_fields_html(type_key: str, config: dict) -> str:
+    # Civil-only structural questions -- framed by what the page visibly looks
+    # like, not by which historical/legal era produced it. A non-expert user
+    # is far more likely to recognize "is there a printed form on this page"
+    # than to know whether their register predates or postdates 1865, and per
+    # the scoping discussion accuracy on each record matters more than
+    # correctly diagnosing which era produced it.
+    page_format_info = (
+        "Civil registers from this period take two visibly different forms: an entirely handwritten narrative "
+        "(common before national printed templates were adopted), or a printed form with the fixed legal wording "
+        "already on the page and only the names, dates, and other specifics filled in by hand. If your register is "
+        "a printed form, the AI is told to expect two different scripts on the same page -- the printed boilerplate "
+        "and the clerk's handwriting -- and to weigh transcription accuracy toward the handwritten fill-ins, since "
+        "that is where the names and dates that matter for indexing are recorded."
+    )
+    act_spans_info = (
+        "Birth and death acts usually fit on one page, but a marriage act especially can run onto a following page "
+        "image. If you check this, the AI is told not to invent a plausible ending when an act looks cut off at the "
+        "bottom of a page -- it transcribes exactly what is visible and flags the entry as continuing in Notes "
+        "instead."
+    )
+    # Civil Birth only, confirmed against a real 1843 register: some registers
+    # print a genuine two-column form, the birth act on the left and a
+    # dedicated, separately-headed column on the right recording when the
+    # church administered baptism (same act number as the birth act, its own
+    # short administrative narrative -- the parish returning a slip, the
+    # civil officiant filing it). This is a real, distinct layout, not the
+    # same thing as a baptism note folded into the main body or written in
+    # the margin (that case is still handled unconditionally below, for
+    # registers that don't use this column).
+    baptism_column_info = (
+        "Some civil birth registers print a genuine two-column form: the birth act on the left, and a separately "
+        "headed column on the right recording when the church administered baptism, sharing the same act number. "
+        "If your register does this, check the box. The AI will transcribe that column as its own \"Baptism Record\" "
+        "block, kept separate from the main act -- rather than treating it as a note folded into the body or "
+        "written in the margin, which is how baptism information is handled when this box is left unchecked."
+    )
+    baptism_column_html = ""
+    if type_key == "civil_birth":
+        baptism_column_html = f"""
+        <div class="pb-inline-row">
+          <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasBaptismColumn"> This register has a separate column recording when the child was baptized</label>{pb_info_button_html(f"pb-info-baptismcolumn-{type_key}", baptism_column_info)}
+        </div>"""
+    return f"""      <div class="pb-civil-fields">
+        <fieldset>
+          <legend>Page format{pb_info_button_html(f"pb-info-pageformat-{type_key}", page_format_info)}</legend>
+          <div class="pb-radio-group" role="radiogroup" aria-label="Page format">
+            <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="printed_form" checked> Printed form with handwritten entries filled in</label>
+            <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="handwritten"> Entirely handwritten — no printed form on the page</label>
+          </div>
+        </fieldset>
+        <div class="pb-inline-row">
+          <label class="pb-checkbox"><input type="checkbox" name="{type_key}_actSpansPages"> An act sometimes continues onto a following page</label>{pb_info_button_html(f"pb-info-actspans-{type_key}", act_spans_info)}
+        </div>{baptism_column_html}
+      </div>"""
+
+
 def pb_section2_type_group_html(type_key: str) -> str:
     config = PROMPT_BUILDER_RECORD_TYPES[type_key]
     checked = " checked" if config["has_marginal_heading_default"] else ""
@@ -4126,8 +4471,20 @@ def pb_section2_type_group_html(type_key: str) -> str:
         "AI to recognize it and use it correctly when working out who filled which role. Leave a term unchecked if "
         "it never appears in your register."
     )
-    return f"""    <div class="pb-type-group" data-record-type="{type_key}" hidden>
-      <div class="pb-inline-row">
+    # Civil-only: printed/handwritten page format, multi-page acts -- these
+    # don't apply to church registers, which are prose throughout.
+    is_civil = type_key.startswith("civil_")
+    civil_fields_html = pb_civil_fields_html(type_key, config) if is_civil else ""
+    # Marginal Heading was dropped for all civil types on the theory that
+    # civil registers never showed a marginal-heading-style name index --
+    # wrong for Civil Birth specifically: a real 1875 register shows exactly
+    # this, a left-margin "Numero <N> / <Child's name>" index running down
+    # the page, serving the same cross-check purpose as a church register's
+    # marginal heading (the name appearing twice raises the odds either
+    # reading is correct). Civil Marriage/Death haven't shown this pattern,
+    # so they still skip the field -- see has_marginal_heading_support below.
+    supports_marginal_heading = config.get("has_marginal_heading_support", True)
+    marginal_block_html = "" if not supports_marginal_heading else f"""      <div class="pb-inline-row">
         <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasMarginalHeading" class="pb-marginal-toggle"{checked}> This register has a separate margin for each entry that states the name</label>{pb_info_button_html(f"pb-info-marginal-{type_key}", marginal_info_text)}
       </div>
       <div class="pb-marginal-formula"{formula_hidden}>
@@ -4135,12 +4492,24 @@ def pb_section2_type_group_html(type_key: str) -> str:
           <textarea name="{type_key}_formula_marginalHeading" rows="2">{marginal_placeholder}</textarea>
         </label>
       </div>
-{formula_html}
+"""
+    role_vocab_class = "pb-checklist pb-checklist-stacked" if config.get("role_vocab_stacked") else "pb-checklist pb-checklist-2col"
+    return f"""    <div class="pb-type-group" data-record-type="{type_key}" hidden>
+{marginal_block_html}{formula_html}
+{civil_fields_html}
       <p class="hint">Role-clause vocabulary for {html.escape(config["label"])} (optional){pb_info_button_html(f"pb-info-rolevocab-{type_key}", role_vocab_info_text)}</p>
-      <div class="pb-checklist pb-checklist-2col">
+      <div class="{role_vocab_class}">
         {role_vocab_html}
       </div>
+{pb_role_vocab_extra_rows_html(type_key) if config.get("role_vocab_extendable") else ""}
     </div>"""
+
+
+def pb_role_vocab_extra_rows_html(type_key: str) -> str:
+    return (
+        f'      <div id="{type_key}-rolevocab-rows"></div>\n'
+        f'      <button type="button" class="button-tiny pb-add-rolevocab" data-record-type="{type_key}">Add another term</button>'
+    )
 
 
 def prompt_builder_page(
@@ -4401,6 +4770,9 @@ def prompt_builder_page(
       color: #5f6b76;
       font-size: 12px;
     }}
+    .license a {{
+      color: #255c99;
+    }}
     .pb-toolbar {{
       display: flex;
       flex-wrap: nowrap;
@@ -4553,6 +4925,9 @@ def prompt_builder_page(
       gap: 2px 16px;
       margin-top: 6px;
     }}
+    .pb-checklist[hidden] {{
+      display: none;
+    }}
     .pb-checklist-tight {{
       display: flex;
       flex-wrap: wrap;
@@ -4564,6 +4939,9 @@ def prompt_builder_page(
       column-gap: 24px;
       row-gap: 2px;
     }}
+    .pb-checklist-stacked {{
+      grid-template-columns: 1fr;
+    }}
     .pb-checklist-2col .pb-checkbox {{
       white-space: nowrap;
     }}
@@ -4574,9 +4952,32 @@ def prompt_builder_page(
       font-weight: 400;
       margin-top: 6px;
     }}
+    .pb-checkbox[hidden] {{
+      display: none;
+    }}
+    .pb-radio-group {{
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      gap: 6px 20px;
+      margin-top: 6px;
+    }}
+    .pb-radio {{
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-weight: 400;
+    }}
+    .pb-radio input[type="radio"] {{
+      margin: 0;
+      cursor: pointer;
+    }}
     .pb-inline-row {{
       display: flex;
       align-items: center;
+    }}
+    .pb-inline-row[hidden] {{
+      display: none;
     }}
     .pb-inline-row .pb-checkbox {{
       flex: 0 0 auto;
@@ -4661,6 +5062,11 @@ def prompt_builder_page(
     .pb-marginal-formula {{
       margin: 4px 0 10px 0;
     }}
+    .pb-civil-fields {{
+      border-top: 1px dashed #d9d4c8;
+      padding-top: 10px;
+      margin-top: 10px;
+    }}
     .pb-row {{
       display: grid;
       grid-template-columns: 1fr 1fr auto;
@@ -4720,6 +5126,7 @@ def prompt_builder_page(
       .pb-row-remove {{ margin-top: 4px; }}
       .pb-checklist-2col {{ grid-template-columns: 1fr; }}
       .pb-checklist-2col .pb-checkbox {{ white-space: normal; }}
+      .pb-radio-group {{ flex-direction: column; flex-wrap: wrap; }}
       .pb-info-panel {{ max-width: calc(100vw - 60px); }}
       .pb-toolbar {{ flex-wrap: wrap; }}
       .pb-download-group {{ margin-left: 0; flex-basis: 100%; flex-direction: column; align-items: stretch; }}
@@ -4775,13 +5182,15 @@ def prompt_builder_page(
     <div class="pb-load-bar" id="pb-load-bar">
       <label>Load an existing profile to edit
         <select id="pb-load-select">
-          <option value="">Start a new profile</option>
+          <option value="">Select a profile</option>
           {load_profile_options}
         </select>
       </label>
       <p class="hint">Only profiles created or edited in Prompt Builder can be loaded here -- a profile written by hand or edited only on the Transcribe page's free-text editor isn't listed. Loading one fills in this questionnaire with its saved answers; saving updates that same profile unless you choose "Save as a new profile" below instead.</p>
       <p class="hint pb-editing-status" id="pb-editing-status" hidden></p>
     </div>
+
+    <h2 class="panel-title">Create a new profile</h2>
 
     <div class="pb-toolbar">
       <button type="button" id="pb-expand-all" class="button-tiny">Expand all</button>
@@ -4818,24 +5227,30 @@ def prompt_builder_page(
       </div>
 
       <div class="pb-field-grid">
+        <div id="pb-church-only-era">
         <label>Era
           <input type="text" name="era" placeholder="e.g. 18th-century">
         </label>
+        </div>
         <label>Locality
           <input type="text" name="locality" placeholder="e.g. Chiusa Sclafani">
         </label>
         <label>Province / region
           <input type="text" name="province" placeholder="e.g. province of Palermo, Sicily">
         </label>
+        <div id="pb-church-only-institution">
         <label>Institution name
           <input type="text" name="institution" placeholder="e.g. the parish church of San Nicolò di Bari">
         </label>
+        </div>
         <label>Volume / date range covered
           <input type="text" name="volumeRange" placeholder="e.g. 1752-1759">
         </label>
+        <div id="pb-church-only-handdescriptor">
         <label>Hand / script descriptor (optional)
           <input type="text" name="handDescriptor" placeholder="e.g. Sicilian ecclesiastical chancery hand">
         </label>
+        </div>
       </div>
 
       <div class="pb-field-grid">
@@ -4843,34 +5258,6 @@ def prompt_builder_page(
           <select name="pageLayout">
             <option value="one_page">One page per image</option>
             <option value="two_facing" selected>Two facing pages, read left then right</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-
-        <label>Page-numbering scheme
-          <select name="pageNumberScheme">
-            <option value="none">No page numbers</option>
-            <option value="one_per_image">One number per image</option>
-            <option value="two_per_image" selected>Two numbers, one per facing page</option>
-            <option value="native_acts">Register has its own act/entry numbers</option>
-          </select>
-        </label>
-      </div>
-      <div id="pb-page-number-corner-row">
-        <label>Where are the page numbers?
-          <input type="text" name="pageNumberCorner" placeholder="e.g. upper corner, left page's number upper-left, right page's upper-right">
-        </label>
-      </div>
-
-      <div class="pb-inline-row">
-        <label class="pb-checkbox"><input type="checkbox" name="latinDeclension" checked> Include Latin grammatical case-declension guidance</label>{pb_info_button_html("pb-info-declension", 'Latin nouns and names change their ending depending on their grammatical role in the sentence -- this is called declension. The same person can appear in more than one form within a single entry: Franciscus (nominative, as the subject), Francisci (genitive, "of Francis"), Francisco (dative/ablative, "to/from Francis"). This is not a spelling error or an inconsistency to fix -- each form is correct for its context. Turning this on adds guidance so the AI recognizes these variants as the same name and transcribes each form exactly as written, instead of "normalizing" one to match another.')}
-      </div>
-
-      <div class="pb-field-grid">
-        <label>Month-abbreviation convention
-          <select name="monthConvention">
-            <option value="latin_march" selected>Latin March-counting (7bris-10bris)</option>
-            <option value="standard">Standard month names</option>
             <option value="other">Other</option>
           </select>
         </label>
@@ -4884,12 +5271,46 @@ def prompt_builder_page(
         </label>
       </div>
 
-      <p class="hint">Relative-date vocabulary</p>
-      <div class="pb-checklist pb-checklist-2col">
-        {relative_date_checklist}
+      <div class="pb-field-grid">
+        <div id="pb-church-only-pagenumberscheme">
+        <label>Page-numbering scheme
+          <select name="pageNumberScheme">
+            <option value="none">No page numbers</option>
+            <option value="one_per_image">One number per image</option>
+            <option value="two_per_image" selected>Two numbers, one per facing page</option>
+            <option value="native_acts">Register has its own act/entry numbers</option>
+          </select>
+        </label>
+        </div>
+
+        <div id="pb-latin-month-field">
+        <label>Month-abbreviation convention
+          <select name="monthConvention">
+            <option value="latin_march" selected>Latin March-counting (7bris-10bris)</option>
+            <option value="standard">Standard month names</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        </div>
       </div>
-      <div id="pb-relativedate-rows"></div>
-      <button type="button" id="pb-add-relativedate" class="button-tiny">Add another term</button>
+      <div id="pb-page-number-corner-row">
+        <label>Where are the page numbers?
+          <input type="text" name="pageNumberCorner" placeholder="e.g. upper corner, left page's number upper-left, right page's upper-right">
+        </label>
+      </div>
+
+      <div class="pb-inline-row" id="pb-latin-declension-row">
+        <label class="pb-checkbox"><input type="checkbox" name="latinDeclension" checked> Include Latin grammatical case-declension guidance</label>{pb_info_button_html("pb-info-declension", 'Latin nouns and names change their ending depending on their grammatical role in the sentence -- this is called declension. The same person can appear in more than one form within a single entry: Franciscus (nominative, as the subject), Francisci (genitive, "of Francis"), Francisco (dative/ablative, "to/from Francis"). This is not a spelling error or an inconsistency to fix -- each form is correct for its context. Turning this on adds guidance so the AI recognizes these variants as the same name and transcribes each form exactly as written, instead of "normalizing" one to match another.')}
+      </div>
+
+      <div>
+        <p class="hint">Relative-date vocabulary</p>
+        <div class="pb-checklist pb-checklist-2col" id="pb-latin-relativedate-checklist">
+          {relative_date_checklist}
+        </div>
+        <div id="pb-relativedate-rows"></div>
+        <button type="button" id="pb-add-relativedate" class="button-tiny">Add another term</button>
+      </div>
     </details>
 
     <details class="pb-section">
@@ -4906,21 +5327,21 @@ def prompt_builder_page(
       <button type="button" id="pb-add-variant" class="button-tiny">Add a variant</button>
 
       <p class="hint">Relationship-note vocabulary</p>
-      <div class="pb-checklist">
+      <div class="pb-checklist" id="pb-latin-relationship-checklist">
         {relationship_checklist}
       </div>
       <div id="pb-relationship-rows"></div>
       <button type="button" id="pb-add-relationship" class="button-tiny">Add another term</button>
 
       <p class="hint">Abbreviation key — common terms (toggle on what applies)</p>
-      <div class="pb-checklist pb-checklist-2col">
+      <div class="pb-checklist pb-checklist-2col" id="pb-latin-abbrev-checklist">
         {common_abbrev_checklist}
       </div>
       <div id="pb-abbrev-rows"></div>
       <button type="button" id="pb-add-abbrev" class="button-tiny">Add an abbreviation</button>
 
       <p class="hint">Scribal / paleographic quirks{pb_info_button_html("pb-info-scribal", 'Paleographic quirks are common habits of a scribe\'s handwriting that can look like errors but are not -- things like a long ſ that resembles an f, or a macron over a vowel marking a dropped letter. Checking these tells the AI what to expect from this hand, so it does not misread a normal scribal habit as an unfamiliar name or a typo.')}</p>
-      <div class="pb-checklist pb-checklist-2col">
+      <div class="pb-checklist pb-checklist-2col" id="pb-latin-scribal-checklist">
         {scribal_checklist}
       </div>
       <div id="pb-scribal-rows"></div>
@@ -4945,10 +5366,12 @@ def prompt_builder_page(
       <textarea name="exampleEntry" rows="6" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea>
       </label>
 
-      <p class="hint">Translation is optional — leave both unchecked for a transcription-only output with no translation at all</p>
+      <h3>Translation</h3>
+      <p class="hint" id="pb-church-only-translation-hint">Translation is optional — leave both unchecked for a transcription-only output with no translation at all</p>
+      <p class="hint" id="pb-civil-only-translation-hint" hidden>Translation is optional — leave unchecked for a transcription-only output with no translation.</p>
       <div class="pb-checklist pb-checklist-tight">
         <label class="pb-checkbox"><input type="checkbox" name="translateEnglish" value="English">English</label>
-        <label class="pb-checkbox"><input type="checkbox" name="translateItalian" value="Italian">Italian</label>
+        <label class="pb-checkbox" id="pb-church-only-translateitalian"><input type="checkbox" name="translateItalian" value="Italian">Italian</label>
       </div>
 
       <div id="pb-translation-options-section">
@@ -4989,7 +5412,7 @@ def prompt_builder_page(
       <button id="pb-save-button" type="submit" name="save_mode" value="new">Save as New Profile</button>
     </div>
   </form>
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license.</footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a></footer>
 </main>
 </body>
 </html>"""
@@ -5671,6 +6094,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path in {"/prompt-builder", "/prompt-builder/"}:
             self.respond(prompt_builder_page())
+            return
+
+        if parsed.path in {"/privacy", "/privacy/"}:
+            self.respond(privacy_page())
             return
 
         if parsed.path == "/test-mode/status":

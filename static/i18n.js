@@ -151,7 +151,8 @@
     "e.g. Caiazzo Battesimi 1780s": "es. Caiazzo Battesimi 1780s",
     "Creates a new profile file; it never overwrites another profile.": "Crea un nuovo file di profilo; non sovrascrive mai un altro profilo.",
     "Load an existing profile to edit": "Carica un profilo esistente da modificare",
-    "Start a new profile": "Inizia un nuovo profilo",
+    "Select a profile": "Seleziona un profilo",
+    "Create a new profile": "Crea un nuovo profilo",
     "Only profiles created or edited in Prompt Builder can be loaded here -- a profile written by hand or edited only on the Transcribe page's free-text editor isn't listed. Loading one fills in this questionnaire with its saved answers; saving updates that same profile unless you choose \"Save as a new profile\" below instead.":
       "Qui è possibile caricare solo i profili creati o modificati nel Prompt Builder — un profilo scritto a mano o modificato solo nell'editor a testo libero della pagina Trascrivi non è elencato. Caricandone uno, il questionario viene compilato con le sue risposte salvate; salvando si aggiorna lo stesso profilo, a meno che tu non scelga \"Salva come nuovo profilo\" qui sotto.",
     "Update Profile": "Aggiorna profilo",
@@ -260,12 +261,16 @@
     "vidua = widow": "vidua = vedova",
     "viduus = widower": "viduus = vedovo",
     "conjux / uxor = spouse / wife": "conjux / uxor = coniuge / moglie",
-    "Declarant may be the father, a midwife, or another witness": "Il dichiarante può essere il padre, una levatrice o un altro testimone",
+    "The declarant's name, age, occupation, and domicile appear right after the opening clause, before the birth is described": "Il nome, l'età, la professione e il domicilio del dichiarante compaiono subito dopo la formula di apertura, prima della descrizione della nascita",
     "Grandfather names are sometimes given for both parents": "I nomi dei nonni sono talvolta indicati per entrambi i genitori",
+    "Don = courtesy title for clergy or gentry": "Don = titolo di cortesia per clero o nobiltà",
+    "Master = courtesy title for a young or unmarried man": "Master = titolo di cortesia per un uomo giovane o non sposato",
     "Age and occupation are commonly stated for both spouses": "Età e occupazione sono comunemente indicate per entrambi gli sposi",
-    "Witnesses are often named in the running text, not a separate column": "I testimoni sono spesso nominati nel testo, non in una colonna separata",
-    "Informant is often a relative or neighbor": "Il dichiarante è spesso un parente o un vicino",
+    "Witnesses are often named in the running text": "I testimoni sono spesso nominati nel testo",
+    "The informant's name, age, occupation, and domicile appear right after the opening clause, before the deceased is described": "Il nome, l'età, la professione e il domicilio del dichiarante compaiono subito dopo la formula di apertura, prima della descrizione del defunto",
     "Age and occupation are commonly stated": "Età e occupazione sono comunemente indicate",
+    "The deceased's parentage is sometimes stated as unknown (e.g. \"ignoti genitori\") rather than named -- transcribe that statement literally rather than omitting it":
+      "A volte la discendenza del defunto è indicata come sconosciuta (ad es. \"ignoti genitori\") anziché nominata — trascrivi quella dicitura testualmente invece di ometterla",
     "Entry variants (optional) — e.g. an emergency or conditional variant of the standard formula":
       "Varianti della voce (opzionale) — ad es. una variante di emergenza o condizionale della formula standard",
     "Add a variant": "Aggiungi una variante",
@@ -310,8 +315,11 @@
       "Incolla un testo di esempio accurato al 100% dal tuo materiale di origine, esattamente come è stato trascritto — senza etichette o intestazioni.",
 
     // Prompt Builder — Section 3 questionnaire fields
+    "Translation": "Traduzione",
     "Translation is optional — leave both unchecked for a transcription-only output with no translation at all":
       "La traduzione è facoltativa — lascia entrambe le caselle deselezionate per un output di sola trascrizione senza alcuna traduzione",
+    "Translation is optional — leave unchecked for a transcription-only output with no translation.":
+      "La traduzione è facoltativa — lascia la casella deselezionata per un output di sola trascrizione senza traduzione.",
     "English": "Inglese",
     "Translation style options": "Opzioni di stile della traduzione",
     "Expand abbreviations": "Espandi le abbreviazioni",
@@ -439,6 +447,13 @@
     document.documentElement.setAttribute("lang", lang);
     document.querySelectorAll(".lang-flag").forEach(function (button) {
       button.setAttribute("aria-pressed", button.getAttribute("data-lang") === lang ? "true" : "false");
+    });
+
+    // Whole-block bilingual content (e.g. the /privacy page's server-rendered
+    // English/Italian markdown) that toggles by visibility instead of going
+    // through the exact-string DICTIONARY lookup above.
+    document.querySelectorAll("[data-lang-block]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-lang-block") !== lang;
     });
   }
 

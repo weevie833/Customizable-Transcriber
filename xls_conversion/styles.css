@@ -515,6 +515,10 @@ footer {
   font-size: 12px;
 }
 
+footer a {
+  color: var(--blue);
+}
+
 [hidden] {
   display: none !important;
 }

@@ -121,6 +121,16 @@
     return el ? (el.value || "").trim() : "";
   }
 
+  // pbVal() above is wrong for a radio group: querySelector() returns only the
+  // first element sharing that name, so it would always report that button's
+  // own static value regardless of which one the user actually picked. This
+  // reads the one currently :checked instead (see e.g. the Page format radios
+  // in pb_civil_fields_html()).
+  function pbRadioVal(name) {
+    var checked = document.querySelector('[name="' + name + '"]:checked');
+    return checked ? checked.value : "";
+  }
+
   function pbChecked(name) {
     var out = [];
     document.querySelectorAll('[name="' + name + '"]:checked').forEach(function (el) {
@@ -184,15 +194,24 @@
 
   function buildRoleContext() {
     var meta = typeMeta();
+    var isCivil = selectedRecordType().indexOf("civil_") === 0;
     var language = pbVal("language") || "the source language";
-    var era = pbVal("era");
+    // Era, Institution name, and Hand/script descriptor are hidden for civil
+    // types (see updateRecordTypeVisibility()) -- read as empty here too, not
+    // just visually hidden, so a value left over from a church-type profile
+    // (or typed before switching record type) can't silently leak into a
+    // civil prompt.
+    var era = isCivil ? "" : pbVal("era");
     var locality = pbVal("locality");
     var province = pbVal("province");
-    var institution = pbVal("institution");
+    var institution = isCivil ? "" : pbVal("institution");
     var volumeRange = pbVal("volumeRange");
-    var handDescriptor = pbVal("handDescriptor");
+    var handDescriptor = isCivil ? "" : pbVal("handDescriptor");
     var pageLayout = pbVal("pageLayout");
-    var pageNumberScheme = pbVal("pageNumberScheme");
+    // Page-numbering scheme is hidden for civil types too -- civil acts are
+    // always located by "Act # - Entry n:" (see RECORD_TYPES' locatorKind
+    // above), never by page number, so this field has no effect on them.
+    var pageNumberScheme = isCivil ? "" : pbVal("pageNumberScheme");
     var pageNumberCorner = pbVal("pageNumberCorner");
     var monthConvention = pbVal("monthConvention");
     var hourConvention = pbVal("hourConvention");
@@ -253,6 +272,62 @@
       "Before you output anything, count the distinct " + meta.nounSingular + " entries actually visible on the page -- your entry count must equal that count: never more, never fewer. Do not add an entry unless you can point to its own text on the page you were given; never generate one from the formula, from a nearby date, or from pattern-completion. A fabricated entry is worse than a skipped one -- a skipped entry leaves a detectable gap, but a fabricated one reads exactly like a real record and will be trusted as one by every downstream user."
     );
 
+    if (isCivil) {
+      var civilPageFormat = pbRadioVal(typeField("pageFormat"));
+      if (civilPageFormat === "printed_form") {
+        parts.push(
+          "This register is a printed form with handwritten entries filled in. Expect two visually distinct scripts on the same page: the fixed printed boilerplate, and the clerk's handwriting in the blanks. Transcribe both, but weigh accuracy toward the handwritten fill-in content -- that is where the names, dates, and facts that matter for indexing are recorded; the printed boilerplate repeats unchanged throughout the register."
+        );
+      }
+      var civilActSpansPages = document.querySelector('[name="' + typeField("actSpansPages") + '"]');
+      if (civilActSpansPages && civilActSpansPages.checked) {
+        parts.push(
+          "An act in this register can continue onto a following page image. If the visible portion of an act looks incomplete -- cut off mid-sentence, no closing signature or date -- do not treat that as an error and do not invent a plausible ending. Transcribe exactly what is visible and add a note in the Notes block: \"Entry appears to continue on the next image.\" " +
+          "The reverse can also happen: if this image's content appears to pick up mid-record -- no opening date or officiant clause, starting straight into witness names or a closing signature block -- transcribe it under the SAME locator/entry number as the record it continues, not as a new entry, and add a note: \"Entry appears to continue from the previous image.\" Do not attempt to reconstruct the missing opening; transcribe only what is visible. Both notes use this exact wording so the downstream XLS Conversion step can recognize and link the split record automatically -- do not paraphrase them."
+        );
+      }
+      // A signer who could not write is marked with a cross rather than a
+      // signature, usually paired with a clerk's note that they "do not know
+      // how to write" (non sa/sanno scrivere). The mark itself is part of the
+      // document -- reproduce it, don't paraphrase it away.
+      parts.push(
+        "If a signer's line is marked with a cross (\"+\") because they could not write, transcribe the \"+\" literally as part of that line, exactly as the clerk wrote it, rather than describing it in prose."
+      );
+      if (selectedRecordType() === "civil_birth") {
+        var hasBaptismColumn = document.querySelector('[name="' + typeField("hasBaptismColumn") + '"]');
+        if (hasBaptismColumn && hasBaptismColumn.checked) {
+          // Confirmed against a real 1843 register: a genuine two-column
+          // printed form, birth act on the left, a separately headed
+          // "Indicazione del giorno in cui è stato amministrato il
+          // Sacramento del Battesimo" column on the right, same act number
+          // as the main act. Real content, not just a date -- typically the
+          // parish returning a slip and the civil officiant filing it.
+          parts.push(
+            "This register prints a two-column form: the birth act on the left, and a separately headed column on the right recording when the church administered baptism, sharing the same act number as the main act. Transcribe the right column's content as its own \"Baptism Record\" block, kept fully separate from the main act -- do not fold it into the main act's running text."
+          );
+        } else {
+          // Confirmed against real 1817/1813 examples: a note about the child's
+          // church baptism, when present at all, is not a separate physical
+          // column -- it's either folded into the same paragraph as the rest of
+          // the act, or written in the margin.
+          parts.push(
+            "This birth act may include a note about the child's church baptism. If that note appears as part of the main paragraph, transcribe it as continuous running text along with the rest of the entry -- do not break it into a separate block. If instead it is written in the margin, prefix that portion with `[marginal]` before transcribing it, still inline within the same running text."
+          );
+        }
+      }
+      if (selectedRecordType() === "civil_marriage") {
+        // Confirmed twice independently against a real 1816 register (two
+        // separate acts, two different parishes): "Sposati dal Parroco della
+        // Parrocchia di ... come dall'attestato inserito negli atti" appears
+        // near the closing/signatures, as running text -- not a separate
+        // column. Same inline-vs-margin handling as the birth act's baptism
+        // note above.
+        parts.push(
+          "This marriage act may include a note about the church wedding that finalized it (officiant, parish, date). If that note appears as part of the running text, transcribe it as continuous running text along with the rest of the entry -- do not break it into a separate block. If instead it is written in the margin, prefix that portion with `[marginal]` before transcribing it, still inline within the same running text."
+        );
+      }
+    }
+
     var calendarLines = [];
     if (monthConvention === "latin_march") {
       calendarLines.push(
@@ -302,7 +377,7 @@
       var value = pbVal(typeField(key));
       if (value) formulaLines.push(value, "");
     });
-    var roleVocab = pbChecked(typeField("roleVocab"));
+    var roleVocab = pbChecked(typeField("roleVocab")).concat(pbSimpleValues(selectedRecordType() + "-rolevocab-rows"));
     if (roleVocab.length) {
       formulaLines.push("Role-clause vocabulary: " + roleVocab.join(" · "), "");
     }
@@ -430,6 +505,12 @@
     langs.forEach(function (lang) {
       blockLines.push("", "    " + lang + " Translation:", "", "    <the entire " + lang + " translation as ONE unbroken line>");
     });
+    if (selectedRecordType() === "civil_birth") {
+      var hasBaptismColumnBlock = document.querySelector('[name="' + typeField("hasBaptismColumn") + '"]');
+      if (hasBaptismColumnBlock && hasBaptismColumnBlock.checked) {
+        blockLines.push("", "    Baptism Record: <verbatim transcription of the register's baptism-administration column -- optional, omit if this entry has none>");
+      }
+    }
     parts.push(blockLines.join("\n"));
 
     var exampleEntry = pbVal("exampleEntry");
@@ -469,6 +550,9 @@
     }
 
     var notesLines = ["Notes carries everything the other blocks cannot: scribal errors, conflicting dates, marginalia, your confidence when a reading is weak, and any disagreement between blocks."];
+    if (selectedRecordType().indexOf("civil_") === 0) {
+      notesLines.push("If a note was added in this register's margin at a later date -- for example a cross-reference to a subsequent marriage or death recorded elsewhere in the register -- record it here too, not in the main transcription.");
+    }
     parts.push("# NOTES\n\n" + notesLines.join(" "));
 
     var checklist = ["# FINAL CHECK BEFORE YOU OUTPUT", "",
@@ -547,10 +631,39 @@
       group.hidden = group.getAttribute("data-record-type") !== type;
     });
     var cornerRow = document.getElementById("pb-page-number-corner-row");
-    if (cornerRow) cornerRow.hidden = pbVal("pageNumberScheme") !== "two_per_image";
+    var isCivil = type.indexOf("civil_") === 0;
+    if (cornerRow) cornerRow.hidden = isCivil || pbVal("pageNumberScheme") !== "two_per_image";
+    // These Section 1 fields describe a physical register/institution the way
+    // a church record does; civil acts don't have an "institution" in the same
+    // sense, don't carry a scribe's individual hand the way a parish register
+    // does (they're issued by a civil registry office, not one clergyman), and
+    // -- per the scoping decision -- the questionnaire deliberately avoids
+    // asking about "era" at all for civil records (see the civil-records
+    // planning discussion: visual appearance, not historical period). Hidden
+    // rather than removed from the page, since church types still use them.
+    ["pb-church-only-era", "pb-church-only-institution", "pb-church-only-handdescriptor", "pb-church-only-pagenumberscheme", "pb-church-only-translateitalian", "pb-church-only-translation-hint"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.hidden = isCivil;
+    });
+    // Civil profiles only ever have one translation checkbox (English --
+    // Italian was removed above, since the source is already Italian), so
+    // the church version's "leave both unchecked" reads wrong once there's
+    // only one box to leave unchecked.
+    var civilTranslationHint = document.getElementById("pb-civil-only-translation-hint");
+    if (civilTranslationHint) civilTranslationHint.hidden = !isCivil;
+    // The source material for a civil record is already Italian, so
+    // translating it into Italian is meaningless -- unlike the plain-text
+    // fields above, a checkbox left checked from a church-type profile would
+    // otherwise silently survive the switch and still count as a requested
+    // translation language.
+    if (isCivil) {
+      var translateItalian = document.querySelector('[name="translateItalian"]');
+      if (translateItalian) translateItalian.checked = false;
+    }
     updateMarginalHeadingVisibility();
     updateRecordTypeLanguageDefault();
     updateLanguageDefaults();
+    updateTranslationVisibility();
   }
 
   // Church records default to Latin, civil records to Italian -- a starting
@@ -565,14 +678,47 @@
     if (languageSelect.value !== defaultLanguage) languageSelect.value = defaultLanguage;
   }
 
+  // Preset checklists whose items are themselves Latin vocabulary -- hidden
+  // (not deleted) when the source language isn't Latin, since a civil
+  // register in Italian has no use for nudius tertius or Sac.os. The
+  // repeatable "Add another" row + button for each stays visible always (see
+  // the checklist <div> ids below, which deliberately wrap only the preset
+  // checkboxes, not the whole question) -- a civil profile may still need its
+  // own Italian-specific relative dates, abbreviations, or scribal quirks,
+  // and there's no reason to make the user re-discover that field elsewhere.
+  var LATIN_PRESET_CHECKLISTS = [
+    { name: "relativeDateTerms", boxId: "pb-latin-relativedate-checklist" },
+    { name: "relationshipTerms", boxId: "pb-latin-relationship-checklist" },
+    { name: "commonAbbrev", boxId: "pb-latin-abbrev-checklist" },
+    { name: "scribalQuirks", boxId: "pb-latin-scribal-checklist" },
+  ];
+
   function updateLanguageDefaults() {
     var language = pbVal("language").toLowerCase();
+    var isLatin = language.indexOf("latin") !== -1;
     var declension = document.querySelector('[name="latinDeclension"]');
-    if (declension) declension.checked = language.indexOf("latin") !== -1;
+    if (declension) declension.checked = isLatin;
     var monthSelect = document.querySelector('[name="monthConvention"]');
     if (monthSelect && !monthSelect.dataset.touched) {
-      monthSelect.value = language.indexOf("latin") !== -1 ? "latin_march" : "standard";
+      monthSelect.value = isLatin ? "latin_march" : "standard";
     }
+    // Same forced-sync approach as the declension checkbox above: it
+    // re-applies whenever language or record type changes, so a deliberate
+    // manual override survives until the next such change -- same tradeoff
+    // already accepted for declension. Without this, an item checked (or
+    // left at its default-checked state) while hidden would still silently
+    // leak Latin vocabulary into a civil profile's generated prompt.
+    LATIN_PRESET_CHECKLISTS.forEach(function (entry) {
+      document.querySelectorAll('[name="' + entry.name + '"]').forEach(function (el) {
+        el.checked = isLatin;
+      });
+      var box = document.getElementById(entry.boxId);
+      if (box) box.hidden = !isLatin;
+    });
+    var declensionRow = document.getElementById("pb-latin-declension-row");
+    if (declensionRow) declensionRow.hidden = !isLatin;
+    var monthField = document.getElementById("pb-latin-month-field");
+    if (monthField) monthField.hidden = !isLatin;
     pbRefresh();
   }
 
@@ -687,6 +833,10 @@
     "pb-scribal-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-scribal-rows", "Add another quirk"); } },
     "pb-honorific-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-honorific-rows", "Add another honorific"); } },
     "pb-relationship-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-relationship-rows", "Add another term"); } },
+    // Civil Birth only for now -- see role_vocab_extendable in app.py's
+    // PROMPT_BUILDER_RECORD_TYPES. Extending this to another type just means
+    // adding that type's own "<type>-rolevocab-rows" entry here to match.
+    "civil_birth-rolevocab-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("civil_birth-rolevocab-rows", "Add another term"); } },
   };
 
   function pbSerializeAnswers() {
@@ -912,6 +1062,11 @@
     if (addHonorificButton) addHonorificButton.addEventListener("click", function () { addSimpleRow("pb-honorific-rows", "Add another honorific"); });
     var addRelationshipButton = document.getElementById("pb-add-relationship");
     if (addRelationshipButton) addRelationshipButton.addEventListener("click", function () { addSimpleRow("pb-relationship-rows", "Add another term"); });
+    document.querySelectorAll(".pb-add-rolevocab").forEach(function (button) {
+      button.addEventListener("click", function () {
+        addSimpleRow(button.dataset.recordType + "-rolevocab-rows", "Add another term");
+      });
+    });
 
     var resetButton = document.getElementById("pb-reset-form");
     if (resetButton) resetButton.addEventListener("click", resetForm);

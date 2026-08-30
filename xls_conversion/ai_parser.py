@@ -87,6 +87,7 @@ GENERAL_EXTRACTION_RULES = f"""GENERAL RULES:
 - Preserve source name spellings exactly. Do not translate, modernize, anglicize, or silently correct names.
 - Split given names from surnames. Keep Italian surname prefixes such as da, dal, de, del, della, di, la, le, li, and lo with the surname.
 - Strip honorifics from name fields, but retain relevant titles, occupations, status, age, residence, origin, legitimacy, and relationship information in the appropriate field.
+- A Marginal Heading block may begin with an "Entry N - " locator prefix immediately before a name (for example "Entry 4 - Laurentius Sansone"). That number is the register's own entry number, not part of the name -- exclude it from every name field.
 - image_link must always be "".
 - When an entry says "on the same day", "on the aforementioned day", "on the aforesaid day", "on the said day", or equivalent language, inherit the date from the preceding entry.
 - A PREVIOUS RECORD CONTEXT may be supplied for the first entry in a block. Use it only when the source explicitly refers back to a preceding date.
@@ -210,6 +211,7 @@ PAGE AND DATES:
 INDIVIDUAL AND PARENTS:
 - The Marginal Heading block, if present, may identify the child even when the translation only says "was given the name".
 - If only the child's given name appears in the translation, use a supported surname from the Marginal Heading block or parents; otherwise retain the given name without inventing a surname.
+- The Marginal Heading may begin with an "Entry N - " locator prefix immediately before the name (for example "Entry 4 - Laurentius Sansone"). That number is the register's own entry number, not part of the name -- never include it in individual_given_name, individual_last_name, or any other name field.
 - Extract the father and mother from language such as "born to the spouses", "born to", or "son/daughter/child of".
 - Infer gender from explicit sex terms, son/daughter language, grammatical gender, and clearly gendered given names. Use "Male" or "Female"; leave blank only when a reliable inference cannot be made.
 - In each parent's Other Information field, briefly summarize all other stated details relevant to that parent, including deceased status, occupation, residence, place of origin, age, legitimacy context, titles, and relationship details.
@@ -846,8 +848,19 @@ def parse_image_overrides(value: str) -> list[dict[str, object]]:
 
 
 def collect_image_markers(text: str, image_overrides: str = "") -> list[dict[str, object]]:
+    # The digit run captured here is whichever number sits immediately before
+    # the file extension -- an optional closing paren is allowed between them
+    # (Antenati-style "...Page (24).jpg" filenames), and there is no longer a
+    # required leading "_" (the original assumption, matching only
+    # "..._194.jpg"-style names). A source filename with more than one
+    # embedded number -- e.g. "...Book 18 Page (24).jpg" -- still resolves to
+    # the LAST one, since \s*.*? is non-greedy and only stops once digits sit
+    # directly against the extension: "18" fails that test ("18 Page..."
+    # isn't immediately followed by an extension) so the match advances past
+    # it to "24", which is. Verified against a real transcription that used
+    # to produce zero image markers under the old underscore-only pattern.
     marker_pattern = re.compile(
-        r"(?:^|\n)\s*(?:---\s*)?START OF RECORD:\s*.*?_(\d+)\.[A-Za-z0-9]+(?:\s*---)?[^\n]*",
+        r"(?:^|\n)\s*(?:---\s*)?START OF RECORD:\s*.*?(\d+)\)?\.[A-Za-z0-9]+(?:\s*---)?[^\n]*",
         re.IGNORECASE | re.MULTILINE,
     )
     markers: list[dict[str, object]] = []

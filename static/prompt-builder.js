@@ -28,11 +28,6 @@
     civil_death: { label: "Civil Death", nounSingular: "death", nounPlural: "deaths", principal: "the deceased", locatorKind: "act", hasMarginalHeadingDefault: false },
   };
 
-  // Same particle list used throughout the app (see ai_parser.py's
-  // GENERAL_EXTRACTION_RULES) -- kept consistent so "what counts as part of
-  // a surname" means the same thing everywhere.
-  var SURNAME_PARTICLES = ["da", "dal", "de", "del", "della", "di", "d'", "la", "le", "li", "lo"];
-
   var LATIN_DECLENSION_BLOCK = [
     "# LATIN NAME DECLENSION",
     "",
@@ -64,6 +59,7 @@
     } else {
       lines.push("- Preserve abbreviations exactly as written. Do not expand them.");
     }
+    lines.push("- Write abbreviations using standard inline characters, not Unicode superscript characters, even when the source clearly raises a letter above the line (write `M.s`, `p.nti`, `R.di`, not `M.ˢ`, `p.ⁿᵗⁱ`, `R.ᵈⁱ`). This is a rule about how to encode the character, not a fidelity concession -- the abbreviation itself is still transcribed exactly as written, letter for letter.");
     lines.push("- Surname particles (`de`, `di`, `d'`, `lo`, `la`, `le`, `li`) are part of the surname and must be transcribed exactly as written. If the particle itself is unclear, mark it uncertain rather than choosing the more common form.");
     if (hasTranslation) {
       lines.push("- A name must be identical in the transcription and in the " + translationWord + ", apart from any necessary change of grammatical case ending.");
@@ -87,27 +83,77 @@
     "Never complete a name from context, from the surrounding entries, or from the reference material. Never infer a name you cannot see.",
   ].join("\n");
 
-  // ---- Name-lexicon splitting (see the Section 2 "Name lexicon" toggle) ----
+  // ---- Name-lexicon ingestion (see the Section 2 "Surnames" / "Given
+  // names" / "Full names" fields) ----
   //
-  // If the user pastes complete names ("Giuseppe de Natale"), feeding that
-  // pairing to the model as-is risks teaching it that this given name and
-  // this surname belong together -- a bias toward a specific match, not
-  // toward either name component being independently plausible. Splitting
-  // into two separate, deduplicated, unpaired lists (matching how Chiusa
-  // Sclafani's own lexicon keeps surnames and given names apart) avoids
-  // that. A trailing surname particle stays attached to the surname rather
-  // than being swallowed into "given name".
+  // Earlier version of this was a single textarea that accepted full "Given
+  // Surname" names and split every line into a given-name half and a
+  // surname half with a particle-aware heuristic (last token is the
+  // surname, unless the token before it is a particle like "de"/"la"/"lo").
+  // That heuristic silently corrupted the far more common real input shape:
+  // a genealogical index (like this app's own profiles/lex.json) is
+  // normally already compiled as two SEPARATE lists -- surnames only and
+  // given names only -- not full-name pairs. Fed one of those lists, the
+  // old splitter did real damage: a plain single-word surname ("Esposito")
+  // has no second token, so it was misclassified whole as a GIVEN name; a
+  // multi-word surname or alias ("De Amato", "Bruno alias De Amato") had
+  // its last word torn off as a fabricated "surname" while the rest leaked
+  // into given names; and the same happened in reverse to compound/alias
+  // given names ("Anna Maria", "Anna alias Nonna") pasted into that list.
+  //
+  // There is no way to tell those two input shapes apart automatically --
+  // "Anna Maria" (one compound given name) and "Giuseppe Rossi" (a
+  // given+surname pair) are both just two space-separated tokens with no
+  // particle. Guessing wrong is exactly what broke the surname/given-name
+  // split before, so the fix is to stop guessing and let the user say which
+  // shape their paste is, via which box they use:
+  //
+  // - "Surnames" / "Given names": already-separated lists. No splitting --
+  //   each line (or comma/middle-dot separated entry within a line) is kept
+  //   whole exactly as written, correct for both a single-word entry and a
+  //   multi-word one.
+  // - "Full names": genuine given+surname pairs, one per line, in either
+  //   "Given Surname" or "Surname, Given name" form. Only this field runs
+  //   the particle-aware split (splitFullNamePair below), and its results
+  //   are merged into the same surname/given-name lists the other two boxes
+  //   feed.
+  function parseNameList(raw) {
+    var out = [];
+    if (!raw) return out;
+    raw.split(/[\n,·]/).forEach(function (piece) {
+      var name = piece.trim();
+      if (name && out.indexOf(name) === -1) out.push(name);
+    });
+    return out;
+  }
 
-  function splitFullName(line) {
+  // Same particle list used throughout the app (see ai_parser.py's
+  // GENERAL_EXTRACTION_RULES) -- kept consistent so "what counts as part of
+  // a surname" means the same thing everywhere.
+  var SURNAME_PARTICLES = ["da", "dal", "de", "del", "della", "di", "d'", "la", "le", "li", "lo"];
+
+  // Splits ONE "Given Surname" or "Surname, Given name" pair. A comma is
+  // treated as the unambiguous "Surname, Given" separator (matching how
+  // e.g. profiles/grimaldi-church-morti-v2.json's own lexicon is written);
+  // without a comma, the last token is the surname, except a particle
+  // ("de", "la", "lo"...) immediately before it stays attached ("Giuseppe
+  // de Natale" -> given "Giuseppe", surname "de Natale"). A line with only
+  // one token isn't a pair at all -- skipped rather than guessed, since a
+  // wrong guess here is the exact failure mode this field exists to avoid;
+  // a stray single-word entry belongs in the Surnames or Given names box
+  // instead.
+  function splitFullNamePair(line) {
     line = line.trim();
     if (!line) return null;
     if (line.indexOf(",") !== -1) {
       var parts = line.split(",");
-      return { given: parts.slice(1).join(",").trim(), surname: parts[0].trim() };
+      var given = parts.slice(1).join(",").trim();
+      var surname = parts[0].trim();
+      if (!given || !surname) return null;
+      return { given: given, surname: surname };
     }
     var tokens = line.split(/\s+/).filter(Boolean);
-    if (tokens.length === 0) return null;
-    if (tokens.length === 1) return { given: tokens[0], surname: "" };
+    if (tokens.length < 2) return null;
     var last = tokens[tokens.length - 1];
     var secondLast = tokens.length >= 3 ? tokens[tokens.length - 2] : null;
     if (secondLast && SURNAME_PARTICLES.indexOf(secondLast.toLowerCase()) !== -1) {
@@ -148,6 +194,17 @@
       if (value) out.push(value);
     });
     return out;
+  }
+
+  // Reads every Example entry row as {label, text}, skipping rows with no
+  // text (a label alone isn't a usable example). Shared by buildOutputFormat()
+  // (which feeds every example into the real system prompt) and Preflight
+  // Test's example picker (runPreflightTest()/wirePreflightTest()), so both
+  // always agree on what "the examples" are.
+  function pbExampleEntries() {
+    return pbRows("pb-example-rows", ["pb-example-label", "pb-example-text"])
+      .map(function (row) { return { label: row[0], text: row[1] }; })
+      .filter(function (example) { return example.text; });
   }
 
   function pbRows(containerId, classNames) {
@@ -209,7 +266,7 @@
     var handDescriptor = isCivil ? "" : pbVal("handDescriptor");
     var pageLayout = pbVal("pageLayout");
     // Page-numbering scheme is hidden for civil types too -- civil acts are
-    // always located by "Act # - Entry n:" (see RECORD_TYPES' locatorKind
+    // always located by "Act <act number>:" (see RECORD_TYPES' locatorKind
     // above), never by page number, so this field has no effect on them.
     var pageNumberScheme = isCivil ? "" : pbVal("pageNumberScheme");
     var pageNumberCorner = pbVal("pageNumberCorner");
@@ -422,21 +479,15 @@
       );
     }
 
-    var lexicon = pbVal("nameLexicon");
-    if (lexicon) {
-      // Splitting is always on -- there is no user-facing toggle. Whatever
-      // the user pastes ("Given Surname" or "Surname, Given", one name per
-      // line) gets decomposed into independent given-name and surname
-      // lists so the lexicon can't bias the model toward one specific
-      // full-name pairing.
-      var givenNames = [];
-      var surnames = [];
-      lexicon.split("\n").forEach(function (line) {
-        var parsed = splitFullName(line);
-        if (!parsed) return;
-        if (parsed.given && givenNames.indexOf(parsed.given) === -1) givenNames.push(parsed.given);
-        if (parsed.surname && surnames.indexOf(parsed.surname) === -1) surnames.push(parsed.surname);
-      });
+    var surnames = parseNameList(pbVal("nameLexiconSurnames"));
+    var givenNames = parseNameList(pbVal("nameLexiconGivenNames"));
+    pbVal("nameLexiconFullNames").split("\n").forEach(function (line) {
+      var parsed = splitFullNamePair(line);
+      if (!parsed) return;
+      if (parsed.given && givenNames.indexOf(parsed.given) === -1) givenNames.push(parsed.given);
+      if (parsed.surname && surnames.indexOf(parsed.surname) === -1) surnames.push(parsed.surname);
+    });
+    if (surnames.length || givenNames.length) {
       var lexiconBody = "Surnames:\n" + surnames.join(" · ") + "\n\nGiven names:\n" + givenNames.join(" · ");
       var lexiconLines = [
         "# ATTESTED NAME LEXICON",
@@ -464,22 +515,59 @@
 
   // ---- Section 3: Output Format ----
 
+  // No "- Entry <n>" suffix here: this locator's only job is to say WHICH
+  // PAGE (or act) an entry is on. An entry's own number -- when the source
+  // actually has one -- belongs solely in the Marginal Heading block, right
+  // before the name it labels (see the "Entry N -" core rule in
+  // neutral_system_scaffold()/PROMPT_BUILDER_CORE_RULES). Putting a second,
+  // synthetic per-image counter here too just duplicated that number (or
+  // worse, showed a different one), which is confusing in the DOCX and is
+  // never read by any downstream code -- ai_parser.py groups records by
+  // image number and lets the model find entry boundaries in the text
+  // itself; it never parses this line for an entry count. The "no page
+  // numbers" scheme is the one exception: with no page number to fall back
+  // on, a bare per-image ordinal is the only thing left to mark where one
+  // entry ends and the next begins.
   function locatorPreviewText() {
     var scheme = pbVal("pageNumberScheme");
     var meta = typeMeta();
     if (meta.locatorKind === "act" || scheme === "native_acts") {
-      return "Act <act number> - Entry <n>:";
+      return "Act <act number>:";
     }
     if (scheme === "none") {
       return "Entry <n>:";
     }
-    return "Page <page number> - Entry <n>:";
+    return "Page <page number>:";
+  }
+
+  // Only used for the block-structure labels below, and only once Italian is
+  // one of the selected translation languages -- see buildOutputFormat().
+  // Falls back to the English name for anything not in this list (e.g. a
+  // future language option) rather than producing an empty label.
+  var ITALIAN_LANGUAGE_NAMES = {
+    "Latin": "Latino",
+    "Italian": "Italiano",
+    "English": "Inglese",
+    "Latin and Italian mixed": "Latino e Italiano misti",
+    "Other": "Altro",
+  };
+
+  function italianLanguageName(name) {
+    return ITALIAN_LANGUAGE_NAMES[name] || name;
   }
 
   function buildOutputFormat() {
     var parts = [];
     var langs = translationLanguages();
     var language = pbVal("language") || "Source";
+    // Once Italian is selected as a translation, every block header that
+    // names a language switches to Italian phrasing -- "Trascrizione in
+    // Latino:" instead of "Latin Transcription:", "Traduzione in Inglese:"
+    // instead of "English Translation:" -- so the labels an Italian-speaking
+    // indexer reads in the DOCX read as Italian throughout, not a mix. This
+    // only touches labels that name a language; Date/Notes/Marginal Heading
+    // are untouched.
+    var useItalianLabels = langs.indexOf("Italian") !== -1;
 
     var outputDescription = langs.length
       ? "Your output is read by downstream tooling that turns it into a Word document and, separately, a spreadsheet. Exact labels and phrasing matter -- deviating from them does not merely change the styling, it can silently produce empty spreadsheet cells."
@@ -497,13 +585,19 @@
     if (includeMarginal) {
       blockLines.push("    Marginal Heading: <verbatim transcription of the heading -- optional, omit if the page has none>", "");
     }
+    var transcriptionLabel = useItalianLabels
+      ? "Trascrizione in " + italianLanguageName(language) + ":"
+      : language + " Transcription:";
     blockLines.push(
       "    Date: <date exactly as written> [<day> <Month> <year>]", "",
       "    Notes: <one line -- optional, omit if there is nothing to say>", "",
-      "    " + language + " Transcription:", "", "    <the body of the entry, as ONE unbroken line>"
+      "    " + transcriptionLabel, "", "    <the body of the entry, as ONE unbroken line>"
     );
     langs.forEach(function (lang) {
-      blockLines.push("", "    " + lang + " Translation:", "", "    <the entire " + lang + " translation as ONE unbroken line>");
+      var translationLabel = useItalianLabels
+        ? "Traduzione in " + italianLanguageName(lang) + ":"
+        : lang + " Translation:";
+      blockLines.push("", "    " + translationLabel, "", "    <the entire " + lang + " translation as ONE unbroken line>");
     });
     if (selectedRecordType() === "civil_birth") {
       var hasBaptismColumnBlock = document.querySelector('[name="' + typeField("hasBaptismColumn") + '"]');
@@ -513,12 +607,21 @@
     }
     parts.push(blockLines.join("\n"));
 
-    var exampleEntry = pbVal("exampleEntry");
-    if (exampleEntry) {
+    var examples = pbExampleEntries();
+    if (examples.length === 1) {
       parts.push(
         "# EXAMPLE ENTRY (REFERENCE ONLY)\n\n" +
         "The following is a verified, complete, 100% accurate transcription of one real entry from this exact register, given purely as a formatting and style reference. Match its conventions -- spelling, abbreviation style, how it handles line breaks -- but do not copy its content into your own output; it is not the entry you are transcribing.\n\n" +
-        exampleEntry
+        examples[0].text
+      );
+    } else if (examples.length > 1) {
+      var exampleBlocks = examples.map(function (example, index) {
+        return "Example " + (index + 1) + (example.label ? " -- " + example.label : "") + ":\n\n" + example.text;
+      });
+      parts.push(
+        "# EXAMPLE ENTRIES (REFERENCE ONLY)\n\n" +
+        "The following are verified, complete, 100% accurate transcriptions of real entries from this exact register, given purely as formatting and style references -- deliberately covering more than one situation (e.g. a straightforward entry, one with an uncertain reading, one where a heading and body disagree). Match their conventions -- spelling, abbreviation style, how they handle line breaks -- but do not copy their content into your own output; none of them is the entry you are transcribing.\n\n" +
+        exampleBlocks.join("\n\n---\n\n")
       );
     }
 
@@ -813,6 +916,15 @@
     return addRow(containerId, '<input type="text" class="pb-simple-value" placeholder="' + placeholder + '">', "pb-row-simple");
   }
 
+  function addExampleRow() {
+    return addRow(
+      "pb-example-rows",
+      '<input type="text" class="pb-example-label" placeholder="Label (optional), e.g. Image 193 Entry 1">' +
+      '<textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea>',
+      "pb-example-row"
+    );
+  }
+
   // ---- Load an existing profile back into the questionnaire ----
   //
   // save_prompt_builder_profile() on the server writes every field this
@@ -829,6 +941,7 @@
   var PB_ROW_CONTAINERS = {
     "pb-variant-rows": { classNames: ["pb-variant-name", "pb-variant-markers"], build: addVariantRow },
     "pb-abbrev-rows": { classNames: ["pb-abbrev-written", "pb-abbrev-expansion", "pb-abbrev-meaning"], build: addAbbrevRow },
+    "pb-example-rows": { classNames: ["pb-example-label", "pb-example-text"], build: addExampleRow },
     "pb-relativedate-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-relativedate-rows", "Add another term"); } },
     "pb-scribal-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-scribal-rows", "Add another quirk"); } },
     "pb-honorific-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-honorific-rows", "Add another honorific"); } },
@@ -887,6 +1000,19 @@
         el.checked = wanted.indexOf(el.value) !== -1;
       });
     });
+
+    // Back-compat: a profile saved before Example entry became a repeatable
+    // list carries its one example under the old plain field name
+    // ("exampleEntry"), not as a "pb-example-rows" row -- there's no element
+    // named "exampleEntry" left in the DOM for the loop above to write it
+    // into, so without this it would silently vanish on load. Synthesize one
+    // unlabeled row from it, but only when the snapshot has no rows of its
+    // own already (a profile saved after this change always does, even with
+    // just one example, so this only ever fires for the old shape).
+    var legacyExampleEntry = (data.fields || {}).exampleEntry;
+    if (legacyExampleEntry && !(data.rows && data.rows["pb-example-rows"] && data.rows["pb-example-rows"].length)) {
+      data = Object.assign({}, data, { rows: Object.assign({}, data.rows, { "pb-example-rows": [{ 0: "", 1: legacyExampleEntry }] }) });
+    }
 
     Object.keys(PB_ROW_CONTAINERS).forEach(function (containerId) {
       var container = document.getElementById(containerId);
@@ -948,6 +1074,345 @@
     if (loadSelect) loadSelect.value = "";
     var nameHint = document.getElementById("pb-name-hint");
     if (nameHint && PB_NAME_HINT_DEFAULT_TEXT !== null) nameHint.textContent = PB_NAME_HINT_DEFAULT_TEXT;
+  }
+
+  // Preflight Test (Output Format section): runs the current, in-progress
+  // prompt against one uploaded image and compares the AI's actual output to
+  // the user's own hand-transcribed Example entry, surfacing classified
+  // suggestions for gaps in the prompt's reference material. Reads the
+  // assembled prompt straight from #pb-preview-content (kept live by
+  // pbRefresh() on every field change) rather than recomputing it, so this
+  // always tests exactly what "Full prompt preview" shows.
+  //
+  // Clicking "Run Preflight Test" first silently saves the current
+  // questionnaire as a draft profile (see saveDraftBeforePreflight()) -- a
+  // safety checkpoint in its own right, and also what lets a later "Apply
+  // selected" mutate the live form without risking unsaved work if something
+  // goes wrong. Nothing here writes to any field until the user explicitly
+  // checks a suggestion and clicks "Apply selected".
+  var PB_PREFLIGHT_SUGGESTIONS = [];
+
+  // What each suggestion category is called in the UI, and (for the ones with
+  // no safe auto-apply target) whether it gets a checkbox at all. Must match
+  // PREFLIGHT_SUGGESTION_CATEGORIES in app.py.
+  var PB_PREFLIGHT_CATEGORY_LABELS = {
+    abbreviation: "Abbreviation key",
+    lexicon_surname: "Surname lexicon",
+    lexicon_given_name: "Given-name lexicon",
+    scribal_quirk: "Scribal quirk",
+    relative_date_term: "Relative-date vocabulary",
+    relationship_term: "Relationship terms",
+    role_vocab: "Role-clause vocabulary",
+    other: "Needs manual edit"
+  };
+
+  // Populates the "Which example does this image show?" picker from the
+  // current Example entry rows and shows/hides it -- hidden with 0 or 1
+  // examples (nothing to choose), shown with 2+. Called fresh whenever the
+  // user is about to act (choosing an image, clicking Run), not kept
+  // continuously in sync, so editing example rows elsewhere on the page never
+  // needs to reach into this panel. Returns the current example list so
+  // callers that already need it (runPreflightTest()) don't have to read it
+  // twice.
+  function refreshPreflightExamplePicker() {
+    var row = document.getElementById("pb-preflight-example-row");
+    var select = document.getElementById("pb-preflight-example-select");
+    var examples = pbExampleEntries();
+    if (!row || !select) return examples;
+
+    var previousValue = select.value;
+    select.innerHTML = "";
+    examples.forEach(function (example, index) {
+      var option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = "Example " + (index + 1) + (example.label ? " -- " + example.label : "");
+      select.appendChild(option);
+    });
+    if (previousValue && select.querySelector('option[value="' + previousValue + '"]')) {
+      select.value = previousValue;
+    }
+    row.hidden = examples.length < 2;
+    return examples;
+  }
+
+  function wirePreflightTest() {
+    var button = document.getElementById("pb-preflight-run");
+    if (button) button.addEventListener("click", runPreflightTest);
+    var applyButton = document.getElementById("pb-preflight-apply");
+    if (applyButton) applyButton.addEventListener("click", applySelectedPreflightSuggestions);
+    var fileInput = document.getElementById("pb-preflight-image");
+    if (fileInput) fileInput.addEventListener("change", refreshPreflightExamplePicker);
+  }
+
+  // Persists the current in-progress questionnaire as an ordinary profile
+  // (auto-named if the user hasn't typed one yet), via the JSON-friendly
+  // sibling of the real Save buttons -- see save_prompt_builder_draft() in
+  // app.py. Once a draft exists, subsequent Preflight Test runs (and the
+  // real Save buttons) update that same profile in place rather than
+  // piling up a new one on every click.
+  function saveDraftBeforePreflight() {
+    var idField = document.getElementById("pb-edit-profile-id");
+    var payload = {
+      role_context: pbVal("role_context"),
+      reference_context: pbVal("reference_context"),
+      output_format: pbVal("output_format"),
+      native_language: pbVal("language"),
+      translation_languages: translationLanguages().join(","),
+      record_type: selectedRecordType(),
+      edit_profile_id: idField ? idField.value : "",
+      name: pbVal("new_profile_name"),
+      pb_answers: pbSerializeAnswers()
+    };
+    return fetch("/prompt-builder/save-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(function (resp) {
+        return resp.json().then(function (data) { return { ok: resp.ok, data: data }; });
+      })
+      .then(function (result) {
+        if (!result.ok) throw new Error(result.data.error || "Couldn't save a draft.");
+        pbSetEditing(result.data.id, result.data.label);
+        window.PB_SAVED_PROFILES = window.PB_SAVED_PROFILES || {};
+        window.PB_SAVED_PROFILES[result.data.id] = { label: result.data.label, answers: payload.pb_answers };
+        var loadSelect = document.getElementById("pb-load-select");
+        if (loadSelect && !loadSelect.querySelector('option[value="' + result.data.id + '"]')) {
+          var option = document.createElement("option");
+          option.value = result.data.id;
+          option.textContent = result.data.label;
+          loadSelect.appendChild(option);
+        }
+        return result.data;
+      });
+  }
+
+  function runPreflightTest() {
+    var button = document.getElementById("pb-preflight-run");
+    var fileInput = document.getElementById("pb-preflight-image");
+    var statusEl = document.getElementById("pb-preflight-status");
+    var resultsEl = document.getElementById("pb-preflight-results");
+    var suggestionsEl = document.getElementById("pb-preflight-suggestions");
+    var rawOutputEl = document.getElementById("pb-preflight-raw-output");
+    var applyStatusEl = document.getElementById("pb-preflight-apply-status");
+
+    function showStatus(message) {
+      statusEl.hidden = false;
+      statusEl.textContent = message;
+    }
+
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+      showStatus("Choose an image first.");
+      return;
+    }
+    var examples = refreshPreflightExamplePicker();
+    if (!examples.length) {
+      showStatus("Add an Example entry above first -- the preflight test compares the AI's output against it.");
+      return;
+    }
+    var exampleSelect = document.getElementById("pb-preflight-example-select");
+    var selectedIndex = examples.length > 1 && exampleSelect ? Number(exampleSelect.value || 0) : 0;
+    var exampleEntry = (examples[selectedIndex] || examples[0]).text;
+
+    var modelSelect = document.getElementById("pb-preflight-model");
+    var apiKeyInput = document.getElementById("pb-preflight-api-key");
+    var model = modelSelect ? modelSelect.value : "";
+    var apiKey = apiKeyInput ? apiKeyInput.value.trim() : "";
+
+    resultsEl.hidden = true;
+    if (applyStatusEl) applyStatusEl.textContent = "";
+    button.disabled = true;
+    showStatus("Saving a draft of your prompt…");
+
+    // Two sequential AI calls happen server-side (transcribe, then critique),
+    // each capped at PREFLIGHT_TIMEOUT_SECONDS (90s) in app.py -- so a slow
+    // provider can legitimately take a couple of minutes total. This client-
+    // side abort is a backstop set comfortably past that combined worst case
+    // (not the expected case), so the button and status text always recover
+    // with a clear message instead of appearing to hang forever if something
+    // below this layer (network, proxy, browser) never returns at all.
+    var abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var abortTimer = abortController
+      ? setTimeout(function () { abortController.abort(); }, 240000)
+      : null;
+
+    saveDraftBeforePreflight()
+      .then(function () {
+        showStatus("Running preflight test… this calls the AI twice (reading your image, then comparing it) and can take a couple of minutes.");
+        var formData = new FormData();
+        formData.append("image", fileInput.files[0]);
+        formData.append("example_entry", exampleEntry);
+        formData.append("full_prompt", document.getElementById("pb-preview-content").textContent);
+        formData.append("record_type", selectedRecordType());
+        formData.append("model", model);
+        formData.append("api_key", apiKey);
+        var fetchOptions = { method: "POST", body: formData };
+        if (abortController) fetchOptions.signal = abortController.signal;
+        return fetch("/prompt-builder/preflight-test", fetchOptions);
+      })
+      .then(function (resp) {
+        if (abortTimer) clearTimeout(abortTimer);
+        return resp.json().then(function (data) { return { ok: resp.ok, data: data }; });
+      })
+      .then(function (result) {
+        button.disabled = false;
+        if (!result.ok) {
+          showStatus(result.data.error || "Preflight test failed.");
+          return;
+        }
+        statusEl.hidden = true;
+        resultsEl.hidden = false;
+        suggestionsEl.innerHTML = "";
+        PB_PREFLIGHT_SUGGESTIONS = result.data.suggestions || [];
+        renderPreflightSuggestions();
+        rawOutputEl.textContent = result.data.raw_output || "";
+      })
+      .catch(function (err) {
+        if (abortTimer) clearTimeout(abortTimer);
+        button.disabled = false;
+        if (err && err.name === "AbortError") {
+          showStatus("Preflight test timed out waiting for a response. Try again, or try a different model.");
+          return;
+        }
+        showStatus((err && err.message) || ("Preflight test failed: " + err));
+      });
+  }
+
+  function renderPreflightSuggestions() {
+    var suggestionsEl = document.getElementById("pb-preflight-suggestions");
+    suggestionsEl.innerHTML = "";
+
+    if (!PB_PREFLIGHT_SUGGESTIONS.length) {
+      var p = document.createElement("p");
+      p.className = "hint";
+      p.textContent = "No gaps found — the AI's output matched your example entry closely.";
+      suggestionsEl.appendChild(p);
+      return;
+    }
+
+    PB_PREFLIGHT_SUGGESTIONS.forEach(function (suggestion, index) {
+      var row = document.createElement("label");
+      row.className = "pb-suggestion-row" + (suggestion.category === "other" ? " pb-suggestion-other" : "");
+
+      if (suggestion.category !== "other") {
+        var checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.dataset.suggestionIndex = String(index);
+        row.appendChild(checkbox);
+      }
+
+      var text = document.createElement("span");
+      text.className = "pb-suggestion-text";
+      var categoryTag = document.createElement("span");
+      categoryTag.className = "pb-suggestion-category";
+      categoryTag.textContent = (PB_PREFLIGHT_CATEGORY_LABELS[suggestion.category] || suggestion.category) + ":";
+      text.appendChild(categoryTag);
+      text.appendChild(document.createTextNode(suggestion.note || suggestion.value || ""));
+      row.appendChild(text);
+
+      suggestionsEl.appendChild(row);
+    });
+  }
+
+  // Adds one accepted suggestion's value to the questionnaire field its
+  // category maps to, matching PREFLIGHT_SUGGESTION_CATEGORIES in app.py.
+  // Skips a value already present (case-insensitive) rather than adding a
+  // duplicate row/line. Returns true if something was actually added.
+  function applyPreflightSuggestion(suggestion) {
+    switch (suggestion.category) {
+      case "abbreviation":
+        return applyAbbreviationSuggestion(suggestion);
+      case "lexicon_surname":
+        return appendToLexiconField("nameLexiconSurnames", suggestion.value);
+      case "lexicon_given_name":
+        return appendToLexiconField("nameLexiconGivenNames", suggestion.value);
+      case "scribal_quirk":
+        return appendSimpleRowValue("pb-scribal-rows", suggestion.value);
+      case "relative_date_term":
+        return appendSimpleRowValue("pb-relativedate-rows", suggestion.value);
+      case "relationship_term":
+        return appendSimpleRowValue("pb-relationship-rows", suggestion.value);
+      case "role_vocab":
+        return appendSimpleRowValue(selectedRecordType() + "-rolevocab-rows", suggestion.value);
+      default:
+        return false; // "other" -- no safe auto-apply target
+    }
+  }
+
+  function appendToLexiconField(fieldName, value) {
+    if (!value) return false;
+    var field = document.querySelector('[name="' + fieldName + '"]');
+    if (!field) return false;
+    var existing = field.value.split("\n").map(function (line) { return line.trim(); });
+    if (existing.some(function (line) { return line.toLowerCase() === value.trim().toLowerCase(); })) return false;
+    field.value = (field.value.replace(/\s+$/, "") + "\n" + value.trim()).replace(/^\n/, "");
+    return true;
+  }
+
+  function appendSimpleRowValue(containerId, value) {
+    if (!value) return false;
+    var container = document.getElementById(containerId);
+    if (!container) return false;
+    var isDuplicate = Array.prototype.some.call(container.querySelectorAll(".pb-simple-value"), function (input) {
+      return input.value.trim().toLowerCase() === value.trim().toLowerCase();
+    });
+    if (isDuplicate) return false;
+    var row = addSimpleRow(containerId, "Add another term");
+    var input = row && row.querySelector(".pb-simple-value");
+    if (input) input.value = value.trim();
+    return true;
+  }
+
+  function applyAbbreviationSuggestion(suggestion) {
+    if (!suggestion.written && !suggestion.expansion) return false;
+    var isDuplicate = Array.prototype.some.call(document.querySelectorAll("#pb-abbrev-rows .pb-abbrev-written"), function (input) {
+      return suggestion.written && input.value.trim().toLowerCase() === suggestion.written.trim().toLowerCase();
+    });
+    if (isDuplicate) return false;
+    var row = addAbbrevRow();
+    if (!row) return false;
+    var written = row.querySelector(".pb-abbrev-written");
+    var expansion = row.querySelector(".pb-abbrev-expansion");
+    var meaning = row.querySelector(".pb-abbrev-meaning");
+    if (written) written.value = suggestion.written || "";
+    if (expansion) expansion.value = suggestion.expansion || "";
+    if (meaning) meaning.value = suggestion.meaning || "";
+    return true;
+  }
+
+  function applySelectedPreflightSuggestions() {
+    var suggestionsEl = document.getElementById("pb-preflight-suggestions");
+    var applyStatusEl = document.getElementById("pb-preflight-apply-status");
+    var checkboxes = suggestionsEl.querySelectorAll('input[type="checkbox"]:checked');
+    if (!checkboxes.length) {
+      if (applyStatusEl) applyStatusEl.textContent = "Check at least one suggestion first.";
+      return;
+    }
+
+    var appliedCount = 0;
+    var skippedCount = 0;
+    Array.prototype.forEach.call(checkboxes, function (checkbox) {
+      var suggestion = PB_PREFLIGHT_SUGGESTIONS[Number(checkbox.dataset.suggestionIndex)];
+      if (!suggestion) return;
+      if (applyPreflightSuggestion(suggestion)) {
+        appliedCount += 1;
+        var row = checkbox.closest(".pb-suggestion-row");
+        if (row) { row.style.opacity = "0.55"; checkbox.disabled = true; }
+      } else {
+        skippedCount += 1;
+      }
+    });
+
+    if (appliedCount) pbRefresh();
+
+    var message = appliedCount
+      ? "Added " + appliedCount + " suggestion" + (appliedCount === 1 ? "" : "s") + " to your questionnaire above."
+      : "Nothing to add -- ";
+    if (skippedCount) {
+      message += (appliedCount ? " " : "") + skippedCount + " already matched an existing entry and " +
+        (skippedCount === 1 ? "was" : "were") + " skipped.";
+    }
+    if (applyStatusEl) applyStatusEl.textContent = message;
   }
 
   function wireProfileLoader() {
@@ -1054,6 +1519,8 @@
     if (addVariantButton) addVariantButton.addEventListener("click", addVariantRow);
     var addAbbrevButton = document.getElementById("pb-add-abbrev");
     if (addAbbrevButton) addAbbrevButton.addEventListener("click", addAbbrevRow);
+    var addExampleButton = document.getElementById("pb-add-example");
+    if (addExampleButton) addExampleButton.addEventListener("click", addExampleRow);
     var addRelativeDateButton = document.getElementById("pb-add-relativedate");
     if (addRelativeDateButton) addRelativeDateButton.addEventListener("click", function () { addSimpleRow("pb-relativedate-rows", "Add another term"); });
     var addScribalButton = document.getElementById("pb-add-scribal");
@@ -1077,6 +1544,7 @@
     if (collapseButton) collapseButton.addEventListener("click", function () { pbSetAllOpen(false); });
 
     wireInfoButtons();
+    wirePreflightTest();
     wireProfileLoader();
     updateTranslationVisibility();
     updateRecordTypeVisibility();

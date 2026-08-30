@@ -303,11 +303,21 @@
     "Add another quirk": "Aggiungi un'altra particolarità",
     "Apply the standard Italian surname-particle rule (de/di/d'/lo/la/le/li stay with the surname, never normalized)":
       "Applica la regola standard delle particelle nei cognomi italiani (de/di/d'/lo/la/le/li restano con il cognome, mai normalizzate)",
-    "Name lexicon": "Lessico dei nomi",
-    "Paste known family names and given names - either as \"Given Surname\" or \"Surname, Given name\"":
-      "Incolla cognomi e nomi noti — nel formato \"Nome Cognome\" oppure \"Cognome, Nome\"",
-    "Adding a lexicon greatly increases the likelihood that the AI system will bias towards a correct identification of a name.":
-      "Aggiungere un lessico aumenta notevolmente la probabilità che il sistema di IA si orienti verso un'identificazione corretta di un nome.",
+    "Surnames": "Cognomi",
+    "Paste known surnames, one per line -- e.g. Esposito, De Amato, La Marca":
+      "Incolla i cognomi noti, uno per riga — ad es. Esposito, De Amato, La Marca",
+    "Adding a lexicon greatly increases the likelihood that the AI system will bias towards a correct identification of a name. Paste one surname per line. A multi-word surname (“De Amato”, “La Marca”) or an alias (“Bruno alias De Amato”) is a single entry -- keep it on one line exactly as written; it will not be split apart.":
+      "Aggiungere un lessico aumenta notevolmente la probabilità che il sistema di IA si orienti verso un'identificazione corretta di un nome. Incolla un cognome per riga. Un cognome composto da più parole (\"De Amato\", \"La Marca\") o un alias (\"Bruno alias De Amato\") è una singola voce — tienilo su un'unica riga esattamente come scritto; non verrà suddiviso.",
+    "Given names": "Nomi propri",
+    "Paste known given names, one per line -- e.g. Giuseppe, Anna Maria, Giovanni Battista":
+      "Incolla i nomi propri noti, uno per riga — ad es. Giuseppe, Anna Maria, Giovanni Battista",
+    "Paste one given name per line. A compound or alias given name (“Anna Maria”, “Giovanni Battista”, “Anna alias Nonna”) is a single entry -- keep it on one line exactly as written; it will not be split apart.":
+      "Incolla un nome proprio per riga. Un nome composto o un alias (\"Anna Maria\", \"Giovanni Battista\", \"Anna alias Nonna\") è una singola voce — tienilo su un'unica riga esattamente come scritto; non verrà suddiviso.",
+    "Alternatively: Full names (given name + surname pairs)": "In alternativa: nomi completi (coppie nome + cognome)",
+    "Paste full names, one per line -- e.g. Giuseppe de Natale  or  de Natale, Giuseppe":
+      "Incolla nomi completi, uno per riga — ad es. Giuseppe de Natale  oppure  de Natale, Giuseppe",
+    "Use this box when what you have is full names rather than two separate lists -- one name per line, either “Given Surname” (Giuseppe de Natale) or “Surname, Given name” (de Natale, Giuseppe). Each line is split and added to the Surnames and Given names lists above it. A surname particle (de/di/d'/lo/la/le/li) right before the last word stays attached to the surname. A line with only one word is skipped rather than guessed at -- put a name like that in the Surnames or Given names box instead.":
+      "Usa questo campo quando hai nomi completi invece di due elenchi separati — un nome per riga, nel formato \"Nome Cognome\" (Giuseppe de Natale) oppure \"Cognome, Nome\" (de Natale, Giuseppe). Ogni riga viene suddivisa e aggiunta agli elenchi Cognomi e Nomi propri qui sopra. Una particella del cognome (de/di/d'/lo/la/le/li) subito prima dell'ultima parola resta attaccata al cognome. Una riga con una sola parola viene ignorata invece di essere interpretata a caso — inserisci un nome del genere nel campo Cognomi o Nomi propri.",
     "Example entry": "Voce di esempio",
     "Paste in a completed 100% accurate entry in the native language of the sources for this project. This will be used as a critically important formatting reference for the AI to generate the proper output.":
       "Incolla una voce completa e accurata al 100% nella lingua originale delle fonti di questo progetto. Verrà usata come riferimento di formattazione fondamentale affinché l'IA generi l'output corretto.",

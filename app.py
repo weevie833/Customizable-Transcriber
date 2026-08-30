@@ -8,6 +8,7 @@ import platform
 import re
 import secrets
 import subprocess
+import tempfile
 import threading
 import urllib.parse
 import zipfile
@@ -19,20 +20,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from xml.etree import ElementTree
 
+import httpx
+
 from transcription_bot.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
     TranscriptionConfig,
+    api_key,
+    claude_api_key,
     count_failures,
     count_source_files_by_type,
     default_output_file,
     extensions_for_file_type,
     key_matches_provider,
+    make_client,
     provider_for_model,
     run_batch,
+    transcribe_image,
     validate_api_key,
 )
 from xls_conversion.ai_parser import (
+    call_ai_json,
     combine_language_xlsx,
     detect_languages,
     parse_records_with_ai,
@@ -44,6 +52,16 @@ from test_mode.comparison import score_transcription
 PROJECT_DIR = Path(__file__).resolve().parent
 HOST = "127.0.0.1"
 PORT = 8765
+# Per-call cap for Prompt Builder's Preflight Test only (see make_client()'s
+# timeout_seconds param and critique_prompt_gap()) -- matches
+# xls_conversion/ai_parser.py's own AI_REQUEST_TIMEOUT_SECONDS. Two AI calls
+# happen per preflight run (transcribe, then critique), so a slow provider can
+# still take up to ~2x this before the request as a whole gives up; each call
+# fails cleanly with a clear error at this bound rather than hanging
+# indefinitely, which is what a genai.Client with no http_options timeout
+# does. The real Transcribe page's batch run deliberately keeps no such cap --
+# see make_client()'s own comment.
+PREFLIGHT_TIMEOUT_SECONDS = 90
 MAX_FORM_BYTES = 5_000_000
 MAX_DOCX_BYTES = 50_000_000
 MAX_JSON_BYTES = 15_000_000
@@ -370,6 +388,141 @@ def extract_docx_text(payload: bytes) -> str:
     if not text:
         raise RuntimeError("No transcription text was found in the DOCX document.")
     return text
+
+
+# Every category a Preflight Test suggestion can carry, and which of Prompt
+# Builder's questionnaire fields it maps onto -- see applyPreflightSuggestion()
+# in prompt-builder.js, which switches on this same set client-side to decide
+# where a checked suggestion actually gets written. "other" is the deliberate
+# escape hatch for anything real but unstructured (a phrasing convention, a
+# formula tweak) -- it has no safe auto-apply target, so it renders read-only,
+# with no checkbox, in the UI. Keep these two lists in sync.
+PREFLIGHT_SUGGESTION_CATEGORIES = {
+    "abbreviation",
+    "lexicon_surname",
+    "lexicon_given_name",
+    "scribal_quirk",
+    "relative_date_term",
+    "relationship_term",
+    "role_vocab",
+    "other",
+}
+
+
+def critique_prompt_gap(
+    model: str,
+    full_prompt: str,
+    example_entry: str,
+    raw_output: str,
+    record_type: str,
+    api_key_override: str | None = None,
+) -> list[dict[str, str]]:
+    """Prompt Builder's Preflight Test: compare what the current prompt actually
+    produced from one uploaded image against the user's own hand-transcribed
+    Example Entry, and suggest concrete, specific gaps in the prompt's
+    reference material (abbreviation key, lexicon, formulas, etc.) that likely
+    explain any difference. Deliberately does not compare against a source
+    image directly -- it critiques the prompt's completeness, not the AI's
+    transcription accuracy on this one run, and it never edits the profile
+    itself; each suggestion is classified into one of
+    PREFLIGHT_SUGGESTION_CATEGORIES so the UI can offer a checkbox that adds
+    it to the right questionnaire field, but nothing here writes to the
+    profile -- the user decides what to accept, client-side.
+    """
+    key = (api_key_override or "").strip() or (
+        claude_api_key(PROJECT_DIR) if provider_for_model(model) == "claude" else api_key(PROJECT_DIR)
+    )
+    system_prompt = (
+        "You are helping a non-expert user improve a transcription prompt for archival "
+        f"{record_type or 'record'} images, used to instruct an AI model that reads images of "
+        "handwritten or typed source documents.\n\n"
+        "You will be given three things: (1) the full system prompt currently in use, including "
+        "its reference material (abbreviation key, name lexicon, formulas, vocabulary lists, "
+        "etc.); (2) a known-100%-accurate example entry the user transcribed by hand from one of "
+        "their own source images; (3) the AI's actual output when the current prompt was run "
+        "against that same image.\n\n"
+        "IMPORTANT: the source image may contain several entries (a real register page or civil "
+        "act often has more than one record on it), so the AI's actual output may cover multiple "
+        "entries while the known-correct example covers only ONE of them. Before comparing, first "
+        "identify which single entry in the AI's output corresponds to the example -- match it by "
+        "name, date, or other distinctive content. Compare ONLY that one entry against the example. "
+        "Completely ignore every other entry in the output: never flag anything about content that "
+        "has no counterpart in the example, even if it looks like an error, since you have no "
+        "ground truth for those other entries.\n\n"
+        "Compare the matched entry to the known-correct example. Identify concrete gaps in the "
+        "PROMPT -- not just errors in this one run -- that likely caused any difference. Only flag "
+        "real, specific differences. Do not invent generic advice, and do not comment on anything "
+        "that already matches. If the two texts are effectively equivalent in content and "
+        "structure, return an empty array.\n\n"
+        "Classify every suggestion into EXACTLY ONE of these categories, and return the fields "
+        "listed for that category (omit fields not listed):\n"
+        '- "abbreviation": the example uses a written abbreviation not in the prompt\'s '
+        'abbreviation key. Fields: "written" (exactly as it appears), "expansion" (the '
+        'unabbreviated word/phrase), "meaning" (a short gloss), "note".\n'
+        '- "lexicon_surname": a surname appears in the example that is not in the prompt\'s '
+        'Surnames lexicon. Fields: "value" (the surname alone), "note".\n'
+        '- "lexicon_given_name": a given name appears in the example that is not in the prompt\'s '
+        'Given names lexicon. Fields: "value" (the given name alone), "note".\n'
+        '- "scribal_quirk": a paleographic habit (a letterform, a mark) visible in the source that '
+        'the prompt\'s scribal-quirks list does not cover. Fields: "value" (short description), '
+        '"note".\n'
+        '- "relative_date_term": a relative-date word/phrase (e.g. an "the same day" idiom) the '
+        'example uses that the prompt\'s relative-date vocabulary does not list. Fields: "value", '
+        '"note".\n'
+        '- "relationship_term": a family/role relationship word the example uses that the prompt\'s '
+        'relationship-terms list does not cover. Fields: "value", "note".\n'
+        '- "role_vocab": a register-specific word for an entry role (e.g. how it names a witness or '
+        'sponsor) that the prompt\'s role-clause vocabulary does not list. Fields: "value", "note".\n'
+        '- "other": a real gap that does not fit any category above (a formula/structure mismatch, '
+        "a phrasing convention, anything free-text). Fields: \"note\" only -- this category cannot "
+        "be auto-applied, so explain it clearly enough for the user to act on by hand.\n\n"
+        'Every suggestion object must include "category" set to one of the strings above, plus '
+        'that category\'s fields. "note" is always a short, specific, human-readable explanation of '
+        "the gap and why it matters -- never generic advice.\n\n"
+        "Return ONLY a JSON array of these suggestion objects. No prose outside the JSON array."
+    )
+    user_message = (
+        f"KNOWN-CORRECT EXAMPLE ENTRY (hand-transcribed by the user):\n{example_entry}\n\n"
+        f"ACTUAL AI OUTPUT FROM THE UPLOADED IMAGE, USING THE CURRENT PROMPT:\n{raw_output}\n\n"
+        f"CURRENT FULL PROMPT (reference material the AI had access to):\n{full_prompt}"
+    )
+    result = call_ai_json(key, model, system_prompt, user_message)
+    if not isinstance(result, list):
+        return []
+
+    suggestions: list[dict[str, str]] = []
+    for item in result:
+        if not isinstance(item, dict):
+            continue
+        category = str(item.get("category", "")).strip()
+        if category not in PREFLIGHT_SUGGESTION_CATEGORIES:
+            continue
+        note = str(item.get("note") or "").strip()
+        if category == "abbreviation":
+            written = str(item.get("written") or "").strip()
+            expansion = str(item.get("expansion") or "").strip()
+            meaning = str(item.get("meaning") or "").strip()
+            if not written and not expansion:
+                continue  # nothing usable to offer
+            suggestions.append(
+                {
+                    "category": category,
+                    "written": written,
+                    "expansion": expansion,
+                    "meaning": meaning,
+                    "note": note or f"Abbreviation \"{written}\" isn't in your abbreviation key.",
+                }
+            )
+        elif category == "other":
+            if not note:
+                continue
+            suggestions.append({"category": category, "note": note})
+        else:
+            value = str(item.get("value") or "").strip()
+            if not value:
+                continue
+            suggestions.append({"category": category, "value": value, "note": note or value})
+    return suggestions
 
 
 def source_hash(text: str) -> str:
@@ -1020,6 +1173,8 @@ def neutral_system_scaffold(tool: str, role_context: str, output_format: str) ->
         "- Preserve abbreviations exactly as written in the transcription.\n"
         "- Expand clear abbreviations only in the English translation.\n"
         "- Do not preserve source line breaks; use continuous paragraphs unless the output format requires separate fields.\n"
+        "- A line break may fall in the middle of a single word (commonly marked with a hyphen) or between the separate words of one name or phrase (for example a given name on one line of a margin note and the surname on the next, with no hyphen at all). Either way, rejoin the pieces with a plain space (or no space, for a mid-word split) and nothing else. Never output a hyphen, slash, pipe, or any other mark in place of the line break; the break is a page-layout artifact, not punctuation the scribe wrote.\n"
+        "- If a marginal heading, margin note, or similar per-entry annotation contains a standalone number anywhere alongside a name, move that number to the very front of that block's text, formatted as \"Entry N - \" directly before the name -- no matter where the number physically appears in the source, and regardless of whether you are certain it is the register's own entry number. If its meaning is genuinely unclear, still reposition it this way and note the uncertainty separately (for example in Notes) rather than leaving the number in its original position. Never leave a number trailing after a name or sitting elsewhere in that block's text: a downstream step reads that block as a name field, and any number left attached to it becomes part of the name. This is the only place that number belongs -- never repeat it in the page/act locator line above, which identifies the page or act only.\n"
         "- Do not summarize, modernize, normalize, or invent missing words.\n"
         "- Use brackets for uncertain readings, for example [Rovella?] or [illegible].\n"
         "- If part of the page is unreadable, mark only that portion as [illegible].\n"
@@ -1776,6 +1931,13 @@ def page() -> str:
       }}
     }}
 
+    function confirmReset(event) {{
+      if (!event.submitter || event.submitter.id !== "reset-button") return;
+      if (!window.confirm("Reset All clears the source folder, run settings, and current output. Continue?")) {{
+        event.preventDefault();
+      }}
+    }}
+
     function setOrderHint() {{
       const selectedOrder = document.querySelector('[name="order"]:checked');
       const hint = document.getElementById("order-hint");
@@ -1928,6 +2090,7 @@ def page() -> str:
       if (runForm) {{
         runForm.addEventListener("submit", handleProfileEditsBeforeSubmit);
         runForm.addEventListener("submit", confirmProfileDelete);
+        runForm.addEventListener("submit", confirmReset);
       }}
       updateRunButton({str(running).lower()});
       updateRunStatus({str(running).lower()});
@@ -3033,6 +3196,13 @@ def test_mode_page() -> str:
       }}
     }}
 
+    function confirmReset(event) {{
+      if (!event.submitter || event.submitter.id !== "reset-button") return;
+      if (!window.confirm("Reset All clears the source folder, run settings, and current output. Continue?")) {{
+        event.preventDefault();
+      }}
+    }}
+
     function setOrderHint() {{
       const selectedOrder = document.querySelector('[name="order"]:checked');
       const hint = document.getElementById("order-hint");
@@ -3324,6 +3494,7 @@ def test_mode_page() -> str:
       if (runForm) {{
         runForm.addEventListener("submit", handleProfileEditsBeforeSubmit);
         runForm.addEventListener("submit", confirmProfileDelete);
+        runForm.addEventListener("submit", confirmReset);
       }}
       renderRunRows(initialRuns);
       updateRunButton({str(running).lower()});
@@ -3992,7 +4163,7 @@ def test_mode_page() -> str:
       <div class="path-control-row">
         <button id="browse-source-button" type="button" class="button-tiny">Browse&hellip;</button>
         <div class="path-display" id="source-folder-display" data-selected="{source_folder_selected}">{source_folder_display}</div>
-        <button id="reset-button" type="button">Reset All</button>
+        <button id="reset-button" type="submit" formaction="/test-mode/reset" formmethod="post" {disabled}>Reset All</button>
       </div>
     </div>
     <div class="path-manual-row" hidden>
@@ -4163,6 +4334,8 @@ PROMPT_BUILDER_CORE_RULES = [
     "Preserve abbreviations exactly as written in the transcription.",
     "Expand clear abbreviations only in the English translation.",
     "Do not preserve source line breaks; use continuous paragraphs unless the output format requires separate fields.",
+    "A line break may fall in the middle of a single word (commonly marked with a hyphen) or between the separate words of one name or phrase (for example a given name on one line of a margin note and the surname on the next, with no hyphen at all). Either way, rejoin the pieces with a plain space (or no space, for a mid-word split) and nothing else. Never output a hyphen, slash, pipe, or any other mark in place of the line break; the break is a page-layout artifact, not punctuation the scribe wrote.",
+    "If a marginal heading, margin note, or similar per-entry annotation contains a standalone number anywhere alongside a name, move that number to the very front of that block's text, formatted as \"Entry N - \" directly before the name -- no matter where the number physically appears in the source, and regardless of whether you are certain it is the register's own entry number. If its meaning is genuinely unclear, still reposition it this way and note the uncertainty separately (for example in Notes) rather than leaving the number in its original position. Never leave a number trailing after a name or sitting elsewhere in that block's text: a downstream step reads that block as a name field, and any number left attached to it becomes part of the name. This is the only place that number belongs -- never repeat it in the page/act locator line above, which identifies the page or act only.",
     "Do not summarize, modernize, normalize, or invent missing words.",
     "Use brackets for uncertain readings, for example [Rovella?] or [illegible].",
     "If part of the page is unreadable, mark only that portion as [illegible].",
@@ -4549,6 +4722,16 @@ def prompt_builder_page(
     restore_edit_label_json = json.dumps(restore_edit_label)
 
     record_type_options = pb_record_type_options_html()
+    # Prompt Builder may be the very first page a brand-new user opens, before
+    # any API key has ever been set up on this machine -- unlike the Transcribe
+    # page's model/key row, there's no "state['model']" carried over from a
+    # prior run to default from. Preflight Test is optional, so this defaults
+    # to DEFAULT_MODEL with no key pre-filled and lets the request itself fail
+    # with a clear error if neither a pasted key nor a .env key is available.
+    preflight_model_options = "\n".join(
+        f'<option value="{html.escape(model_id)}" {"selected" if model_id == DEFAULT_MODEL else ""}>{html.escape(label)}</option>'
+        for model_id, label in MODELS.items()
+    )
     section2_type_groups = "\n".join(pb_section2_type_group_html(key) for key in PROMPT_BUILDER_RECORD_TYPES)
     relative_date_checklist = pb_checklist_html("relativeDateTerms", PROMPT_BUILDER_RELATIVE_DATE_TERMS)
     relationship_checklist = pb_checklist_html("relationshipTerms", PROMPT_BUILDER_RELATIONSHIP_TERMS)
@@ -4666,7 +4849,7 @@ def prompt_builder_page(
     .skip-link:focus {{
       top: 0;
     }}
-    input[type="text"], textarea, select {{
+    input[type="text"], input[type="password"], textarea, select {{
       box-sizing: border-box;
       width: 100%;
       margin-top: 6px;
@@ -4982,7 +5165,8 @@ def prompt_builder_page(
     .pb-inline-row .pb-checkbox {{
       flex: 0 0 auto;
     }}
-    .pb-checkbox input[type="checkbox"] {{
+    .pb-checkbox input[type="checkbox"],
+    .pb-suggestion-row input[type="checkbox"] {{
       appearance: none;
       -webkit-appearance: none;
       width: 16px;
@@ -4995,10 +5179,12 @@ def prompt_builder_page(
       position: relative;
       cursor: pointer;
     }}
-    .pb-checkbox input[type="checkbox"]:checked {{
+    .pb-checkbox input[type="checkbox"]:checked,
+    .pb-suggestion-row input[type="checkbox"]:checked {{
       border-color: #255c99;
     }}
-    .pb-checkbox input[type="checkbox"]:checked::after {{
+    .pb-checkbox input[type="checkbox"]:checked::after,
+    .pb-suggestion-row input[type="checkbox"]:checked::after {{
       content: "";
       position: absolute;
       left: 4px;
@@ -5009,7 +5195,8 @@ def prompt_builder_page(
       border-width: 0 2px 2px 0;
       transform: rotate(40deg);
     }}
-    .pb-checkbox input[type="checkbox"]:focus-visible {{
+    .pb-checkbox input[type="checkbox"]:focus-visible,
+    .pb-suggestion-row input[type="checkbox"]:focus-visible {{
       outline: 3px solid rgba(37, 92, 153, 0.32);
       outline-offset: 2px;
     }}
@@ -5085,6 +5272,30 @@ def prompt_builder_page(
     .pb-row-simple {{
       grid-template-columns: 1fr auto;
     }}
+    .pb-example-entries {{
+      margin-top: 14px;
+    }}
+    .pb-example-row {{
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto auto;
+    }}
+    .pb-example-row .pb-example-label {{
+      grid-column: 1;
+      grid-row: 1;
+    }}
+    .pb-example-row .pb-row-remove {{
+      grid-column: 2;
+      grid-row: 1;
+      margin-top: 0;
+    }}
+    .pb-example-row .pb-example-text {{
+      grid-column: 1 / -1;
+      grid-row: 2;
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 4px;
+      font-family: inherit;
+    }}
     .pb-row-remove {{
       margin-top: 22px;
       background: #8a2c1d;
@@ -5102,6 +5313,116 @@ def prompt_builder_page(
       margin-top: 10px;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 12px;
+    }}
+    .pb-preflight {{
+      border: 1px solid #d9d4c8;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin: 14px 0;
+      background: #faf8f3;
+    }}
+    .pb-preflight h3 {{
+      margin-top: 0;
+    }}
+    .pb-preflight-optional {{
+      font-weight: 400;
+      font-size: 13px;
+      color: #5f6b76;
+    }}
+    .pb-preflight .row {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 10px 0;
+    }}
+    .pb-preflight input[type="file"] {{
+      display: block;
+      margin: 6px 0 10px 0;
+    }}
+    @media (max-width: 520px) {{
+      .pb-preflight .row {{ grid-template-columns: 1fr; }}
+    }}
+    .pb-suggestion-row {{
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid #eae6da;
+      font-weight: 400;
+    }}
+    .pb-suggestion-row:last-child {{
+      border-bottom: none;
+    }}
+    .pb-suggestion-row input[type="checkbox"] {{
+      margin-top: 3px;
+      flex: 0 0 auto;
+    }}
+    .pb-suggestion-text {{
+      flex: 1 1 auto;
+    }}
+    .pb-suggestion-category {{
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      color: #5f6b76;
+      margin-right: 6px;
+    }}
+    .pb-suggestion-row.pb-suggestion-other {{
+      padding-left: 24px;
+      color: #45505a;
+    }}
+    .pb-preflight-apply-row {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }}
+    /* Qualified with the "details" type selector (not just the class) to
+       out-specificity details.pb-section summary::before -- this <details>
+       lives nested inside Section 3's own details.pb-section, so a plain
+       class selector here loses that cascade fight even though the two
+       elements are structurally unrelated (see the CSS specificity note in
+       this panel's history). */
+    details.pb-preflight-raw-details {{
+      margin-top: 12px;
+      border: 1px solid #8a8377;
+      border-radius: 6px;
+      overflow: hidden;
+    }}
+    details.pb-preflight-raw-details summary {{
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      font-weight: 600;
+      font-size: 13px;
+      background: #efe9dc;
+      color: #1f2933;
+    }}
+    details.pb-preflight-raw-details summary::-webkit-details-marker {{
+      display: none;
+    }}
+    details.pb-preflight-raw-details summary::before {{
+      content: "\\25B6";
+      font-size: 11px;
+      color: #255c99;
+      display: inline-block;
+      transition: transform 0.12s ease;
+    }}
+    details.pb-preflight-raw-details[open] summary {{
+      border-bottom: 1px solid #8a8377;
+    }}
+    details.pb-preflight-raw-details[open] summary::before {{
+      transform: rotate(90deg);
+    }}
+    details.pb-preflight-raw-details pre {{
+      margin: 0;
+      border-radius: 0;
+      border: none;
     }}
     #pb-preview-content {{
       min-height: 150px;
@@ -5349,8 +5670,16 @@ def prompt_builder_page(
 
       <label class="pb-checkbox"><input type="checkbox" name="surnameParticleRule" checked> Apply the standard Italian surname-particle rule (de/di/d'/lo/la/le/li stay with the surname, never normalized)</label>
 
-      <label><span>Name lexicon{pb_info_button_html("pb-info-lexicon", "Adding a lexicon greatly increases the likelihood that the AI system will bias towards a correct identification of a name.")}</span>
-        <textarea name="nameLexicon" rows="4" placeholder="Paste known family names and given names - either as &quot;Given Surname&quot; or &quot;Surname, Given name&quot;"></textarea>
+      <label><span>Surnames{pb_info_button_html("pb-info-lexicon-surnames", "Adding a lexicon greatly increases the likelihood that the AI system will bias towards a correct identification of a name. Paste one surname per line. A multi-word surname (“De Amato”, “La Marca”) or an alias (“Bruno alias De Amato”) is a single entry -- keep it on one line exactly as written; it will not be split apart.")}</span>
+        <textarea name="nameLexiconSurnames" rows="4" placeholder="Paste known surnames, one per line -- e.g. Esposito, De Amato, La Marca"></textarea>
+      </label>
+
+      <label><span>Given names{pb_info_button_html("pb-info-lexicon-givennames", "Paste one given name per line. A compound or alias given name (“Anna Maria”, “Giovanni Battista”, “Anna alias Nonna”) is a single entry -- keep it on one line exactly as written; it will not be split apart.")}</span>
+        <textarea name="nameLexiconGivenNames" rows="4" placeholder="Paste known given names, one per line -- e.g. Giuseppe, Anna Maria, Giovanni Battista"></textarea>
+      </label>
+
+      <label><span>Alternatively: Full names (given name + surname pairs){pb_info_button_html("pb-info-lexicon-fullnames", "Use this box when what you have is full names rather than two separate lists -- one name per line, either “Given Surname” (Giuseppe de Natale) or “Surname, Given name” (de Natale, Giuseppe). Each line is split and added to the Surnames and Given names lists above it. A surname particle (de/di/d'/lo/la/le/li) right before the last word stays attached to the surname. A line with only one word is skipped rather than guessed at -- put a name like that in the Surnames or Given names box instead.")}</span>
+        <textarea name="nameLexiconFullNames" rows="4" placeholder="Paste full names, one per line -- e.g. Giuseppe de Natale  or  de Natale, Giuseppe"></textarea>
       </label>
     </details>
 
@@ -5361,10 +5690,46 @@ def prompt_builder_page(
       </summary>
       <p class="pb-section-caption">{PROMPT_BUILDER_SECTION_HELP["output_format"]}</p>
 
-      <label>Example entry
-      <p class="hint">Paste in a completed 100% accurate entry in the native language of the sources for this project. This will be used as a critically important formatting reference for the AI to generate the proper output.</p>
-      <textarea name="exampleEntry" rows="6" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea>
-      </label>
+      <div class="pb-example-entries">
+        <span>Example entries{pb_info_button_html("pb-info-example-entries", "Each example is a verified, 100% accurate transcription of one real entry from this register, shown to the AI purely as a formatting and style reference -- never as content to copy. More than one example, especially covering different situations (a straightforward entry, one with an illegible word, one where a heading and body disagree), calibrates the AI's judgment better than a single example can. An optional label just helps you tell examples apart later -- e.g. in Preflight Test, if you add more than one.")}</span>
+        <p class="hint">Paste in a completed 100% accurate entry in the native language of the sources for this project. This will be used as a critically important formatting reference for the AI to generate the proper output.</p>
+        <div id="pb-example-rows"></div>
+        <button type="button" id="pb-add-example" class="button-tiny">Add another example</button>
+      </div>
+
+      <div class="pb-preflight">
+        <h3>Preflight Test <span class="pb-preflight-optional">(optional but recommended)</span></h3>
+        <p class="hint">For testing your prompt, upload the image that corresponds to the selected Example entry text above. The app will check your example against its source and offer suggestions to improve your prompt, if needed. Clicking "Run Preflight Test" first saves your current answers as a draft profile, so nothing is lost if something goes wrong.</p>
+        <div class="row">
+          <label>Model
+            <select id="pb-preflight-model">
+              {preflight_model_options}
+            </select>
+          </label>
+          <label>API key
+            <input type="password" id="pb-preflight-api-key" autocomplete="off" placeholder="Paste your API key for this test">
+            <p class="hint">Used only for this browser session/request. It is not saved to the project files or the profile. Running a preflight test sends this key and your uploaded image directly to your chosen AI provider's API — see PRIVACY.md.</p>
+          </label>
+        </div>
+        <input type="file" id="pb-preflight-image" accept="image/jpeg,image/png">
+        <label id="pb-preflight-example-row" hidden>Which example does this image show?
+          <select id="pb-preflight-example-select"></select>
+        </label>
+        <button type="button" id="pb-preflight-run" class="button-tiny">Run Preflight Test</button>
+        <p class="hint" id="pb-preflight-status" role="status" aria-live="polite" hidden></p>
+        <div id="pb-preflight-results" hidden>
+          <p class="hint" id="pb-preflight-suggestions-label">Suggestions -- check the ones you want, then apply them to your questionnaire.</p>
+          <div id="pb-preflight-suggestions"></div>
+          <div class="pb-preflight-apply-row">
+            <button type="button" id="pb-preflight-apply" class="button-tiny">Apply selected</button>
+            <span id="pb-preflight-apply-status" class="hint" role="status" aria-live="polite"></span>
+          </div>
+          <details class="pb-preflight-raw-details">
+            <summary>What the AI actually produced from your image</summary>
+            <pre id="pb-preflight-raw-output" class="pb-preview"></pre>
+          </details>
+        </div>
+      </div>
 
       <h3>Translation</h3>
       <p class="hint" id="pb-church-only-translation-hint">Translation is optional — leave both unchecked for a transcription-only output with no translation at all</p>
@@ -5421,6 +5786,15 @@ def prompt_builder_page(
 def paragraph(text: str) -> ElementTree.Element:
     ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     p = ElementTree.Element(f"{{{ns}}}p")
+    # This document ships no word/styles.xml part, so every paragraph falls
+    # back to Word's own built-in default (not this app's choice) -- which
+    # includes ~8pt "space after" on top of the paragraph break itself. Since
+    # write_docx() already puts each source line in its own paragraph, that
+    # stacked with Word's default reads as doubled spacing. Zero it explicitly
+    # so a paragraph break is the only vertical space between lines.
+    p_pr = ElementTree.SubElement(p, f"{{{ns}}}pPr")
+    spacing = ElementTree.SubElement(p_pr, f"{{{ns}}}spacing")
+    spacing.set(f"{{{ns}}}after", "0")
     r = ElementTree.SubElement(p, f"{{{ns}}}r")
     t = ElementTree.SubElement(r, f"{{{ns}}}t")
     t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
@@ -5540,6 +5914,12 @@ def header_box_element(
 
     for line_text, bold in lines:
         p = ElementTree.SubElement(tc, f"{{{ns}}}p")
+        # Same "no styles.xml, so zero Word's implicit 8pt default explicitly"
+        # fix as paragraph() above -- otherwise this box's own lines get the
+        # same doubled-spacing look as the transcription body below it.
+        p_pr = ElementTree.SubElement(p, f"{{{ns}}}pPr")
+        spacing = ElementTree.SubElement(p_pr, f"{{{ns}}}spacing")
+        spacing.set(f"{{{ns}}}after", "0")
         r = ElementTree.SubElement(p, f"{{{ns}}}r")
         if bold:
             r_pr = ElementTree.SubElement(r, f"{{{ns}}}rPr")
@@ -5907,13 +6287,13 @@ def run_job(form: FormData, output_file: Path) -> None:
         source_count = preflight_source_file_type(image_folder, file_type)
         add_log(f"Found {source_count} {file_type_display(file_type)} source file(s) for this run.")
 
-        add_log("Checking Gemini API key before starting image processing...")
+        add_log("Checking API key...")
         validate_api_key(
             PROJECT_DIR,
             selected_model(form),
             pasted_value(form, "gemini_api_key") or None,
         )
-        add_log("Gemini API key validated.")
+        add_log("API key validated.")
 
         config = TranscriptionConfig(
             image_folder=image_folder,
@@ -6165,6 +6545,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/prompt-builder/save-profile":
             self.save_prompt_builder_profile()
+            return
+
+        if self.path == "/prompt-builder/preflight-test":
+            self.preflight_test_prompt_builder()
+            return
+
+        if self.path == "/prompt-builder/save-draft":
+            self.save_prompt_builder_draft()
             return
 
         if self.path == "/delete-profile":
@@ -6539,6 +6927,137 @@ class Handler(BaseHTTPRequestHandler):
                 state["log"] = [f"Fatal error: {exc}"]
                 state["download"] = ""
         self.respond(page())
+
+    def preflight_test_prompt_builder(self) -> None:
+        tmp_path: Path | None = None
+        try:
+            files, fields = parse_multipart_form(self)
+
+            image_entry = files.get("image")
+            if not image_entry or not image_entry[1]:
+                raise RuntimeError("Choose an image to upload before running the preflight test.")
+            filename, image_bytes = image_entry
+            suffix = Path(filename).suffix.lower()
+            if suffix not in {".jpg", ".jpeg", ".png"}:
+                raise RuntimeError("The preflight image must be a JPEG or PNG file.")
+
+            example_entry = fields.get("example_entry", "").strip()
+            if not example_entry:
+                raise RuntimeError("Add an Example entry above before running the preflight test.")
+
+            full_prompt = fields.get("full_prompt", "").strip()
+            if not full_prompt:
+                raise RuntimeError("Fill in the questionnaire before running the preflight test.")
+
+            record_type = fields.get("record_type", "").strip()
+            model = fields.get("model", "").strip() or DEFAULT_MODEL
+            if model not in MODELS:
+                raise RuntimeError("Select a valid model for the preflight test.")
+            api_key_override = fields.get("api_key", "").strip() or None
+
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp.write(image_bytes)
+                tmp_path = Path(tmp.name)
+
+            client = make_client(PROJECT_DIR, model, api_key_override, timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS)
+            raw_output = transcribe_image(
+                client=client,
+                image_path=tmp_path,
+                system_prompt=full_prompt,
+                model=model,
+                # Uncapped "high" reasoning on a full image plus a long system
+                # prompt is appropriate for a real batch run (see
+                # make_client()'s comment) but not for a single foreground
+                # preflight check with no progress log -- MEDIUM keeps real
+                # reasoning capacity without the unbounded default's latency.
+                max_thinking_level="MEDIUM",
+            )
+
+            suggestions = critique_prompt_gap(
+                model=model,
+                full_prompt=full_prompt,
+                example_entry=example_entry,
+                raw_output=raw_output,
+                record_type=record_type,
+                api_key_override=api_key_override,
+            )
+
+            self.respond_json({"raw_output": raw_output, "suggestions": suggestions})
+        except httpx.TimeoutException:
+            self.respond_json(
+                {
+                    "error": (
+                        f"The AI provider did not respond within {PREFLIGHT_TIMEOUT_SECONDS} seconds. "
+                        "Try again, or try a different model."
+                    )
+                },
+                status=400,
+            )
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+
+    def save_prompt_builder_draft(self) -> None:
+        """JSON-in/JSON-out sibling of save_prompt_builder_profile(), used only by
+        Preflight Test's auto-save-before-run step. A real save from the Save
+        buttons still goes through save_prompt_builder_profile() (full page
+        submit); this exists so "Run Preflight Test" can checkpoint the current
+        in-progress questionnaire to disk via fetch, without navigating away
+        from the page or losing the preflight results panel. Reuses the exact
+        same save_custom_profile()/update_full_profile() calls, so a draft
+        saved this way is a completely ordinary profile -- loadable, editable,
+        and indistinguishable from one saved the normal way.
+        """
+        try:
+            payload = parse_json_body(self)
+            role_context = str(payload.get("role_context", "") or "")
+            reference_context = str(payload.get("reference_context", "") or "")
+            output_format = str(payload.get("output_format", "") or "")
+            native_language = str(payload.get("native_language", "") or "")
+            translation_languages = [
+                value.strip()
+                for value in str(payload.get("translation_languages", "") or "").split(",")
+                if value.strip()
+            ]
+            record_type = str(payload.get("record_type", "") or "")
+            edit_profile_id = str(payload.get("edit_profile_id", "") or "").strip()
+            name = str(payload.get("name", "") or "").strip()
+            pb_answers = payload.get("pb_answers")
+            if not isinstance(pb_answers, dict):
+                pb_answers = None
+
+            if edit_profile_id:
+                profile = update_full_profile(
+                    edit_profile_id,
+                    name or edit_profile_id,
+                    role_context,
+                    reference_context,
+                    output_format,
+                    native_language=native_language,
+                    translation_languages=translation_languages,
+                    record_type=record_type,
+                    pb_answers=pb_answers,
+                )
+            else:
+                if not name:
+                    type_label = PROMPT_BUILDER_RECORD_TYPES.get(record_type, {}).get("label", "Record")
+                    name = f"{type_label} draft {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                profile = save_custom_profile(
+                    name,
+                    role_context,
+                    reference_context,
+                    output_format,
+                    replace_existing=False,
+                    native_language=native_language,
+                    translation_languages=translation_languages,
+                    record_type=record_type,
+                    pb_answers=pb_answers,
+                )
+            self.respond_json({"id": profile["id"], "label": profile["label"]})
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
 
     def save_prompt_builder_profile(self) -> None:
         role_context = ""

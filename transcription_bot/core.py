@@ -159,12 +159,39 @@ def date_from_path(path: Path, root: Path) -> tuple[int, int, int] | None:
     return None
 
 
+_DIGIT_RUN_PATTERN = re.compile(r"(\d+)")
+
+
+def _natural_sort_key(text: str) -> tuple:
+    """Splits text into alternating non-digit/digit chunks so an embedded
+    number sorts by its integer value, not as a string. Plain string sorting
+    put "Page (24).jpg" before "Page (4).jpg" before "Page (5).jpg" -- '2' < '4'
+    < '5' as characters -- so a real folder of Page (4)/(5)/(24)/(32) processed
+    in the order 24, 32, 4, 5 instead of 4, 5, 24, 32.
+
+    Every chunk becomes a (type_marker, value) pair -- (0, "page ") for text,
+    (1, 24) for a digit run -- rather than a bare int or str. Comparing two
+    natural keys compares these pairs position by position; the leading
+    int marker (0 or 1) always resolves a type mismatch before Python would
+    otherwise try to compare an int chunk against a str chunk directly, which
+    raises TypeError. Without this, one filename with a numeric run at a
+    position where another filename has a text run (a very plausible mix in
+    a real source folder) would crash the whole batch run's file listing
+    instead of just sorting oddly.
+    """
+    return tuple(
+        (1, int(chunk)) if chunk.isdigit() else (0, chunk.lower())
+        for chunk in _DIGIT_RUN_PATTERN.split(text)
+        if chunk
+    )
+
+
 def image_sort_key(path: Path, root: Path) -> tuple[object, ...]:
     relative = path.relative_to(root)
     parsed_date = date_from_path(path, root)
     if parsed_date:
-        return (0, parsed_date, str(relative.parent).lower(), path.name.lower())
-    return (1, str(relative.parent).lower(), path.name.lower())
+        return (0, parsed_date, _natural_sort_key(str(relative.parent)), _natural_sort_key(path.name))
+    return (1, _natural_sort_key(str(relative.parent)), _natural_sort_key(path.name))
 
 
 def display_name(path: Path, root: Path) -> str:
@@ -231,13 +258,31 @@ class LLMClient:
     claude: anthropic.Anthropic | None = None
 
 
-def make_client(project_dir: Path, model: str, api_key_override: str | None = None) -> LLMClient:
+def make_client(
+    project_dir: Path,
+    model: str,
+    api_key_override: str | None = None,
+    timeout_seconds: float | None = None,
+) -> LLMClient:
+    # timeout_seconds is None for every existing caller (run_batch(), via the
+    # real Transcribe page) -- a real batch run is a long-lived background job
+    # with its own per-image progress log, and deliberately gives the provider
+    # unlimited patience rather than aborting a slow-but-working image. Only
+    # Prompt Builder's Preflight Test (app.py) passes a real value, since that
+    # call blocks a single foreground request and a hung connection there has
+    # no progress log to fall back on -- see preflight_test_prompt_builder().
     provider = provider_for_model(model)
     if provider == "claude":
         key = (api_key_override or "").strip() or claude_api_key(project_dir)
-        return LLMClient(provider="claude", claude=anthropic.Anthropic(api_key=key))
+        claude_kwargs: dict[str, object] = {"api_key": key}
+        if timeout_seconds is not None:
+            claude_kwargs["timeout"] = timeout_seconds
+        return LLMClient(provider="claude", claude=anthropic.Anthropic(**claude_kwargs))
     key = (api_key_override or "").strip() or api_key(project_dir)
-    return LLMClient(provider="gemini", gemini=genai.Client(api_key=key))
+    gemini_kwargs: dict[str, object] = {"api_key": key}
+    if timeout_seconds is not None:
+        gemini_kwargs["http_options"] = types.HttpOptions(timeout=int(timeout_seconds * 1000))
+    return LLMClient(provider="gemini", gemini=genai.Client(**gemini_kwargs))
 
 
 def validate_api_key(project_dir: Path, model: str, api_key_override: str | None = None) -> None:
@@ -256,6 +301,22 @@ def validate_api_key(project_dir: Path, model: str, api_key_override: str | None
     )
 
 
+# A response cut off mid-generation by the provider's own output-token cap is
+# worse than an honest [illegible] -- it drops content with no marker at all,
+# and (unlike a max_tokens error that aborts the image outright) a genuinely
+# large image can have several real entries land after the cutoff, silently
+# missing from the DOCX. Keep whatever text did come back -- it's still real,
+# usable model output up to that point -- but append a marker that can't be
+# missed, matching this app's existing convention of flagging a gap rather
+# than hiding it (see the Uncertainty Protocol's [illegible]/[damaged]).
+_TRUNCATION_NOTICE = (
+    "\n\n[TRUNCATED: this image's response hit the model's output token limit before "
+    "finishing. Everything above is genuine model output, but later entries on this image "
+    "may be missing entirely. Re-run this image on its own, or raise the output token limit "
+    "in transcription_bot/core.py, to recover the rest.]"
+)
+
+
 def _transcribe_image_gemini(
     client: genai.Client,
     image_path: Path,
@@ -263,11 +324,28 @@ def _transcribe_image_gemini(
     system_prompt: str,
     model: str,
     include_thoughts: bool,
+    max_thinking_level: str | None = None,
 ) -> str:
     config_kwargs = {"system_instruction": system_prompt, "temperature": 0}
 
     if include_thoughts and hasattr(types, "ThinkingConfig"):
         config_kwargs["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
+    elif (
+        max_thinking_level
+        and model.startswith("gemini-3")
+        and hasattr(types, "ThinkingConfig")
+        and hasattr(types, "ThinkingLevel")
+    ):
+        # A real batch run (include_thoughts False, max_thinking_level None)
+        # leaves Gemini 3.x's default (uncapped) thinking budget untouched --
+        # this only fires for a caller that explicitly asks for a ceiling, e.g.
+        # Prompt Builder's Preflight Test, where "high" reasoning over a full
+        # image plus a long system prompt can otherwise run for several
+        # minutes with no feedback. See call_gemini_json() in
+        # xls_conversion/ai_parser.py for the same cap on its own calls.
+        level = getattr(types.ThinkingLevel, max_thinking_level, None)
+        if level is not None:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=level)
 
     response = client.models.generate_content(
         model=model,
@@ -277,7 +355,11 @@ def _transcribe_image_gemini(
         ],
         config=types.GenerateContentConfig(**config_kwargs),
     )
-    return response.text or ""
+    text = response.text or ""
+    candidates = getattr(response, "candidates", None) or []
+    if candidates and getattr(candidates[0], "finish_reason", None) == types.FinishReason.MAX_TOKENS:
+        text += _TRUNCATION_NOTICE
+    return text
 
 
 def _transcribe_image_claude(
@@ -293,9 +375,21 @@ def _transcribe_image_claude(
         "type": block_type,
         "source": {"type": "base64", "media_type": mime_type, "data": data},
     }
-    response = client.messages.create(
+    # Streaming, not a plain (non-streaming) messages.create() call. This used
+    # to be non-streaming with max_tokens capped at 16000 -- raised once
+    # already from 8192 after truncating mid-entry, with a comment noting
+    # 16000 was "the documented safe ceiling for a non-streaming call; going
+    # higher risks the SDK's own HTTP timeout." That ceiling was hit for real:
+    # a dense marriage-register image (several entries, each with a full
+    # native transcription, translation, and notes) still exceeded 16000 and
+    # got cut off mid-entry. Per Anthropic's own SDK guidance, a non-streaming
+    # request is capped near 16000 specifically to stay under the SDK's HTTP
+    # timeout -- streaming removes that constraint entirely, which is why
+    # max_tokens can now go to 64000 instead of trying to guess a higher safe
+    # non-streaming number.
+    with client.messages.stream(
         model=model,
-        max_tokens=8192,
+        max_tokens=64000,
         # This SDK's Messages API has no temperature knob (Gemini's temperature=0
         # equivalent doesn't exist here) -- "high" effort is the closest available
         # lever for careful, consistent transcription output.
@@ -307,8 +401,12 @@ def _transcribe_image_claude(
                 "content": [source_block, {"type": "text", "text": USER_INSTRUCTION}],
             }
         ],
-    )
-    return "".join(block.text for block in response.content if block.type == "text")
+    ) as stream:
+        response = stream.get_final_message()
+    text = "".join(block.text for block in response.content if block.type == "text")
+    if response.stop_reason == "max_tokens":
+        text += _TRUNCATION_NOTICE
+    return text
 
 
 def transcribe_image(
@@ -317,12 +415,13 @@ def transcribe_image(
     system_prompt: str,
     model: str,
     include_thoughts: bool = False,
+    max_thinking_level: str | None = None,
 ) -> str:
     mime_type = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
     if client.provider == "claude":
         return _transcribe_image_claude(client.claude, image_path, mime_type, system_prompt, model)
     return _transcribe_image_gemini(
-        client.gemini, image_path, mime_type, system_prompt, model, include_thoughts
+        client.gemini, image_path, mime_type, system_prompt, model, include_thoughts, max_thinking_level
     )
 
 

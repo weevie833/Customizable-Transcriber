@@ -20,7 +20,7 @@ _WHITESPACE_RUN = re.compile(r"\s+")
 
 _BLOCK_SPLIT = re.compile(r"\n\s*\n")
 _LABEL_NOTES = re.compile(r"^notes:\s*", re.IGNORECASE)
-_LABEL_LOCATOR = re.compile(r"^page\s+\S+\s*[-–—]\s*entry\s+\S+\s*:\s*$", re.IGNORECASE)
+_LABEL_LOCATOR = re.compile(r"^page\s+\S+\s*(?:[-–—]\s*entry\s+\S+\s*)?:\s*$", re.IGNORECASE)
 _LABEL_ENGLISH_TRANSLATION_BARE = re.compile(r"^english translation:\s*$", re.IGNORECASE)
 _LABEL_ENGLISH_TRANSLATION_INLINE = re.compile(r"^english translation:\s*(.*)$", re.IGNORECASE | re.DOTALL)
 
@@ -38,6 +38,13 @@ def strip_non_transcription_blocks(text: str) -> str:
     block-structure contract this relies on. `Notes:`/`Latin Transcription:`
     label text itself is left in place exactly like every other block's own
     label — only whole blocks are dropped, never partial content.
+
+    _LABEL_LOCATOR matches the locator line with or without a trailing
+    "- Entry N" (Prompt Builder profiles stopped emitting that suffix; an
+    entry's own number, when the source has one, now lives in the Marginal
+    Heading block instead — see CLAUDE.md's Prompt Builder section), so both
+    an older profile's "Page 34 - Entry 1:" and a current one's "Page 34:"
+    still get stripped.
     """
     blocks = _BLOCK_SPLIT.split(text)
     kept: list[str] = []

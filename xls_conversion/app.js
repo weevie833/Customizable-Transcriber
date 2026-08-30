@@ -843,6 +843,7 @@
   }
 
   function reset() {
+    if (!window.confirm("Reset clears the loaded source file, your selections, and any results. Continue?")) return;
     sourceFile.value = "";
     recordType.value = "battesimi";
     imageRange.value = "";

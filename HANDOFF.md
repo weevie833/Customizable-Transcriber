@@ -1,5 +1,42 @@
 # Customizable Transcription Interface Handoff
 
+## Done this session (2026-08-30): profiles/settings.json removed
+
+User asked what it was for. Traced every read site: it was write-only in
+practice — recorded the last-used profile on each run, but nothing ever
+read that value back (the profile dropdown always starts empty on
+purpose, to prevent an accidental run with the wrong profile). Its only
+other use, a self-cleanup check in `delete_profile()`, had no visible
+effect either once nothing consumed the value. Removed entirely at the
+user's choice: `PROFILE_SETTINGS_FILE`, `save_selected_profile_id()`, and
+all 5 of its call sites deleted from `app.py`; the file itself deleted
+from disk; the now-unnecessary `.gitignore` entry removed.
+`load_custom_profiles()` still defensively skips a file literally named
+`settings.json` so a stale leftover on an existing install can't be
+mistaken for a profile. README/CLAUDE.md updated to match; verified the
+app starts and all three pages load with no errors, and that a stray
+`settings.json` on disk is still correctly ignored. Not yet committed.
+
+## Done this session (2026-08-30): rendi-* shipped examples deleted by user
+
+The user deleted all 5 `profiles/rendi-*.json` files directly (outside the
+app) — obsolete now that new profiles are built through the Prompt Builder
+questionnaire — and archived them separately in case they're ever needed
+again. `profiles/` now ships zero example profiles.
+
+This surfaced and fixed a real bug: `load_profile()` used to fall back to a
+hardcoded `DEFAULT_PROFILE_ID = "rendi-battesimi"` when a requested id
+wasn't found; with that file gone, the fallback itself failed, turning any
+missing-profile lookup into a hard "No prompt profiles are available" error
+even though other profiles (e.g. Chiusa Sclafani v4) existed. Now falls back
+to whichever profile happens to be first in the list instead. Verified via
+a direct `load_profile()` call with a bogus id — resolves cleanly to an
+existing profile. `DEFAULT_PROFILE_ID` removed as dead code.
+
+README's "Saved profiles" section and CLAUDE.md's "Profile storage" section
+updated to stop naming specific shipped profiles that no longer exist. Not
+yet committed.
+
 ## Done this session (2026-08-30): Chiusa Sclafani v3 retired, replaced by v4
 
 **Next step, not yet done:** run a real Preflight Test (or a full batch) with

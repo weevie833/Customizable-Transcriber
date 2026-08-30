@@ -146,9 +146,9 @@ Current web app behavior:
 
 Saved profiles:
 
-- The app ships with a few example profiles (Rendi Morti, Rendi Matrimoni,
-  Rendi Generic, Rendi Battesimi, and the Chiusa Sclafani battesimi profile)
-  as JSON files inside the app's own `profiles/` folder.
+- The app's own `profiles/` folder is reserved for shipped, read-only example
+  profiles, but doesn't currently include any — every profile you see in the
+  app is one you (or the Prompt Builder questionnaire) created yourself.
 - **Every profile you create or edit yourself — through `Save Profile`,
   Prompt Builder, or the profile-editor boxes — is saved outside the app
   folder entirely**, in a per-user data location:
@@ -163,8 +163,9 @@ Saved profiles:
   outside that folder, replacing it never touches them. You'll see every
   profile you've saved again the moment you launch the updated app, with
   nothing to move or back up yourself.
-- The most recently selected profile is remembered in `profiles/settings.json`
-  and is reselected when the app starts.
+- The prompt profile dropdown always starts at `Select a Profile` when the app
+  starts or reloads, even if you used one last time — this is deliberate, to
+  prevent an accidental run with the wrong profile.
 - To create a new profile directly, enter a name in `Save new custom profile as`, fill the three profile text boxes, and click `Save Profile`.
 
 Prompt behavior:

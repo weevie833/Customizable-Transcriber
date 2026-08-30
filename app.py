@@ -73,9 +73,7 @@ MAX_JSON_BYTES = 15_000_000
 # worth of plain text/XML markup -- a real Word document.xml this large would
 # already be an unusually long document.
 MAX_DOCX_XML_BYTES = 20_000_000
-DEFAULT_PROFILE_ID = "rendi-battesimi"
 PROFILES_DIR = PROJECT_DIR / "profiles"
-PROFILE_SETTINGS_FILE = PROFILES_DIR / "settings.json"
 
 
 def _user_data_dir() -> Path:
@@ -777,14 +775,6 @@ def write_profile(profile: dict[str, str]) -> None:
     )
 
 
-def save_selected_profile_id(profile_id: str) -> None:
-    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-    PROFILE_SETTINGS_FILE.write_text(
-        json.dumps({"selected_profile_id": profile_id}, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
 def load_source_folder() -> Path | None:
     """The active source folder, picked via the native folder dialog (or typed
     manually as a fallback) and persisted to APP_SETTINGS_FILE (gitignored —
@@ -949,7 +939,11 @@ def load_custom_profiles() -> list[dict[str, str]]:
     by_id: dict[str, dict[str, str]] = {}
     for directory in (PROFILES_DIR, USER_PROFILES_DIR):
         for path in sorted(directory.glob("*.json")):
-            if path.name == PROFILE_SETTINGS_FILE.name:
+            # Defensive: an old settings.json from before this file was
+            # retired (it used to track the last-selected profile id) could
+            # still be sitting on an existing install's disk -- skip it by
+            # name rather than trying to parse it as a profile.
+            if path.name == "settings.json":
                 continue
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
@@ -1008,13 +1002,20 @@ def profiles_with_display_labels() -> list[dict[str, str]]:
     return profiles
 
 def load_profile(profile_id: str) -> dict[str, str]:
-    for profile in load_custom_profiles():
+    profiles = load_custom_profiles()
+    for profile in profiles:
         if profile["id"] == profile_id:
             profile["kind"] = "custom"
             return profile
 
-    if profile_id != DEFAULT_PROFILE_ID:
-        return load_profile(DEFAULT_PROFILE_ID)
+    # No hardcoded fallback id here on purpose -- the shipped rendi-* profiles
+    # this used to fall back to are gone (retired once the Prompt Builder
+    # questionnaire made them obsolete), and any future shipped/user profile
+    # could just as easily be renamed or deleted. Falling back to whatever
+    # profile happens to exist is more robust than depending on one specific
+    # id always being present.
+    if profiles:
+        return profiles[0]
 
     raise RuntimeError("No prompt profiles are available.")
 
@@ -1201,13 +1202,6 @@ def delete_profile(profile_id: str) -> dict[str, str]:
     if path is None:
         raise RuntimeError("Select a valid prompt profile before deleting.")
     path.unlink()
-    if PROFILE_SETTINGS_FILE.exists():
-        try:
-            settings = json.loads(PROFILE_SETTINGS_FILE.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            settings = {}
-        if settings.get("selected_profile_id") == profile_id:
-            PROFILE_SETTINGS_FILE.unlink(missing_ok=True)
     return profile
 
 
@@ -2915,6 +2909,7 @@ def page() -> str:
     <details class="manual-override-section">
       <summary>Manual Prompt Override</summary>
       <div class="profile-work-area">
+        <p><strong>Manual prompts can only be edited here - they cannot be edited in the Prompt Builder.</strong></p>
         <p class="hint">The profile sections below are plain text fields. The app handles JSON formatting automatically when it saves, so quotes, brackets, and commas typed here will not break the profile file.</p>
         <label>Save new custom profile as
         <p class="hint">Leave blank to update the selected profile. Enter a new name to save the three boxes below as a reusable profile.</p>
@@ -6471,7 +6466,6 @@ def run_job(form: FormData, output_file: Path) -> None:
             tool="generic",
             profile=profile,
         )
-        save_selected_profile_id(profile["id"])
         if profile.get("kind") == "custom":
             add_log(f"Using custom prompt profile: {profile['label']}")
         else:
@@ -6556,7 +6550,6 @@ def run_test_job(
         file_type = selected_file_type(form)
         profile = resolve_profile_for_run(form)
         system_prompt = build_system_prompt(tool="generic", profile=profile)
-        save_selected_profile_id(profile["id"])
         if profile.get("kind") == "custom":
             add_test_log(f"Using custom prompt profile: {profile['label']}")
         else:
@@ -6842,7 +6835,6 @@ class Handler(BaseHTTPRequestHandler):
                 role_context = profile.get("role_context", "")
                 reference_context = profile.get("reference_context", "")
                 output_format = profile.get("output_format", "")
-            save_selected_profile_id(profile_id)
             form.setfirst("profile_id", profile_id)
             form.setfirst("profile_action", "use")
             form.setfirst("new_profile_name", "")
@@ -7112,7 +7104,6 @@ class Handler(BaseHTTPRequestHandler):
                     output_format,
                 )
                 message = f"Updated profile: {profile['label']}"
-            save_selected_profile_id(profile["id"])
             with lock:
                 state["summary"] = message
                 state["log"] = [message]
@@ -7492,7 +7483,6 @@ class Handler(BaseHTTPRequestHandler):
                     )
             profile = resolve_profile_for_run(form)
             profile_id = profile["id"]
-            save_selected_profile_id(profile_id)
         except Exception as exc:
             with test_lock:
                 test_state["summary"] = f"Fatal error: {exc}"

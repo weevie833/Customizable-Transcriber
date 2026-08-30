@@ -92,6 +92,8 @@
     "Customizable Transcription": "Trascrizione personalizzabile",
     "Use the Prompt Builder page to create prompts, or bypass the Prompt Builder and place your prompt in the sections below. Manual prompts cannot be edited in the Prompt Builder.":
       "Usa la pagina Prompt Builder per creare i prompt, oppure aggira il Prompt Builder e inserisci il tuo prompt nelle sezioni qui sotto. I prompt inseriti manualmente non possono essere modificati nel Prompt Builder.",
+    "Manual prompts can only be edited here - they cannot be edited in the Prompt Builder.":
+      "I prompt inseriti manualmente possono essere modificati solo qui - non possono essere modificati nel Prompt Builder.",
     "Manual Prompt Override": "Prompt manuale personalizzato",
     "Save new custom profile as": "Salva nuovo profilo personalizzato come",
     "Leave blank to update the selected profile. Enter a new name to save the three boxes below as a reusable profile.":

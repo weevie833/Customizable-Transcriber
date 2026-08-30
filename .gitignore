@@ -5,7 +5,6 @@ __pycache__/
 outputs/
 uploads/
 .DS_Store
-profiles/settings.json
 app_settings.json
 .claude/
 

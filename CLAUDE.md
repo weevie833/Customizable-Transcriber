@@ -995,9 +995,9 @@ created, with no warning.
 which.**
 
 - `PROFILES_DIR` (`profiles/`, git-tracked) — shipped reference examples only
-  (`rendi-*`, `chiusa-sclafani-*`). Read-only at runtime; nothing the running
-  app does ever writes here. Only `build_prompt.py` and hand-edited commits
-  touch it.
+  (`rendi-*` and `chiusa-sclafani-*` at the time this was written; see the
+  "Later session" note below for why neither still ships here). Read-only at
+  runtime; nothing the running app does ever writes here.
 - `USER_PROFILES_DIR` — every profile a user saves or edits through the
   running app (Save Profile, Prompt Builder, Update Profile, the Transcribe
   page's free-text editor) is written here, never to `PROFILES_DIR`. This is
@@ -1011,8 +1011,8 @@ which.**
 
 `ensure_profiles_dir()` creates both on startup. `load_custom_profiles()`
 reads both and merges them; `find_profile_path()` checks `USER_PROFILES_DIR`
-first, so if a user edits a shipped profile (e.g. tweaks `rendi-battesimi`
-via the Transcribe page's editor), the edit is saved as their own copy in
+first, so if a user edits a shipped profile via the Transcribe page's editor,
+the edit is saved as their own copy in
 the user directory and shadows the shipped original for them, without ever
 modifying the tracked file on disk. `write_profile()`, `save_custom_profile()`,
 `update_profile()`, and `update_full_profile()` all write through
@@ -1025,16 +1025,53 @@ external directory and `git rm`'d from the repo (staged, not committed) —
 `caiazzo-matrimoni-v1`, `grimaldi-church-morti-v1`/`-v2`,
 `marano-marchesato-catasto-v1`, `montalto-uffago-morti-v1`, and
 `san-mango-d-aquino-marriages-v1`. `profiles/settings.json` (last-selected
-profile, already gitignored) was left in place — it still resolves correctly
-since it just stores a profile *id*, and `load_custom_profiles()` now finds
-that id in the new location.
+profile, already gitignored) was left in place at the time — see the later
+removal below, though.
 
-**Deliberately not changed in this pass:** `PROFILE_SETTINGS_FILE`
-(`profiles/settings.json`) and `APP_SETTINGS_FILE` (`app_settings.json`,
-source-folder memory) both stay where they are — already gitignored, so a
-`git pull`-based update wouldn't touch them, but a full folder replace still
-would. Not fixed here because the user only flagged profile data as the
-concern; worth revisiting if machine-local settings turn out to matter too.
+**Deliberately not changed in this pass:** `APP_SETTINGS_FILE`
+(`app_settings.json`, source-folder memory) stays where it is — already
+gitignored, so a `git pull`-based update wouldn't touch it, but a full
+folder replace still would. Not fixed here because the user only flagged
+profile data as the concern; worth revisiting if machine-local settings
+turn out to matter too.
+
+**Later session: `profiles/settings.json` (and `PROFILE_SETTINGS_FILE`/
+`save_selected_profile_id()` in `app.py`) removed entirely.** The user asked
+what it was for; tracing every read site found it was write-only in
+practice — `save_selected_profile_id()` recorded the last-used profile on
+every run, but nothing ever read that value back to restore anything.
+`main()` always resets the in-memory selection to empty on startup, and
+that's deliberate (README: "the dropdown starts at Select a Profile to
+prevent accidental runs with the wrong profile"), so the one place this
+file's value could have mattered was intentionally never wired up. Its only
+other consumer was `delete_profile()`'s self-cleanup check, which had no
+observable effect either once nothing downstream cared about the value.
+Removed as dead weight rather than fixed, per the user's choice. A stale
+`settings.json` possibly still sitting on an existing install's disk is
+harmless — `load_custom_profiles()` still explicitly skips a file by that
+exact name so it's never mistaken for a profile.
+
+**Later session: the `rendi-*` shipped examples were deleted (user's own
+action, outside the app), archived by the user in a separate folder outside
+the repo.** They were the original shipped examples migrated from the old
+`.md` prompts; the user judged them obsolete now that new profiles are built
+through the Prompt Builder questionnaire instead. `profiles/` (git-tracked)
+currently ships **no** example profiles at all as a result — `chiusa-sclafani-
+battesimi-v4` also lives in the external user directory, not here (see
+"Chiusa Sclafani battesimi — decisions" below). README's "Saved profiles"
+section was updated to stop naming specific shipped profiles that no longer
+exist.
+
+This surfaced a real latent bug, now fixed: `load_profile()` used to fall
+back to a hardcoded `DEFAULT_PROFILE_ID = "rendi-battesimi"` whenever a
+requested profile id wasn't found — with that file gone, the fallback itself
+would fail, turning "profile X doesn't exist" into a hard "No prompt
+profiles are available" error even when other profiles (e.g. Chiusa Sclafani
+v4) existed. Fixed by falling back to whatever profile happens to be first
+in `load_custom_profiles()`'s list instead of one specific hardcoded id — no
+shipped or user profile's presence should ever be load-bearing for another
+profile's fallback behavior. `DEFAULT_PROFILE_ID` itself was removed as dead
+code.
 
 ## Where things live
 

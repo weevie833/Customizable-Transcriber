@@ -510,6 +510,15 @@
       parts.push(lexiconLines.join("\n"));
     }
 
+    // Catch-all for a register-specific judgment call that doesn't fit any
+    // preset question above (e.g. "never copy a surname between parents",
+    // or when a heading/body disagreement is expected grammar rather than an
+    // error to flag) -- see the field's own info-button text in app.py.
+    var additionalRules = pbVal("additionalRules");
+    if (additionalRules) {
+      parts.push("# ADDITIONAL EDITORIAL RULES\n\n" + additionalRules);
+    }
+
     return parts.join("\n\n");
   }
 
@@ -1144,6 +1153,86 @@
     if (fileInput) fileInput.addEventListener("change", refreshPreflightExamplePicker);
   }
 
+  // Import/Export Profiles -- lets one user hand a profile to another (email
+  // attachment, USB stick, whatever) without needing shared access to either
+  // person's profiles/ folder. Export downloads a small JSON file (see
+  // export_profile_payload() in app.py for the file format and why it's
+  // structured the way it is); import posts it back as an ordinary file
+  // upload, same multipart pattern Preflight Test's image upload already
+  // uses, rather than something new.
+  function wireImportExport() {
+    var exportButton = document.getElementById("pb-export-button");
+    if (exportButton) exportButton.addEventListener("click", exportSelectedProfile);
+    var importButton = document.getElementById("pb-import-button");
+    if (importButton) importButton.addEventListener("click", importProfileFile);
+  }
+
+  function exportSelectedProfile() {
+    var select = document.getElementById("pb-export-select");
+    var statusEl = document.getElementById("pb-export-status");
+    var profileId = select ? select.value : "";
+    if (!profileId) {
+      if (statusEl) statusEl.textContent = "Select a profile to export first.";
+      return;
+    }
+    if (statusEl) statusEl.textContent = "";
+    // A GET request with Content-Disposition: attachment downloads the file
+    // without navigating away from the page -- no need for fetch/blob here.
+    window.location.href = "/prompt-builder/export-profile?profile_id=" + encodeURIComponent(profileId);
+  }
+
+  function importProfileFile() {
+    var fileInput = document.getElementById("pb-import-file");
+    var statusEl = document.getElementById("pb-import-status");
+    var file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) {
+      if (statusEl) statusEl.textContent = "Choose a profile file first.";
+      return;
+    }
+    if (statusEl) statusEl.textContent = "Importing…";
+    var formData = new FormData();
+    formData.append("file", file);
+    fetch("/prompt-builder/import-profile", { method: "POST", body: formData })
+      .then(function (resp) {
+        return resp.json().then(function (data) { return { ok: resp.ok, data: data }; });
+      })
+      .then(function (result) {
+        if (!result.ok) throw new Error(result.data.error || "Couldn't import that file.");
+        var id = result.data.id;
+        var label = result.data.label;
+
+        var exportSelect = document.getElementById("pb-export-select");
+        if (exportSelect && !exportSelect.querySelector('option[value="' + id + '"]')) {
+          var exportOption = document.createElement("option");
+          exportOption.value = id;
+          exportOption.textContent = label;
+          exportSelect.appendChild(exportOption);
+        }
+
+        // Only the "Load an existing profile" dropdown is restricted to
+        // pb_answers-carrying profiles -- see load_custom_profiles() in
+        // app.py -- so only add there when the imported file actually had
+        // that structured questionnaire snapshot.
+        if (result.data.has_pb_answers) {
+          var loadSelect = document.getElementById("pb-load-select");
+          if (loadSelect && !loadSelect.querySelector('option[value="' + id + '"]')) {
+            var loadOption = document.createElement("option");
+            loadOption.value = id;
+            loadOption.textContent = label;
+            loadSelect.appendChild(loadOption);
+          }
+        }
+
+        if (statusEl) {
+          statusEl.textContent = "Imported \"" + label + "\". Reload the Transcribe or Test Mode tab to see it in the profile list there.";
+        }
+        fileInput.value = "";
+      })
+      .catch(function (err) {
+        if (statusEl) statusEl.textContent = (err && err.message) || String(err);
+      });
+  }
+
   // Persists the current in-progress questionnaire as an ordinary profile
   // (auto-named if the user hasn't typed one yet), via the JSON-friendly
   // sibling of the real Save buttons -- see save_prompt_builder_draft() in
@@ -1545,6 +1634,7 @@
 
     wireInfoButtons();
     wirePreflightTest();
+    wireImportExport();
     wireProfileLoader();
     updateTranslationVisibility();
     updateRecordTypeVisibility();

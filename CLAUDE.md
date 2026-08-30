@@ -586,6 +586,64 @@ of what actually happened at the time:
   already-saved profile that had it baked in
   (`profiles/grimaldi-church-morti-v1.json`).
 
+**Later session: Import/Export Profiles.** A new collapsible panel
+(`#pb-import-export-section`, same `<details class="pb-section">` shell as
+every other section) sits below the questionnaire's Save controls, outside
+the `<form>` — it's a self-contained feature with its own fetch calls, not
+part of the questionnaire submission. Lets one user hand a profile to
+another (email, USB stick, whatever) without either person needing access
+to the other's `profiles/`/`USER_PROFILES_DIR` (see "Profile storage" above).
+
+- **File format:** a small JSON envelope, saved with the double extension
+  `.tbprofile.json` — `export_profile_payload()` in `app.py`. The base
+  extension is the ordinary `.json` deliberately: it's on no mail provider's
+  blocked-attachment list (unlike script/executable extensions — Gmail's
+  own blocklist, checked while designing this, covers things like `.js`/
+  `.exe`/`.bat`/`.vbs`/`.jar`/`.ps1` but not `.json`), and the file is plain
+  text with no macros, formulas, or executable content of any kind, so
+  there's nothing for a scanner to flag as dangerous. The compound name
+  keeps it self-describing to a human (and to this app on import) without
+  giving up that safe base extension. Envelope shape:
+  ```json
+  {
+    "format": "transcription-bot-profile",
+    "format_version": 1,
+    "app_name": "Transcription Bot",
+    "exported_at": "2026-08-30T14:57:10Z",
+    "profile": { "label": "...", "role_context": "...", "reference_context": "...",
+                 "output_format": "...", "native_language": "...",
+                 "translation_languages": [...], "record_type": "...", "pb_answers": {...} }
+  }
+  ```
+  The `format`/`format_version` wrapper lets import reject an unrelated JSON
+  file with a clear error instead of silently misreading it.
+- **Export** (`GET /prompt-builder/export-profile?profile_id=...`) offers
+  *every* saved profile via a dedicated `export_profile_options` list (all
+  of `profiles_with_display_labels()`, not just `pb_answers`-carrying ones)
+  — sharing a profile has nothing to do with whether it's also editable
+  back in this questionnaire, unlike the existing "Load an existing profile"
+  dropdown, which stays scoped to Prompt Builder-created profiles.
+- **Import** (`POST /prompt-builder/import-profile`, multipart — same
+  pattern Preflight Test's image upload already uses, not something new) —
+  `import_custom_profile()` validates the envelope, then always calls
+  `save_custom_profile()` with `replace_existing=False`: an imported file
+  can never overwrite a profile the importing user already has; a name
+  collision auto-suffixes exactly like any other new-profile save. Also
+  tolerates a *bare* profile JSON with no envelope at all (checked: importing
+  one of this app's own shipped `profiles/*.json` files directly works too)
+  — same flat field shape either way, so there's no reason to require the
+  envelope specifically.
+- On a successful import, the client-side JS appends the new profile as an
+  `<option>` to the Export dropdown always, and to the "Load an existing
+  profile" dropdown only if the imported file carried a `pb_answers`
+  snapshot (`has_pb_answers` in the import response) — mirrors exactly how
+  `saveDraftBeforePreflight()` already patches those same select elements
+  after a fetch-based save, rather than requiring a full page reload.
+- Verified end-to-end via curl: export round-trips back through import
+  cleanly; invalid JSON, a valid-but-unrelated JSON file, and a bare
+  profile JSON (no envelope) all produce the expected result; a missing
+  `profile_id` on export and a missing file on import both fail cleanly.
+
 ## Accessibility (WCAG)
 
 Page `<h1>` titles: Transcribe = "Customizable Transcription", XLS Conversion =
@@ -748,24 +806,67 @@ translate directly, but its behavior on edge cases hasn't been audited.)
 
 ## Chiusa Sclafani battesimi — decisions
 
-Active profile: `profiles/chiusa-sclafani-battesimi-v3.json`. Rebuild it, don't
-hand-edit:
+**Superseded, later session: v1/v2/v3 retired, replaced by v4, built through
+Prompt Builder.** v3 was a bespoke `build_prompt.py` script generating raw
+prose — the one profile in the app with no `pb_answers`, not editable back
+in Prompt Builder, and structurally inconsistent with every other profile.
+The user asked whether it could be converted or had to be recreated from
+scratch; converting wasn't possible (no reverse-parser from prose back to
+questionnaire answers exists, and v3 had no `pb_answers` to convert from
+anyway), so it was rebuilt field-by-field through the actual questionnaire
+UI (driven via injected JS that set every field and clicked "Save as New
+Profile", so the real client-side assembly functions produced the prose —
+not a hand-simulated approximation). `profiles/chiusa-sclafani-battesimi-
+v1/v2/v3.json` and the entire `profiles/sources/chiusa-sclafani/` build
+source (`build_prompt.py`, `clean_index.py`, `lex.json`, the cleaned-index
+xlsx, the corrections audit, the readable copy) were deleted at the user's
+request once v4 was verified. **Active profile now:**
+`chiusa-sclafani-battesimi-v4`, saved in the external user-data directory
+(see "Profile storage" above) like any other Prompt-Builder profile — no
+more separate build step; edit it directly through Prompt Builder's
+"Load an existing profile to edit".
 
-```bash
-cd profiles/sources/chiusa-sclafani && python3 build_prompt.py
-```
+What transferred cleanly onto existing questionnaire fields: record type,
+source language/era/locality/province/institution, page layout and
+numbering (including the exact corner description), Latin March-counting
+months, Italian hours, all 5 relative-date terms, Latin declension
+guidance, the marginal-heading and entry-structure formulas, all 4
+role-vocabulary terms, all 5 scribal quirks, the surname-particle rule,
+English-only translation with abbreviation-expansion but explicitly *not*
+name-conversion (v3 forbids anglicizing names), Don/Master honorifics, both
+entry variants (emergency home baptism, conditional re-baptism) via the
+existing Entry Variants field, 17 non-duplicate abbreviations, the full
+407-surname/320-given-name lexicon, and all 6 worked examples verbatim.
+Also fixed a real, separate bug found along the way: the old v3 file still
+contained the literal, never-substituted placeholder text
+`{VOLUME_YEAR_RANGE}` in its role_context — every real run had been sending
+the AI that literal string instead of `1752-1759`.
 
-Prose in `build_prompt.py`'s `SECTION_1`/`SECTION_2_HEAD`/`SECTION_3` string
-literals is hard-wrapped one sentence-flow per line purely for source
-readability — reflowed into single lines per paragraph before every commit, so
-the generated profile's `role_context`/`reference_context`/`output_format`
-read as continuous prose in the Prompt Builder / Transcribe textareas, not
-mid-sentence line breaks. Structural line breaks are NOT touched: markdown
-headers, bullet/numbered list items, the `# ABBREVIATION KEY` table, the
-`# BLOCK STRUCTURE` required output template, and the worked examples all keep
-their own required line/blank-line layout. If you edit these string literals
-by hand later, keep new prose on one line per paragraph (wrap in your editor,
-not in the source) rather than reintroducing hard 80-column wraps.
+A handful of v3's rules had no home in any existing questionnaire field —
+the filius/filia cross-check, the Marginal-Heading-disagreement rule (with
+its case-declension carve-out), "never copy a surname between parents",
+"alias surnames are real", and the ambiguous-mark-vs-new-entry rule. Rather
+than force-fitting these into an ill-suited existing field or dropping them,
+the user chose to add a new field for exactly this purpose — see
+"Additional editorial rules" in the Prompt Builder section above. v4's rules
+of this kind now live there, not hardcoded in a Python string.
+
+One accepted, un-recovered loss: the lexicon's frequency tiers
+(common/occasional/rare, with counts) — the current Name Lexicon field is a
+flat list with no frequency concept, so v4's lexicon has no equivalent to
+v3's "a high count means the name is common in this parish" framing.
+
+**Not yet done:** v4 has been verified structurally and via round-trip
+(reload it and every field restores exactly) but has *not* been tested
+against a real image the way v3 was (see "v3 real-image test results"
+below, which predates v4 and has not been re-run against it). The
+Preflight Test feature on the Prompt Builder page is the natural way to do
+that before relying on v4 for real work.
+
+The rest of this section (editorial rules, real-image test results, open
+items) describes empirical findings about the actual register and its
+images — those remain accurate regardless of which profile encodes them;
+only the "rebuild via `build_prompt.py`" mechanics below are now historical.
 
 **Known footgun: the browser can silently revert this file.** The app embeds a
 JS snapshot of a profile's fields when the page renders; re-selecting the
@@ -880,25 +981,74 @@ Editorial rules, each of which someone will be tempted to "improve" — don't:
   against a real image since this was a same-session fix, unlike the other
   entries in this list.
 
+## Profile storage: shipped examples vs. user data
+
+**Problem this solves:** the app's documented update path (README's Setup
+section) is "download a fresh copy, replace the old folder" — there's no
+`git clone`/`git pull` step for an end user. Before this, every profile —
+shipped examples and anything a user saved through Prompt Builder or the
+Transcribe page's editor — lived in the same git-tracked `profiles/` folder.
+A full-folder-replace update would silently delete any profile a user had
+created, with no warning.
+
+**Fix: profiles now live in two places, and the app always knows which is
+which.**
+
+- `PROFILES_DIR` (`profiles/`, git-tracked) — shipped reference examples only
+  (`rendi-*`, `chiusa-sclafani-*`). Read-only at runtime; nothing the running
+  app does ever writes here. Only `build_prompt.py` and hand-edited commits
+  touch it.
+- `USER_PROFILES_DIR` — every profile a user saves or edits through the
+  running app (Save Profile, Prompt Builder, Update Profile, the Transcribe
+  page's free-text editor) is written here, never to `PROFILES_DIR`. This is
+  a per-OS application-data directory computed by `_user_data_dir()` in
+  `app.py`, deliberately **outside** the app's own install folder so a full
+  folder replace can never reach it:
+  - macOS: `~/Library/Application Support/Transcription Bot/profiles/`
+  - Windows: `%APPDATA%\Transcription Bot\profiles\`
+  - Linux: `$XDG_DATA_HOME/Transcription Bot/profiles/` (falls back to
+    `~/.local/share/...` if `XDG_DATA_HOME` isn't set)
+
+`ensure_profiles_dir()` creates both on startup. `load_custom_profiles()`
+reads both and merges them; `find_profile_path()` checks `USER_PROFILES_DIR`
+first, so if a user edits a shipped profile (e.g. tweaks `rendi-battesimi`
+via the Transcribe page's editor), the edit is saved as their own copy in
+the user directory and shadows the shipped original for them, without ever
+modifying the tracked file on disk. `write_profile()`, `save_custom_profile()`,
+`update_profile()`, and `update_full_profile()` all write through
+`user_profile_path()` accordingly; `delete_profile()` and `selected_profile_id()`
+resolve through `find_profile_path()` so they work on either location.
+
+**One-time migration done in this pass:** six profiles that were real working
+profiles (not shipped examples) got copied from `profiles/` to the new
+external directory and `git rm`'d from the repo (staged, not committed) —
+`caiazzo-matrimoni-v1`, `grimaldi-church-morti-v1`/`-v2`,
+`marano-marchesato-catasto-v1`, `montalto-uffago-morti-v1`, and
+`san-mango-d-aquino-marriages-v1`. `profiles/settings.json` (last-selected
+profile, already gitignored) was left in place — it still resolves correctly
+since it just stores a profile *id*, and `load_custom_profiles()` now finds
+that id in the new location.
+
+**Deliberately not changed in this pass:** `PROFILE_SETTINGS_FILE`
+(`profiles/settings.json`) and `APP_SETTINGS_FILE` (`app_settings.json`,
+source-folder memory) both stay where they are — already gitignored, so a
+`git pull`-based update wouldn't touch them, but a full folder replace still
+would. Not fixed here because the user only flagged profile data as the
+concern; worth revisiting if machine-local settings turn out to matter too.
+
 ## Where things live
 
 ```
-profiles/                                    single live location for all profiles (app.py reads only this)
-  chiusa-sclafani-battesimi-v3.json          active prompt (generated — do not hand-edit)
-  sources/chiusa-sclafani/                   build source for the profile above — not itself loaded by the app
-    build_prompt.py                          generates the profile; edit this
-  lex.json                                   407 surnames + 320 given names, frequency-tiered
-  clean_index.py                             rebuilds the index from the indexer's marked-up xlsx;
-                                              also reusable for other marked-up ground-truth files
-                                              (set SPONSOR_COL to match the sheet's own layout —
-                                              "G" for the SG-364 index, "R" for the Church Baptism
-                                              Record Index Template layout used by the 193-195
-                                              ground-truth spreadsheets)
-  Chiusa Sclafani battesimi SG-364 - cleaned index.xlsx
-  index-corrections-audit.json               915 cell-level corrections, original → cleaned
-  prompt-v3-readable.md                      readable copy of the three sections
+profiles/                                    shipped reference examples only (git-tracked, read-only at runtime)
+                                              (chiusa-sclafani-battesimi-v1/v2/v3.json and
+                                              sources/chiusa-sclafani/ deleted, later session -- see
+                                              "Chiusa Sclafani battesimi — decisions" above. v4 is now
+                                              an ordinary Prompt-Builder profile in the external
+                                              user-data directory, not a shipped/built file here.)
 xls_conversion/tests/                        baptism-parser.js regression tests (offline, no API key)
 xls_conversion/ai_parser.py                  the LIVE xls-conversion parser (see pipeline section above)
+~/Library/Application Support/               user-saved profiles, outside the repo (see "Profile storage" above);
+  Transcription Bot/profiles/                  %APPDATA%\Transcription Bot\profiles\ on Windows, $XDG_DATA_HOME/... on Linux
 ```
 
 The lexicon came from an indexer-corrected spreadsheet: strikethrough marked

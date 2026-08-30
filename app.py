@@ -4,6 +4,7 @@ import html
 import hashlib
 import io
 import json
+import os
 import platform
 import re
 import secrets
@@ -13,7 +14,7 @@ import threading
 import urllib.parse
 import zipfile
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -75,6 +76,32 @@ MAX_DOCX_XML_BYTES = 20_000_000
 DEFAULT_PROFILE_ID = "rendi-battesimi"
 PROFILES_DIR = PROJECT_DIR / "profiles"
 PROFILE_SETTINGS_FILE = PROFILES_DIR / "settings.json"
+
+
+def _user_data_dir() -> Path:
+    """Per-OS application-data directory for this app's user-generated files
+    (currently just saved prompt profiles) -- deliberately outside
+    PROJECT_DIR/PROFILES_DIR, so a software update (this app's documented
+    update path is: download a fresh copy, replace the old folder) can never
+    delete a profile a user created, no matter how the replace is done.
+    Mirrors the platform.system() dispatch pattern pick_source_folder_dialog()
+    already uses for the same "this varies by OS" reason."""
+    system = platform.system()
+    if system == "Darwin":
+        base = Path.home() / "Library" / "Application Support"
+    elif system == "Windows":
+        base = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+    return base / "Transcription Bot"
+
+
+USER_DATA_DIR = _user_data_dir()
+# Every profile a user saves/edits through the running app -- Prompt Builder,
+# the Transcribe page's editor, or Save Profile -- lands here, never in the
+# git-tracked PROFILES_DIR above. PROFILES_DIR still ships rendi-*/
+# chiusa-sclafani-* as read-only reference examples; see find_profile_path().
+USER_PROFILES_DIR = USER_DATA_DIR / "profiles"
 XLS_CONVERSION_DIR = PROJECT_DIR / "xls_conversion"
 STATIC_DIR = PROJECT_DIR / "static"
 APP_SETTINGS_FILE = PROJECT_DIR / "app_settings.json"
@@ -670,16 +697,38 @@ def profile_id_from_name(name: str) -> str:
     return safe_filename(name).lower() or "custom-profile"
 
 
-def profile_path(profile_id: str) -> Path:
+def shipped_profile_path(profile_id: str) -> Path:
+    """Path a built-in/example profile would have inside the repo's tracked
+    profiles/ folder. Read-only at runtime -- nothing the app does while
+    running ever writes here; only build_prompt.py and hand-authored commits
+    do."""
     return PROFILES_DIR / f"{profile_id}.json"
 
 
-def custom_profile_path(profile_id: str) -> Path:
-    return profile_path(profile_id)
+def user_profile_path(profile_id: str) -> Path:
+    """Path a profile is written to whenever the running app saves or edits
+    one -- always USER_PROFILES_DIR (see _user_data_dir()), never the
+    git-tracked profiles/ folder."""
+    return USER_PROFILES_DIR / f"{profile_id}.json"
+
+
+def find_profile_path(profile_id: str) -> Path | None:
+    """Where a profile's JSON actually lives, or None if it doesn't exist in
+    either location. Checks USER_PROFILES_DIR first so a user's own edited
+    copy of a shipped profile shadows the original -- overriding it for this
+    user without ever modifying the tracked file underneath."""
+    user_path = user_profile_path(profile_id)
+    if user_path.exists():
+        return user_path
+    shipped_path = shipped_profile_path(profile_id)
+    if shipped_path.exists():
+        return shipped_path
+    return None
 
 
 def ensure_profiles_dir() -> None:
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def split_profile_sections(text: str) -> tuple[str, str, str]:
@@ -721,8 +770,8 @@ def normalize_profile_sections(profile: dict[str, str]) -> dict[str, str]:
 
 
 def write_profile(profile: dict[str, str]) -> None:
-    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-    custom_profile_path(profile["id"]).write_text(
+    USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    user_profile_path(profile["id"]).write_text(
         json.dumps(profile, indent=2) + "\n",
         encoding="utf-8",
     )
@@ -889,41 +938,49 @@ def pick_source_folder_dialog() -> str | None:
 
 
 def load_custom_profiles() -> list[dict[str, str]]:
+    """Loads every profile from both PROFILES_DIR (shipped examples, tracked
+    in git) and USER_PROFILES_DIR (this user's own saves, outside the app
+    folder -- see _user_data_dir()). When the same id exists in both -- a
+    user has edited a shipped profile, which write_profile() always saves to
+    USER_PROFILES_DIR rather than overwriting the tracked original -- the
+    user's copy wins, so their edit takes effect without ever touching the
+    shipped file on disk."""
     ensure_profiles_dir()
-    profiles: list[dict[str, str]] = []
-    for path in sorted(PROFILES_DIR.glob("*.json")):
-        if path.name == PROFILE_SETTINGS_FILE.name:
-            continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        data = normalize_profile_sections(data)
-        profile_id = str(data.get("id") or path.stem)
-        label = str(data.get("label") or profile_id)
-        translation_languages = data.get("translation_languages")
-        # pb_answers carries the Prompt Builder questionnaire's structured answers
-        # (record type, checkboxes, repeatable rows) for profiles saved from that
-        # page -- it's what lets Prompt Builder load a profile back in for editing
-        # instead of only ever creating new ones. A profile saved elsewhere (the
-        # Transcribe page's free-text editor, or hand-authored JSON like most
-        # profiles predating this feature) has no such structure to recover, so
-        # this is simply absent for them -- profiles_for_browser() never includes
-        # it, so it can't leak into the Transcribe/Test Mode page snapshots.
-        pb_answers = data.get("pb_answers")
-        profiles.append({
-            "id": profile_id,
-            "label": label,
-            "kind": str(data.get("kind", "custom")),
-            "role_context": str(data.get("role_context", "")),
-            "reference_context": str(data.get("reference_context", "")),
-            "output_format": str(data.get("output_format", "")),
-            "native_language": str(data.get("native_language", "")),
-            "translation_languages": list(translation_languages) if isinstance(translation_languages, list) else [],
-            "record_type": str(data.get("record_type", "")),
-            "pb_answers": pb_answers if isinstance(pb_answers, dict) else None,
-        })
-    return profiles
+    by_id: dict[str, dict[str, str]] = {}
+    for directory in (PROFILES_DIR, USER_PROFILES_DIR):
+        for path in sorted(directory.glob("*.json")):
+            if path.name == PROFILE_SETTINGS_FILE.name:
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            data = normalize_profile_sections(data)
+            profile_id = str(data.get("id") or path.stem)
+            label = str(data.get("label") or profile_id)
+            translation_languages = data.get("translation_languages")
+            # pb_answers carries the Prompt Builder questionnaire's structured answers
+            # (record type, checkboxes, repeatable rows) for profiles saved from that
+            # page -- it's what lets Prompt Builder load a profile back in for editing
+            # instead of only ever creating new ones. A profile saved elsewhere (the
+            # Transcribe page's free-text editor, or hand-authored JSON like most
+            # profiles predating this feature) has no such structure to recover, so
+            # this is simply absent for them -- profiles_for_browser() never includes
+            # it, so it can't leak into the Transcribe/Test Mode page snapshots.
+            pb_answers = data.get("pb_answers")
+            by_id[profile_id] = {
+                "id": profile_id,
+                "label": label,
+                "kind": str(data.get("kind", "custom")),
+                "role_context": str(data.get("role_context", "")),
+                "reference_context": str(data.get("reference_context", "")),
+                "output_format": str(data.get("output_format", "")),
+                "native_language": str(data.get("native_language", "")),
+                "translation_languages": list(translation_languages) if isinstance(translation_languages, list) else [],
+                "record_type": str(data.get("record_type", "")),
+                "pb_answers": pb_answers if isinstance(pb_answers, dict) else None,
+            }
+    return [by_id[profile_id] for profile_id in sorted(by_id)]
 
 
 
@@ -983,7 +1040,7 @@ def save_custom_profile(
     if not replace_existing:
         base_id = profile_id
         counter = 2
-        while custom_profile_path(profile_id).exists():
+        while find_profile_path(profile_id) is not None:
             profile_id = f"{base_id}-{counter}"
             counter += 1
 
@@ -1005,8 +1062,8 @@ def save_custom_profile(
         # Structured Prompt Builder questionnaire state -- see load_custom_profiles()
         # for why this is kept separate from the three prose fields above.
         profile["pb_answers"] = pb_answers
-    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-    custom_profile_path(profile_id).write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
+    USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    user_profile_path(profile_id).write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
     return profile
 
 
@@ -1061,10 +1118,87 @@ def update_profile(profile_id: str, role_context: str, reference_context: str, o
     return profile
 
 
+# Import/Export Profiles (Prompt Builder page). The exported file is plain
+# JSON with a distinctive double extension (.tbprofile.json) -- the base
+# extension is the ordinary, universally-allowed ".json" (not on any mail
+# provider's blocked-attachment list, unlike script/executable extensions),
+# while the compound name still makes the file self-describing to a human
+# and to this app on import. The envelope (format/format_version wrapper)
+# lets import reject an unrelated JSON file with a clear error instead of
+# silently misreading it as a profile.
+PROFILE_EXPORT_FORMAT = "transcription-bot-profile"
+PROFILE_EXPORT_FORMAT_VERSION = 1
+
+
+def export_profile_payload(profile_id: str) -> tuple[str, bytes]:
+    profile = load_profile(profile_id)
+    if profile["id"] != profile_id:
+        # load_profile() silently falls back to the default profile when the
+        # id isn't found -- without this guard exporting a stale/deleted id
+        # would silently download a different profile instead of erroring.
+        raise RuntimeError("Select a valid profile to export.")
+    envelope = {
+        "format": PROFILE_EXPORT_FORMAT,
+        "format_version": PROFILE_EXPORT_FORMAT_VERSION,
+        "app_name": "Transcription Bot",
+        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "profile": {
+            "label": profile["label"],
+            "role_context": profile["role_context"],
+            "reference_context": profile["reference_context"],
+            "output_format": profile["output_format"],
+            "native_language": profile.get("native_language", ""),
+            "translation_languages": profile.get("translation_languages", []),
+            "record_type": profile.get("record_type", ""),
+            "pb_answers": profile.get("pb_answers"),
+        },
+    }
+    body = (json.dumps(envelope, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    return f"{profile_id}.tbprofile.json", body
+
+
+def import_custom_profile(file_text: str) -> dict[str, str]:
+    try:
+        data = json.loads(file_text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("That file isn't a valid profile export (not valid JSON).") from exc
+
+    if isinstance(data, dict) and data.get("format") == PROFILE_EXPORT_FORMAT:
+        profile_data = data.get("profile")
+    else:
+        # Tolerate a bare profile JSON too -- e.g. one of this app's own
+        # profiles/*.json files forwarded directly, without ever having gone
+        # through Export. Same shape either way: a flat dict of profile fields.
+        profile_data = data
+    if not isinstance(profile_data, dict):
+        raise RuntimeError("That file doesn't contain a recognizable Transcription Bot profile.")
+
+    label = str(profile_data.get("label", "") or "").strip()
+    if not label:
+        raise RuntimeError("That file has no profile name to import it under.")
+
+    translation_languages = profile_data.get("translation_languages")
+    pb_answers = profile_data.get("pb_answers")
+
+    # replace_existing=False (save_custom_profile()'s default) auto-suffixes
+    # the name on a collision rather than overwriting -- an imported file
+    # never silently clobbers an existing profile.
+    return save_custom_profile(
+        label,
+        str(profile_data.get("role_context", "") or ""),
+        str(profile_data.get("reference_context", "") or ""),
+        str(profile_data.get("output_format", "") or ""),
+        native_language=str(profile_data.get("native_language", "") or ""),
+        translation_languages=list(translation_languages) if isinstance(translation_languages, list) else [],
+        record_type=str(profile_data.get("record_type", "") or ""),
+        pb_answers=pb_answers if isinstance(pb_answers, dict) else None,
+    )
+
+
 def delete_profile(profile_id: str) -> dict[str, str]:
     profile = load_profile(profile_id)
-    path = custom_profile_path(profile_id)
-    if not path.exists():
+    path = find_profile_path(profile_id)
+    if path is None:
         raise RuntimeError("Select a valid prompt profile before deleting.")
     path.unlink()
     if PROFILE_SETTINGS_FILE.exists():
@@ -1081,7 +1215,7 @@ def selected_profile_id(form: FormData) -> str:
     profile_id = form.getfirst("profile_id", "") or ""
     if not profile_id:
         raise RuntimeError("Select a prompt profile before running transcription.")
-    if custom_profile_path(profile_id).exists():
+    if find_profile_path(profile_id) is not None:
         return profile_id
     raise RuntimeError("Select a valid prompt profile before running transcription.")
 
@@ -1504,10 +1638,10 @@ def privacy_page() -> str:
       </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
       <a class="nav-link" href="/">Transcribe</a>
       <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode">Test Mode</a>
-      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
     </nav>
   </header>
   <section class="panel">
@@ -2281,6 +2415,11 @@ def page() -> str:
       gap: 14px;
       align-items: start;
     }}
+    .section-divider {{
+      border: none;
+      border-top: 1px solid #d9d4c8;
+      margin: 18px 0;
+    }}
     .run-options {{
       display: grid;
       grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
@@ -2696,10 +2835,10 @@ def page() -> str:
       </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
       <a class="nav-link" href="/" aria-current="page">Transcribe</a>
       <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode">Test Mode</a>
-      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
     </nav>
   </header>
   <form method="post" action="/run">
@@ -2727,6 +2866,7 @@ def page() -> str:
         <p class="hint">Used only for this browser session/request. It is not saved to the project files. Submitting a run sends this key and the selected source content directly to your chosen AI provider's API — see PRIVACY.md.</p>
       </label>
     </div>
+    <hr class="section-divider">
     <div class="run-options">
       <fieldset>
         <legend>Process order</legend>
@@ -4150,10 +4290,10 @@ def test_mode_page() -> str:
       </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
       <a class="nav-link" href="/">Transcribe</a>
       <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode" aria-current="page">Test Mode</a>
-      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
     </nav>
   </header>
   <p class="hint">Runs the same source images and prompt profile through different models to compare performance.</p>
@@ -4717,6 +4857,14 @@ def prompt_builder_page(
     saved_profiles_json = json.dumps(
         {profile["id"]: {"label": profile["label"], "answers": profile["pb_answers"]} for profile in loadable_profiles}
     ).replace("</", "<\\/")
+    # Import/Export Profiles -- unlike the "load to edit" list above, export
+    # offers every saved profile (shipped examples included), since sharing a
+    # profile with someone else has nothing to do with whether it also
+    # happens to be editable back in this questionnaire.
+    export_profile_options = "\n".join(
+        f'<option value="{html.escape(profile["id"])}">{html.escape(profile["display_label"])}</option>'
+        for profile in profiles_with_display_labels()
+    )
     restore_answers_json = json.dumps(restore_answers).replace("</", "<\\/") if restore_answers else "null"
     restore_edit_id_json = json.dumps(restore_edit_id)
     restore_edit_label_json = json.dumps(restore_edit_label)
@@ -5314,15 +5462,27 @@ def prompt_builder_page(
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 12px;
     }}
-    .pb-preflight {{
+    .pb-preflight, .pb-ie-box {{
       border: 1px solid #d9d4c8;
       border-radius: 8px;
       padding: 12px 14px;
       margin: 14px 0;
       background: #faf8f3;
     }}
-    .pb-preflight h3 {{
+    .pb-preflight h3, .pb-ie-box h3 {{
       margin-top: 0;
+    }}
+    .pb-ie-grid {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }}
+    .pb-ie-grid .pb-ie-box {{
+      margin: 0;
+    }}
+    .pb-ie-box input[type="file"] {{
+      display: block;
+      margin: 6px 0;
     }}
     .pb-preflight-optional {{
       font-weight: 400;
@@ -5450,6 +5610,7 @@ def prompt_builder_page(
       .pb-radio-group {{ flex-direction: column; flex-wrap: wrap; }}
       .pb-info-panel {{ max-width: calc(100vw - 60px); }}
       .pb-toolbar {{ flex-wrap: wrap; }}
+      .pb-ie-grid {{ grid-template-columns: 1fr; }}
       .pb-download-group {{ margin-left: 0; flex-basis: 100%; flex-direction: column; align-items: stretch; }}
       .pb-download-caption {{ text-align: left; max-width: none; flex: 0 0 auto; }}
       .pb-download-group a {{ text-align: center; }}
@@ -5482,10 +5643,10 @@ def prompt_builder_page(
       </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link" href="/prompt-builder" aria-current="page">Prompt Builder</a>
       <a class="nav-link" href="/">Transcribe</a>
       <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode">Test Mode</a>
-      <a class="nav-link" href="/prompt-builder" aria-current="page">Prompt Builder</a>
     </nav>
   </header>
   <p class="hint">Pick from presets below to describe your register. The app assembles a complete transcription profile from your answers. It becomes available on the Transcribe and Test Mode pages, but you must reload those pages first before they will appear.</p>
@@ -5681,6 +5842,10 @@ def prompt_builder_page(
       <label><span>Alternatively: Full names (given name + surname pairs){pb_info_button_html("pb-info-lexicon-fullnames", "Use this box when what you have is full names rather than two separate lists -- one name per line, either “Given Surname” (Giuseppe de Natale) or “Surname, Given name” (de Natale, Giuseppe). Each line is split and added to the Surnames and Given names lists above it. A surname particle (de/di/d'/lo/la/le/li) right before the last word stays attached to the surname. A line with only one word is skipped rather than guessed at -- put a name like that in the Surnames or Given names box instead.")}</span>
         <textarea name="nameLexiconFullNames" rows="4" placeholder="Paste full names, one per line -- e.g. Giuseppe de Natale  or  de Natale, Giuseppe"></textarea>
       </label>
+
+      <label><span>Additional editorial rules (optional){pb_info_button_html("pb-info-additional-rules", "A catch-all for a register-specific judgment call that doesn't fit any question above -- for example, \"never copy a surname from one parent to the other\" or a rule about when two blocks disagreeing counts as an error versus expected grammar. Most profiles won't need this; it exists for the occasional rule that's specific to your source and not covered by a preset elsewhere on this page.")}</span>
+        <textarea name="additionalRules" rows="4" placeholder="e.g. Never copy a surname from one parent to the other, even when only one is stated."></textarea>
+      </label>
     </details>
 
     <details class="pb-section">
@@ -5777,6 +5942,34 @@ def prompt_builder_page(
       <button id="pb-save-button" type="submit" name="save_mode" value="new">Save as New Profile</button>
     </div>
   </form>
+
+  <details class="pb-section" id="pb-import-export-section">
+    <summary>
+      <span class="pb-summary-text">Import/Export Profiles</span>
+    </summary>
+    <p class="pb-section-caption">Share and install profiles. Profiles are plain text (JSON) and do not contain executable code or macros.</p>
+
+    <div class="pb-ie-grid">
+      <div class="pb-ie-box">
+        <h3>Export a profile</h3>
+        <select id="pb-export-select" aria-label="Profile to download">
+          <option value="">Select a profile</option>
+          {export_profile_options}
+        </select>
+        <button type="button" id="pb-export-button" class="button-tiny">Download profile file</button>
+        <p class="hint" id="pb-export-status" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="pb-ie-box">
+        <h3>Import a profile</h3>
+        <input type="file" id="pb-import-file" accept=".json,application/json">
+        <p class="hint">Importing a profile never overwrites an existing profile.</p>
+        <button type="button" id="pb-import-button" class="button-tiny">Import profile</button>
+        <p class="hint" id="pb-import-status" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+  </details>
+
   <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a></footer>
 </main>
 </body>
@@ -6480,6 +6673,10 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(privacy_page())
             return
 
+        if parsed.path == "/prompt-builder/export-profile":
+            self.export_prompt_builder_profile(dict(urllib.parse.parse_qsl(parsed.query)))
+            return
+
         if parsed.path == "/test-mode/status":
             self.test_status()
             return
@@ -6553,6 +6750,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/prompt-builder/save-draft":
             self.save_prompt_builder_draft()
+            return
+
+        if self.path == "/prompt-builder/import-profile":
+            self.import_prompt_builder_profile()
             return
 
         if self.path == "/delete-profile":
@@ -7056,6 +7257,40 @@ class Handler(BaseHTTPRequestHandler):
                     pb_answers=pb_answers,
                 )
             self.respond_json({"id": profile["id"], "label": profile["label"]})
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=400)
+
+    def export_prompt_builder_profile(self, query: dict[str, str]) -> None:
+        try:
+            profile_id = query.get("profile_id", "")
+            if not profile_id:
+                raise RuntimeError("Select a profile to export.")
+            filename, body = export_profile_payload(profile_id)
+        except Exception as exc:
+            self.send_error(400, str(exc))
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def import_prompt_builder_profile(self) -> None:
+        try:
+            files, _fields = parse_multipart_form(self)
+            file_entry = files.get("file")
+            if not file_entry or not file_entry[1]:
+                raise RuntimeError("Choose a profile file to import.")
+            _filename, file_bytes = file_entry
+            file_text = file_bytes.decode("utf-8", errors="replace")
+            profile = import_custom_profile(file_text)
+            self.respond_json({
+                "id": profile["id"],
+                "label": profile["label"],
+                "has_pb_answers": bool(profile.get("pb_answers")),
+            })
         except Exception as exc:
             self.respond_json({"error": str(exc)}, status=400)
 

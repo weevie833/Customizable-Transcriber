@@ -92,6 +92,20 @@ source .venv/bin/activate
 python3 app.py
 ```
 
+### Updating to a newer version
+
+Download the latest copy of this project and replace your existing
+`Transcription-Bot` folder with it, then repeat steps 3–4 above
+(`python3 -m venv .venv` / `source .venv/bin/activate` / `pip install -r
+requirements.txt`) inside the new folder — dependencies can change between
+versions, so it's worth reinstalling them rather than assuming the old
+`.venv` still matches.
+
+**Your own saved profiles are not affected by this.** They live outside the
+app folder (see "Saved profiles" below), so replacing the folder never
+touches them — everything you've created will still be there the first time
+you open the updated app.
+
 The home-page header links to the unified XLS Conversion interface:
 
 ```text
@@ -132,8 +146,25 @@ Current web app behavior:
 
 Saved profiles:
 
-- All profiles are saved as JSON files in `profiles/`, including Rendi Morti, Rendi Matrimoni, Rendi Generic, and Rendi Battesimi.
-- The most recently selected profile is saved in `profiles/settings.json` and is reselected when the app starts.
+- The app ships with a few example profiles (Rendi Morti, Rendi Matrimoni,
+  Rendi Generic, Rendi Battesimi, and the Chiusa Sclafani battesimi profile)
+  as JSON files inside the app's own `profiles/` folder.
+- **Every profile you create or edit yourself — through `Save Profile`,
+  Prompt Builder, or the profile-editor boxes — is saved outside the app
+  folder entirely**, in a per-user data location:
+  - macOS: `~/Library/Application Support/Transcription Bot/profiles/`
+  - Windows: `%APPDATA%\Transcription Bot\profiles\`
+  - Linux: `$XDG_DATA_HOME/Transcription Bot/profiles/` (or
+    `~/.local/share/Transcription Bot/profiles/` if that variable isn't set)
+
+  This is deliberate: it's what keeps your own profiles safe when you update
+  the app later. Updating means downloading a fresh copy of this project and
+  replacing the old `Transcription-Bot` folder — since your profiles live
+  outside that folder, replacing it never touches them. You'll see every
+  profile you've saved again the moment you launch the updated app, with
+  nothing to move or back up yourself.
+- The most recently selected profile is remembered in `profiles/settings.json`
+  and is reselected when the app starts.
 - To create a new profile directly, enter a name in `Save new custom profile as`, fill the three profile text boxes, and click `Save Profile`.
 
 Prompt behavior:

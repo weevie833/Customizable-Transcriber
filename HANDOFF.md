@@ -1,5 +1,110 @@
 # Customizable Transcription Interface Handoff
 
+## Done this session (2026-08-30): Chiusa Sclafani v3 retired, replaced by v4
+
+**Next step, not yet done:** run a real Preflight Test (or a full batch) with
+`chiusa-sclafani-battesimi-v4` against actual register images before relying
+on it for real work — it's verified structurally and via round-trip, but has
+no real-image test history yet, unlike v3 (see CLAUDE.md's "v3 real-image
+test results" section, images 193-195).
+
+v3 was the one profile in the app with no `pb_answers` — a bespoke
+`build_prompt.py` script, not editable back in Prompt Builder, inconsistent
+with every other profile. Rebuilt field-by-field through the actual
+questionnaire UI (driven via injected JS, so the real client-side assembly
+code produced the prose, not a hand-simulated approximation); added a new
+"Additional editorial rules" field to the questionnaire for the handful of
+v3 rules (filius/filia cross-check, marginal-heading-disagreement, never-
+copy-a-surname, etc.) that didn't fit any existing field. Also fixed a
+separate bug found along the way: v3's shipped file still had the literal
+unsubstituted `{VOLUME_YEAR_RANGE}` placeholder in its role_context.
+
+`chiusa-sclafani-battesimi-v1/v2/v3.json` and all of
+`profiles/sources/chiusa-sclafani/` (build_prompt.py, clean_index.py,
+lex.json, the cleaned-index xlsx, the corrections audit, the readable copy)
+were deleted at the user's request — staged (`git rm`), not committed. Full
+mapping and what didn't transfer: CLAUDE.md's "Chiusa Sclafani battesimi —
+decisions" section, "Superseded, later session" note.
+
+## Done this session (2026-08-30): Import/Export Profiles
+
+New collapsible panel on the Prompt Builder page, below the questionnaire's
+Save controls: export any saved profile as a small `.tbprofile.json` file
+(plain JSON, no macros/executable content — deliberately email-safe, not on
+any mail provider's blocked-attachment list), and import one someone sends
+you back in. Import always adds a new profile (auto-suffixed on a name
+collision), never overwrites one you already have. See CLAUDE.md's
+"Later session: Import/Export Profiles" note (end of the Prompt Builder
+section) for the file format, endpoints, and what was verified.
+
+Not yet committed.
+
+## Done this session (2026-08-30): nav order + Prompt Builder i18n audit
+
+- **Header nav reordered** on all 4 pages (`app.py` ×3 + `xls_conversion/index.html`)
+  to Prompt Builder, Transcribe, XLSX Conversion, Test Mode. `aria-current="page"`
+  preserved on each page's own link.
+- **Audited `static/i18n.js`'s Italian coverage against the live Prompt Builder
+  page** (rendered the page, extracted every visible text node/placeholder/
+  title/aria-label, diffed against `DICTIONARY`'s keys) and fixed real gaps,
+  mostly from the Preflight Test feature and civil-record fields that landed
+  without matching translations:
+  - Added ~22 missing entries: the whole Preflight Test UI ("Example entries",
+    "Add another example" + its dynamically-added row placeholder, "Preflight
+    Test", "Run Preflight Test", the API-key hint variant, "Suggestions --
+    check the ones...", etc.) and the civil-record Page format/act-continuation/
+    baptism-column fields and their info-button text.
+  - Found and fixed **3 stale dictionary entries**: the civil birth/marriage/
+    death Marginal Heading info-button text has 3 translations keyed to an
+    *old* placeholder wording (no `Numero [Act #]` prefix, "and" instead of
+    "e") that no longer matches any live string — the placeholders were
+    changed after the translations were written. Replaced with the 3 correct,
+    currently-live variants.
+  - Bonus find, not Prompt-Builder-specific: the shared footer's license
+    sentence (`app.py` ×3, `xls_conversion/index.html`) has silently stopped
+    translating on **all 4 pages** since the `/privacy` link was added — the
+    footer's actual DOM text node is the license sentence *plus* the trailing
+    "&middot;" separator before the Privacy link, which no longer exact-matched
+    the dictionary key (missing that trailing "·"). Fixed both the long and
+    short license-string dictionary entries to include it.
+  - Confirmed non-issues, left alone: `JPEG`/`PDF`/`PNG` (format acronyms,
+    same in both languages), `Don`/`Master` (literal honorific terms the
+    model must recognize verbatim in the source, not UI copy), the "0 words"
+    live counter and the worksheet-download button/caption (both already
+    correctly excluded from DICTIONARY by design, per comments already in
+    the code), the language-toggle button labels (English/Italiano are
+    correctly untranslated proper nouns), and "Privacy" (identical in both
+    languages, so its absence from DICTIONARY is a no-op, not a bug).
+  - Verified via a fresh server render + re-diff: 0 unexplained gaps remain
+    on any of the 4 pages.
+
+Not yet committed — see the note at the end of the entry below.
+
+## Done this session (2026-08-30): user profiles moved out of the repo
+
+Fixed a real data-loss risk: this app's documented update process is
+"download a fresh copy, replace the old folder" (no git pull), and every
+saved profile — shipped examples and anything a user created — used to live
+in the same git-tracked `profiles/` folder. A full folder replace would have
+silently deleted any profile a user had made.
+
+Now: `profiles/` stays git-tracked and ships only reference examples
+(`rendi-*`, `chiusa-sclafani-*`); every profile saved or edited through the
+running app writes to a new per-OS external directory instead (macOS
+`~/Library/Application Support/Transcription Bot/profiles/`; see
+CLAUDE.md's "Profile storage: shipped examples vs. user data" section for
+the Windows/Linux paths and the full design). Six profiles that were real
+working profiles rather than shipped examples (`caiazzo-matrimoni-v1`,
+`grimaldi-church-morti-v1`/`-v2`, `marano-marchesato-catasto-v1`,
+`montalto-uffago-morti-v1`, `san-mango-d-aquino-marriages-v1`) were moved
+there and `git rm`'d from the repo — staged, not committed. Verified the app
+starts clean and lists all 6 relocated profiles correctly alongside the
+shipped ones. README's "Saved profiles" section and a new "Updating to a
+newer version" section now explain this to end users.
+
+Not yet committed — review `git status`/`git diff` before committing/pushing
+per the standing instruction below.
+
 ## To-Do — Next Session (added 2026-08-23)
 
 Add a **Privacy** link to the footer on all four pages (Transcribe, Test Mode,

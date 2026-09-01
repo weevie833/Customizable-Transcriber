@@ -25,6 +25,32 @@ SUPPORTED_SOURCE_EXTENSIONS = frozenset(
     for extensions in FILE_TYPE_EXTENSIONS.values()
     for extension in extensions
 )
+FILE_TYPE_MIME = {
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "pdf": "application/pdf",
+}
+# Leading-byte signatures for detecting a file's real format from its own
+# content, independent of whatever extension the browser/OS attached to it.
+# Used by Prompt Builder's Preflight Test, which takes a single ad-hoc upload
+# rather than a pre-vetted source folder -- see sniff_file_type().
+_MAGIC_BYTES: tuple[tuple[bytes, str], ...] = (
+    (b"\xff\xd8\xff", "jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"%PDF-", "pdf"),
+)
+
+
+def sniff_file_type(data: bytes) -> str | None:
+    """Detect jpeg/png/pdf from the file's own leading bytes (a FILE_TYPE_EXTENSIONS
+    key), or None if it matches none of them. Trusting content over a filename
+    extension means a mislabeled or renamed upload is still read correctly --
+    or cleanly rejected as unsupported -- rather than silently sent to the AI
+    provider tagged with the wrong MIME type."""
+    for signature, file_type in _MAGIC_BYTES:
+        if data.startswith(signature):
+            return file_type
+    return None
 DEFAULT_MODEL = "gemini-3.1-pro-preview"
 USER_INSTRUCTION = "Transcribe and translate this document word-for-word."
 MONTHS = {

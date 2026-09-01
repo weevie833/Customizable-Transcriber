@@ -1,0 +1,91 @@
+  <details class="gs-section" open>
+    <summary>Prerequisiti prima di iniziare</summary>
+    <div class="gs-body">
+      <ol>
+        <li>Per usare l'app devi avere un account Google Gemini Pro o un account Anthropic Claude Pro, perché l'app richiede una connessione dati diretta al tuo sistema AI per elaborare i tuoi file.</li>
+        <li>Vai su <a href="https://aistudio.google.com/api-keys" target="_blank" rel="noopener noreferrer">AI Studio</a> di Gemini o sulla <a href="https://platform.claude.com/dashboard" target="_blank" rel="noopener noreferrer">dashboard della piattaforma di Claude</a> per creare una chiave API. Una chiave API è una password che permette all'app di usare il tuo account Pro per elaborare i file. Copia la tua chiave API e conservala in modo sicuro sul tuo computer -- non salvarla in un'email o in un file online. Trattala come una password privata.</li>
+        <li>Nel tuo account AI Pro, imposta un metodo di pagamento per coprire l'uso dei token necessari per elaborare i file immagine. I costi dei token sono generalmente molto contenuti, ma possono aumentare rapidamente con lotti di file di grandi dimensioni. Controlla la dashboard del tuo account Pro per monitorare il consumo, così da non esaurire i token a metà di un lotto. La maggior parte dei metodi di pagamento include un'opzione di ricarica automatica.</li>
+      </ol>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>Come funziona l'app con l'AI?</summary>
+    <div class="gs-body">
+      <p>L'app usa l'AI per interpretare le tue immagini e trascriverle in testo digitale secondo le regole impostate nel tuo prompt. Per questo il tuo prompt deve essere molto esplicito su cosa contengono i tuoi file e cosa significa il contenuto. Il <a href="/prompt-builder">Generatore di prompt</a> è pensato per aiutarti a costruire il prompt più efficace possibile.</p>
+      <p>Nel piè di pagina trovi un link <a href="/privacy">Privacy</a> che spiega come vengono usati i dati nell'app, oltre ad altri dettagli sulla sicurezza.</p>
+      <p>L'app trasforma le immagini in testo digitale allo stesso modo in cui caricheresti una singola immagine nella chat di ChatGPT, Claude o Gemini -- solo che hai più controllo su come l'immagine viene interpretata. L'app ti permette anche di elaborare un grande lotto di file senza incorrere nei limiti di una conversazione lunga (le chat "peggiorano" nel corso di una conversazione lunga). La funzione dei profili prompt ti permette di ricaricare e ripetere lo stesso processo in modo coerente e affidabile.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>Preparare il tuo progetto</summary>
+    <div class="gs-body">
+      <p>Questa sezione spiega come preparare i tuoi file per l'elaborazione e come mettere insieme del materiale di riferimento "ground truth" per l'AI. Per prima cosa, colloca i tuoi file immagine in una cartella facile da trovare, così potrai selezionarla in seguito. Assegna a ogni immagine un nome descrittivo seguito da un numero, così:</p>
+      <div class="gs-example">Chiusa Sclafani Battesimi_001.jpg
+Chiusa Sclafani Battesimi_002.jpg</div>
+      <p>Il nome di ogni file viene copiato nella trascrizione e nel foglio di calcolo dell'indice, così puoi individuare facilmente il file originale per una revisione manuale. Evita nomi come <em>image_201.jpg</em> -- potresti avere molti altri file nella tua collezione con lo stesso nome generico. Diverse utility di ridenominazione file possono farlo molto rapidamente; cerca semplicemente "file renamer app for Windows" o "file renamer app for Mac". Sono spesso economiche e semplici da usare. Usa la funzione Sequence se puoi rinominare completamente i tuoi file -- scegli uno schema di numerazione a tre cifre se hai centinaia di file. Se devi mantenere parte dei nomi file esistenti, usa la funzione Prepend, poi usa Sequence per aggiungere i numeri alla fine.</p>
+      <p><strong>Preparazione dei contenuti:</strong> il sistema AI ha bisogno di esempi dei tuoi contenuti da usare come riferimento per prevedere cosa troverà quando trascrive le tue immagini in testo digitale. In cima alla pagina <a href="/prompt-builder">Generatore di prompt</a> trovi un pulsante "Download DOCX" che scarica i modelli del questionario del profilo prompt per ogni tipo di contenuto. I modelli includono sezioni in cui puoi inserire un esempio trascritto manualmente del tuo materiale di origine. Fornire 2-3 esempi di voci accurate aiuterà il sistema AI a lavorare in modo più preciso.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>Come funziona il Generatore di prompt?</summary>
+    <div class="gs-body">
+      <p>La prima volta che usi l'app, devi creare un profilo prompt. Nella pagina <a href="/prompt-builder">Generatore di prompt</a>, cerca "Crea un nuovo profilo" e segui le istruzioni per ogni sezione. Vedrai anche un pulsante "Download DOCX" che scarica i modelli del questionario del profilo prompt per ogni tipo di contenuto. È una buona idea definire tutti i dettagli del tuo profilo prompt nel DOCX prima di inserire i contenuti nella pagina del Generatore di prompt -- può richiedere un po' di tempo per mettere insieme tutto:</p>
+      <ul>
+        <li>Guide di riferimento per il formato dei tuoi contenuti.</li>
+        <li>Guide strutturali che indicano dove si trova il contenuto chiave in ogni voce.</li>
+        <li>Abbreviazioni comuni, termini e altre particolarità uniche del tuo materiale.</li>
+        <li>Un elenco di cognomi e nomi propri della regione che stai trascrivendo. Questo è molto importante -- fornisce al sistema AI un lessico da confrontare con l'interpretazione più probabile della grafia manoscritta dello scriba.</li>
+        <li>Regole editoriali specifiche del tuo contenuto (facoltativo).</li>
+        <li>Almeno un esempio completamente trascritto e corretto. È molto importante per mostrare al sistema AI come dovrebbe apparire una voce tipica. Aggiungi 2-3 esempi, se possibile, usando il pulsante "Aggiungi un altro esempio".</li>
+      </ul>
+      <p>Una volta assemblato tutto il materiale di origine per il tuo prompt nel modello DOCX, inserisci i tuoi contenuti nel Generatore di prompt. Prova il Test di controllo preliminare per verificare che il tuo prompt funzioni -- ti offrirà anche suggerimenti per migliorarlo. Sono facoltativi, ma vivamente consigliati.</p>
+      <p>Poi, scegli se vuoi che le voci della trascrizione vengano tradotte dalla lingua di origine in italiano o in inglese (o entrambi). Nota che questo utilizza il tuo account AI per il passaggio aggiuntivo di traduzione.</p>
+      <p>Infine, dai un nome al tuo profilo e salvalo. Comparirà quindi nel resto dell'app dopo aver ricaricato le pagine. Consiglio: aggiungi sempre un numero di versione al nome del profilo, come "Chiusa Sclafani Battesimi V1", perché probabilmente creerai più versioni dei tuoi profili nel tempo.</p>
+      <p><strong>Aggiornare il tuo profilo prompt:</strong> nella pagina del Generatore di prompt, nella sezione blu in alto, seleziona il tuo profilo salvato dall'elenco. Caricherà tutte le sue impostazioni nel Generatore di prompt. Modifica ciò che serve, poi scorri fino in fondo e fai clic su Aggiorna profilo per sovrascrivere il profilo selezionato, oppure su Salva come nuovo profilo per crearne una nuova versione.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>Come generare una trascrizione</summary>
+    <div class="gs-body">
+      <p>Nella pagina <a href="/transcribe">Trascrivi</a>, seleziona la cartella di origine con i tuoi file immagine. Se stai iniziando un nuovo progetto, metti solo 2-3 file nella cartella di origine per testare il tuo prompt prima di eseguire l'intero lotto.</p>
+      <p>Seleziona il tuo modello AI e incolla la tua chiave API. Conserva la tua chiave API in un luogo sicuro sul tuo computer -- non pubblicarla mai online né inviarla via email. È come una password. L'app non salva la tua chiave API.</p>
+      <p>Seleziona l'Ordine di elaborazione preferito, poi seleziona il tipo di file corrispondente alla tua raccolta di immagini.</p>
+      <p>Seleziona il tuo profilo prompt, poi fai clic su Controllo preliminare per verificare che le impostazioni siano corrette. Quando sei pronto, fai clic su Conferma ed esegui. L'app elaborerà i tuoi file nell'ordine selezionato. Controlla la Console di avanzamento in fondo alla pagina -- riceverai un avviso quando il lotto sarà completato.</p>
+      <p>Al termine del lotto, fai clic su Scarica documento e un file DOCX della trascrizione verrà scaricato nella cartella in cui il tuo browser è configurato per salvare i download.</p>
+      <p><strong>Nota:</strong> non modificare l'intestazione nel file DOCX. Questi dati vengono usati durante la conversione XLSX per rilevare automaticamente il tipo di contenuto presente nella trascrizione.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>Come convertire la trascrizione in un foglio di calcolo</summary>
+    <div class="gs-body">
+      <p>Una volta completata la trascrizione e dopo aver rivisto il file DOCX, sei pronto per convertirla in un indice XLSX.</p>
+      <p>Vai alla pagina <a href="/xls-conversion">Conversione XLSX</a>, seleziona un modello AI e incolla la tua chiave API.</p>
+      <p>Carica o trascina il file DOCX della trascrizione nel pannello di caricamento. L'app rileva automaticamente il tipo di contenuto della trascrizione e il menu Materiale di origine si imposta di conseguenza.</p>
+      <p>Nel pannello "Scegli il materiale di origine", digita l'intervallo di immagini che vuoi convertire, oppure seleziona la casella Elabora tutto. Usa l'intervallo di immagini se vuoi saltare alcune immagini (perché non contengono nulla) o testare un intervallo di voci prima di convertirle tutte. I numeri nell'intervallo di immagini si riferiscono al numero dell'immagine alla fine del nome del file immagine di origine, copiato all'inizio di ogni sezione della trascrizione, ad esempio:</p>
+      <div class="gs-example">START OF RECORD: San Mango D'Aquino Matrimoni_Book 18 Page_004.jpg</div>
+      <p>Il numero dell'immagine per la voce sopra è "004".</p>
+      <p>Nell'area "Scegli le lingue di output", puoi scegliere tra le opzioni disponibili nella trascrizione. Se la trascrizione ha sia una versione in lingua originale sia una traduzione, puoi convertirne una o entrambe. Nota che anche questo passaggio richiede elaborazione AI e aumenterà i costi con più attività da eseguire.</p>
+      <p>Fai clic su Preflight per verificare le impostazioni e confermare che il sistema AI riesca a rilevare le voci nella trascrizione. Controlla i risultati, poi fai clic su Convert se tutto è a posto. Se Preflight segnala un errore, puoi fermarti e correggerlo, oppure ignorare l'errore e procedere comunque con la conversione.</p>
+      <p>Il processo richiede alcuni minuti a seconda del numero di voci da elaborare -- per trascrizioni molto lunghe, la conversione può richiedere fino a 10 minuti.</p>
+      <p>Al termine della conversione, un file XLSX verrà scaricato automaticamente nella cartella in cui il tuo browser salva i download. I file indice XLSX seguono i modelli di indicizzazione dell'organizzazione <a href="https://www.italianparishrecords.org/volunteer/indexing-civil-parish-records" target="_blank" rel="noopener noreferrer">Italian Parish Records</a>.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>Funzioni avanzate</summary>
+    <div class="gs-body">
+      <p>Nella pagina <a href="/transcribe">Trascrivi</a>, cerca la sezione Prompt manuale personalizzato ed espandila per vedere tre campi: Ruolo e contesto locale, Materiale di riferimento e verità di base, e Formato di output. Puoi incollare il tuo prompt manualmente, senza usare il Generatore di prompt, e salvarlo come nuovo profilo personalizzato. Puoi anche caricare un profilo prompt esistente, modificarlo a mano e salvarlo. Tuttavia, i profili personalizzati non possono essere ricaricati nel Generatore di prompt per essere rivisti.</p>
+      <p>Tutti i profili prompt vengono salvati in una posizione separata sul tuo computer, così restano al sicuro ogni volta che aggiorni il software principale:</p>
+      <div class="gs-example">macOS: ~/Library/Application Support/Transcription Bot/
+Windows: %APPDATA%\Transcription Bot\
+Linux: ~/.local/share/Transcription Bot/ (rispettando XDG_DATA_HOME se impostata)</div>
+      <p><strong>Condividere i profili prompt:</strong> in fondo alla pagina del Generatore di prompt, cerca la sezione Importa/Esporta profili ed espandila. Seleziona un profilo da esportare e fai clic sul pulsante di download. Il profilo è un file di solo testo -- non esegue codice -- quindi puoi condividerlo via email. Puoi importare un profilo condiviso usando la funzione Importa un profilo.</p>
+      <p><strong>Modalità di test:</strong> la <a href="/test-mode">Modalità di test</a> ti permette di generare più trascrizioni dello stesso materiale di origine usando modelli diversi, così puoi confrontarne l'accuratezza rispetto a una trascrizione corretta esistente dello stesso materiale. Puoi creare più lotti con coppie di modelli diverse ed eseguirli tutti automaticamente.</p>
+      <p>Al termine dell'elaborazione, usa la funzione Confronta risultati per confrontare le tue trascrizioni di test con la trascrizione corretta. L'app genera un report che calcola l'accuratezza di ogni bozza rispetto alla versione corretta, in base a una serie di metriche -- ogni gruppo di metriche include una spiegazione dei valori e di come sono stati calcolati.</p>
+    </div>
+  </details>

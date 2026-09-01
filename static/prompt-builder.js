@@ -1291,7 +1291,7 @@
     }
 
     if (!fileInput || !fileInput.files || !fileInput.files[0]) {
-      showStatus("Choose an image first.");
+      showStatus("Choose a file first.");
       return;
     }
     var examples = refreshPreflightExamplePicker();
@@ -1542,6 +1542,10 @@
       var container = document.getElementById(id);
       if (container) container.innerHTML = "";
     });
+    // Example entries ships with one row visible by default (see the
+    // DOMContentLoaded wiring above) -- restore that same starting state
+    // instead of leaving the section with zero rows after a reset.
+    addExampleRow();
     // Clear the touched flags too, not just the field values -- form.reset()
     // only restores values, so without this a field touched before Reset would
     // permanently stop taking its auto-default afterward. (Fixes the same latent
@@ -1562,8 +1566,13 @@
   // Offline-worksheet download button. Independent of i18n.js's DICTIONARY
   // text-swap (that mechanism only replaces static text nodes/attributes) --
   // this button also has to swap *which file* it points at, so it reads the
-  // same "tb-lang" localStorage key i18n.js writes and drives its own label,
-  // caption, and href/download filename directly.
+  // same "tb-lang" cookie i18n.js writes and drives its own label, caption,
+  // and href/download filename directly.
+  function getLangCookie() {
+    var match = document.cookie.match(/(?:^|; )tb-lang=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   var WORKSHEET_DOWNLOAD = {
     en: {
       label: "Download DOCX (ENG)",
@@ -1583,7 +1592,7 @@
     var link = document.getElementById("pb-download-worksheets");
     var caption = document.getElementById("pb-download-caption");
     if (!link && !caption) return;
-    var lang = localStorage.getItem("tb-lang") === "it" ? "it" : "en";
+    var lang = getLangCookie() === "it" ? "it" : "en";
     var copy = WORKSHEET_DOWNLOAD[lang];
     if (link) {
       link.textContent = copy.label;
@@ -1631,6 +1640,12 @@
     if (expandButton) expandButton.addEventListener("click", function () { pbSetAllOpen(true); });
     var collapseButton = document.getElementById("pb-collapse-all");
     if (collapseButton) collapseButton.addEventListener("click", function () { pbSetAllOpen(false); });
+
+    // The Output Format section ships with one example row already in the
+    // markup (server-rendered, not JS-generated) so the text box is visible
+    // without an extra click -- wire it up the same way addRow() wires a
+    // JS-created one (Remove button, pbRefresh on input).
+    document.querySelectorAll(".pb-row").forEach(wireRow);
 
     wireInfoButtons();
     wirePreflightTest();

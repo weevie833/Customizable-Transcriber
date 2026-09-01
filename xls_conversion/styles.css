@@ -108,6 +108,11 @@ h2 {
   border-radius: 2px;
 }
 
+.nav-home {
+  font-size: 17px;
+  padding: 6px 9px;
+}
+
 .nav-link[aria-current="page"] {
   border-bottom-color: var(--blue);
   background: #e5eef9;

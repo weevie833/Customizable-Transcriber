@@ -18,6 +18,26 @@
 
   var STORAGE_KEY = "tb-lang";
 
+  // Persisted as a cookie (not localStorage) so the choice is a plain,
+  // inspectable browser cookie as requested for the homepage's language
+  // picker -- every .lang-flag button on every page reads/writes this same
+  // cookie, so they all stay in sync no matter which page set it.
+  var COOKIE_DAYS = 400; // Chrome's own cookie-expiry cap; longest safe value.
+
+  function getCookie(name) {
+    var match = document.cookie.match(
+      new RegExp("(?:^|; )" + name.replace(/([.$?*|{}()\[\]\\/+^])/g, "\\$1") + "=([^;]*)")
+    );
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  function setCookie(name, value, days) {
+    var date = new Date();
+    date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+    document.cookie =
+      name + "=" + encodeURIComponent(value) + "; expires=" + date.toUTCString() + "; path=/; SameSite=Lax";
+  }
+
   // English -> Italian. Keys must match the exact (trimmed) text as it
   // appears in the DOM/attribute; anything without a match is left as-is.
   var DICTIONARY = {
@@ -30,6 +50,10 @@
     "XLSX Conversion": "Conversione XLSX",
     "Test Mode": "Modalità di test",
     "Prompt Builder": "Generatore di prompt",
+    "Home": "Home",
+    "Welcome to the Customizable Transcription application.": "Benvenuti nell'applicazione di Trascrizione Personalizzabile.",
+    "Select your local language": "Seleziona la tua lingua",
+    "Getting Started": "Per iniziare",
     "Primary navigation": "Navigazione principale",
     // Both footer license strings below include a trailing "·" -- the text
     // node in the DOM is the license sentence *plus* the &middot; separator
@@ -161,8 +185,8 @@
     "Load an existing profile to edit": "Carica un profilo esistente da modificare",
     "Select a profile": "Seleziona un profilo",
     "Create a new profile": "Crea un nuovo profilo",
-    "Only profiles created or edited in Prompt Builder can be loaded here -- a profile written by hand or edited only on the Transcribe page's free-text editor isn't listed. Loading one fills in this questionnaire with its saved answers; saving updates that same profile unless you choose \"Save as a new profile\" below instead.":
-      "Qui è possibile caricare solo i profili creati o modificati nel Prompt Builder — un profilo scritto a mano o modificato solo nell'editor a testo libero della pagina Trascrivi non è elencato. Caricandone uno, il questionario viene compilato con le sue risposte salvate; salvando si aggiorna lo stesso profilo, a meno che tu non scelga \"Salva come nuovo profilo\" qui sotto.",
+    "Only profiles created or edited in the Prompt Builder can be edited here - custom profiles are excluded. Saving edits will update that same profile unless you choose \"Save as a new profile\" instead.":
+      "Qui possono essere modificati solo i profili creati o modificati nel Prompt Builder — i profili personalizzati sono esclusi. Salvando le modifiche si aggiornerà lo stesso profilo, a meno che tu non scelga \"Salva come nuovo profilo\".",
     "Update Profile": "Aggiorna profilo",
     "Save as New Profile": "Salva come nuovo profilo",
     "Answer these questions to define who the AI is, what it's transcribing, and the ground rules for accuracy: your record type, source language, era, place, and page layout. The uncertainty protocol (never guess a name, use [illegible] instead) and fidelity rules (preserve spelling, don't silently correct the scribe) are generated automatically — every profile gets them, no matter what you select below.":
@@ -359,11 +383,11 @@
       "Ogni esempio è una trascrizione verificata e accurata al 100% di una voce reale di questo registro, mostrata all'IA puramente come riferimento di formattazione e stile — mai come contenuto da copiare. Più di un esempio, specialmente se copre situazioni diverse (una voce semplice, una con una parola illeggibile, una in cui intestazione e corpo non concordano), calibra il giudizio dell'IA meglio di un singolo esempio. Un'etichetta facoltativa ti aiuta solo a distinguere gli esempi in seguito — ad es. nel Test di controllo preliminare, se ne aggiungi più di uno.",
     "Preflight Test": "Test di controllo preliminare",
     "(optional but recommended)": "(facoltativo ma consigliato)",
-    "For testing your prompt, upload the image that corresponds to the selected Example entry text above. The app will check your example against its source and offer suggestions to improve your prompt, if needed. Clicking \"Run Preflight Test\" first saves your current answers as a draft profile, so nothing is lost if something goes wrong.":
-      "Per testare il tuo prompt, carica l'immagine che corrisponde al testo della voce di esempio selezionata sopra. L'app confronterà il tuo esempio con la fonte e, se necessario, offrirà suggerimenti per migliorare il tuo prompt. Facendo clic su \"Esegui test di controllo preliminare\" le tue risposte attuali vengono prima salvate come profilo bozza, così non si perde nulla in caso di problemi.",
+    "For testing your prompt, upload the image or PDF that corresponds to the selected Example entry text above. JPEG, PNG, and PDF are all supported -- detected automatically from the file itself, so its filename doesn't need to say which one it is. The app will check your example against its source and offer suggestions to improve your prompt, if needed. Clicking \"Run Preflight Test\" first saves your current answers as a draft profile, so nothing is lost if something goes wrong.":
+      "Per testare il tuo prompt, carica l'immagine o il PDF che corrisponde al testo della voce di esempio selezionata sopra. JPEG, PNG e PDF sono tutti supportati — rilevati automaticamente dal file stesso, quindi il nome del file non deve indicare di quale si tratta. L'app confronterà il tuo esempio con la fonte e, se necessario, offrirà suggerimenti per migliorare il tuo prompt. Facendo clic su \"Esegui test di controllo preliminare\" le tue risposte attuali vengono prima salvate come profilo bozza, così non si perde nulla in caso di problemi.",
     "Paste your API key for this test": "Incolla la tua chiave API per questo test",
-    "Used only for this browser session/request. It is not saved to the project files or the profile. Running a preflight test sends this key and your uploaded image directly to your chosen AI provider's API — see PRIVACY.md.":
-      "Usata solo per questa sessione/richiesta del browser. Non viene salvata nei file del progetto né nel profilo. L'esecuzione di un test di controllo preliminare invia questa chiave e l'immagine caricata direttamente all'API del provider IA scelto — consulta PRIVACY.md.",
+    "Used only for this browser session/request. It is not saved to the project files or the profile. Running a preflight test sends this key and your uploaded file directly to your chosen AI provider's API — see PRIVACY.md.":
+      "Usata solo per questa sessione/richiesta del browser. Non viene salvata nei file del progetto né nel profilo. L'esecuzione di un test di controllo preliminare invia questa chiave e il file caricato direttamente all'API del provider IA scelto — consulta PRIVACY.md.",
     "Which example does this image show?": "Quale esempio mostra questa immagine?",
     "Run Preflight Test": "Esegui test di controllo preliminare",
     "Suggestions -- check the ones you want, then apply them to your questionnaire.":
@@ -533,17 +557,37 @@
   // including from English (a no-op past the first call, since applyLanguage
   // restores tbOrig when not Italian).
   window.tbRefreshLanguage = function () {
-    applyLanguage(localStorage.getItem(STORAGE_KEY) || "en");
+    applyLanguage(getCookie(STORAGE_KEY) || "en");
   };
 
+  // Populates the "#app-version" span every page's footer carries (after the
+  // Privacy link) from the running app.py's /version endpoint, which just
+  // reads the checked-in VERSION file -- see app.py's APP_VERSION comment.
+  // A live fetch here (rather than server-templating it into each page) is
+  // what lets xls_conversion/index.html pick it up too, since that page is
+  // served as a plain static file with no Python string interpolation.
+  // Fails silently (no element, or the request itself fails) so a missing
+  // backend never leaves a broken footer.
+  function loadAppVersion() {
+    var el = document.getElementById("app-version");
+    if (!el) return;
+    fetch("/version", { cache: "no-store" })
+      .then(function (resp) { return resp.ok ? resp.json() : null; })
+      .then(function (data) {
+        if (data && data.version) el.textContent = "· v" + data.version;
+      })
+      .catch(function () {});
+  }
+
   function init() {
-    var storedLang = localStorage.getItem(STORAGE_KEY) || "en";
+    var storedLang = getCookie(STORAGE_KEY) || "en";
     applyLanguage(storedLang);
+    loadAppVersion();
 
     document.querySelectorAll(".lang-flag").forEach(function (button) {
       button.addEventListener("click", function () {
         var lang = button.getAttribute("data-lang");
-        localStorage.setItem(STORAGE_KEY, lang);
+        setCookie(STORAGE_KEY, lang, COOKIE_DAYS);
         applyLanguage(lang);
       });
     });

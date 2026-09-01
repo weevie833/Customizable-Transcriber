@@ -37,6 +37,7 @@ from transcription_bot.core import (
     make_client,
     provider_for_model,
     run_batch,
+    sniff_file_type,
     transcribe_image,
     validate_api_key,
 )
@@ -74,6 +75,16 @@ MAX_JSON_BYTES = 15_000_000
 # already be an unusually long document.
 MAX_DOCX_XML_BYTES = 20_000_000
 PROFILES_DIR = PROJECT_DIR / "profiles"
+# Single source of truth for the version shown in every page's footer (see
+# /version below and static/i18n.js's fetch of it). A plain VERSION file, not
+# a git-derived value (commit hash/tag), because real end users run a
+# downloaded-and-unzipped copy with no .git directory at all -- see README's
+# "download a fresh copy, replace the old folder" update path. Bumped by hand
+# per semver (MAJOR.MINOR.PATCH) as part of each commit to main.
+try:
+    APP_VERSION = (PROJECT_DIR / "VERSION").read_text(encoding="utf-8").strip()
+except OSError:
+    APP_VERSION = "dev"
 
 
 def _user_data_dir() -> Path:
@@ -1560,6 +1571,10 @@ def privacy_page() -> str:
       outline-offset: 2px;
       border-radius: 2px;
     }}
+    .nav-home {{
+      font-size: 17px;
+      padding: 6px 9px;
+    }}
     .skip-link {{
       position: absolute;
       top: -43px;
@@ -1632,8 +1647,9 @@ def privacy_page() -> str:
       </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
       <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
-      <a class="nav-link" href="/">Transcribe</a>
+      <a class="nav-link" href="/transcribe">Transcribe</a>
       <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode">Test Mode</a>
     </nav>
@@ -1646,10 +1662,703 @@ def privacy_page() -> str:
     {content_html_it}
     </div>
   </section>
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a></footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
 </main>
 </body>
 </html>"""
+
+
+def home_page() -> str:
+    """The app's default landing page ("/"). Same header/nav/CSS shell as every
+    other page (privacy_page() is the closest existing template), plus a hero
+    section: the welcome heading with the language flags right next to it (the
+    same .lang-flag buttons/cookie every other page's header toggle already
+    uses -- see static/i18n.js -- so picking a language here keeps every page
+    in sync), a short bilingual description of the app, and a pointer to the
+    not-yet-built Getting Started page."""
+    return """<!doctype html>
+<html lang="en">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home</title>
+  <script src="/static/i18n.js" defer></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+    body {
+      margin: 0;
+      background: #f7f5f0;
+      color: #1f2933;
+    }
+    main {
+      width: min(980px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 26px;
+    }
+    .site-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .site-heading {
+      display: grid;
+      gap: 4px;
+    }
+    .byline {
+      margin: 0;
+      color: #5f6b76;
+      font-size: 13px;
+    }
+    .byline-row {
+      display: flex;
+      align-items: center;
+      gap: 0 8px;
+      flex-wrap: wrap;
+    }
+    .lang-toggle {
+      display: inline-flex;
+      gap: 4px;
+    }
+    .lang-flag {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      padding: 1px 4px;
+      font-size: 15px;
+      line-height: 1.3;
+      cursor: pointer;
+    }
+    .lang-flag[aria-pressed="true"] {
+      border-color: #255c99;
+      background: #eef4fb;
+    }
+    .lang-flag:hover {
+      background: #eef4fb;
+    }
+    .lang-flag:focus-visible {
+      outline: 3px solid #255c99;
+      outline-offset: 1px;
+    }
+    .site-nav {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 4px;
+      align-items: center;
+    }
+    .nav-link {
+      display: inline-block;
+      padding: 8px 10px 7px;
+      border-bottom: 3px solid transparent;
+      color: #255c99;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .nav-link:hover {
+      border-bottom-color: #9eb8d7;
+      background: #eef4fb;
+      color: #173f6d;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .nav-link:focus-visible {
+      outline: 3px solid #255c99;
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+    .nav-home {
+      font-size: 17px;
+      padding: 6px 9px;
+    }
+    .skip-link {
+      position: absolute;
+      top: -43px;
+      left: 8px;
+      z-index: 100;
+      padding: 10px 16px;
+      background: #255c99;
+      color: #fff;
+      border-radius: 0 0 6px 6px;
+      text-decoration: none;
+      font-weight: 700;
+      transition: top 0.15s ease;
+    }
+    .skip-link:focus {
+      top: 0;
+    }
+    .panel {
+      background: #ffffff;
+      border: 1px solid #d9d4c8;
+      border-radius: 8px;
+      padding: 24px 28px;
+      margin-bottom: 18px;
+    }
+    .panel p {
+      margin: 12px 0;
+    }
+    .hero-top {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px 24px;
+      margin-bottom: 6px;
+    }
+    .hero-top h1 {
+      font-size: 24px;
+    }
+    .lang-picker {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .lang-picker-label {
+      font-size: 13px;
+      font-weight: 650;
+      color: #5f6b76;
+      white-space: nowrap;
+    }
+    .lang-picker .lang-flag {
+      font-size: 20px;
+      padding: 3px 6px;
+    }
+    .callout {
+      background: #eef4fb;
+      border: 1px solid #cddcee;
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin-top: 18px;
+    }
+    .callout p {
+      margin: 0;
+    }
+    .section-divider {
+      border: none;
+      border-top: 1px solid #d9d4c8;
+      margin: 26px 0 20px;
+    }
+    .panel h2 {
+      font-size: 19px;
+      margin: 0 0 4px;
+    }
+    .workflow-steps {
+      list-style: none;
+      margin: 16px 0 0;
+      padding: 0;
+      border-top: 1px solid #d9d4c8;
+    }
+    .step-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 18px;
+      padding: 16px 0;
+      border-bottom: 1px solid #d9d4c8;
+    }
+    .step-icon {
+      flex: 0 0 64px;
+      width: 64px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .step-icon svg {
+      width: 56px;
+      height: 56px;
+      display: block;
+    }
+    .step-text {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding-top: 4px;
+    }
+    .step-text p {
+      margin: 0;
+    }
+    .step-text .callout {
+      margin-top: 10px;
+    }
+    .license {
+      margin: 8px 0 0;
+      color: #5f6b76;
+      font-size: 12px;
+    }
+    .license a {
+      color: #255c99;
+    }
+    @media (max-width: 720px) {
+      .site-header { align-items: stretch; }
+    }
+    @media (max-width: 520px) {
+      .site-header { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content" tabindex="-1">
+  <header class="site-header">
+    <div class="site-heading">
+      <h1>Home</h1>
+      <div class="byline-row">
+        <p class="byline">Created by Steve Covello, 2026</p>
+        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+        </div>
+      </div>
+    </div>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link nav-home" href="/" aria-current="page" aria-label="Home" title="Home">🏠</a>
+      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
+      <a class="nav-link" href="/transcribe">Transcribe</a>
+      <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
+      <a class="nav-link" href="/test-mode">Test Mode</a>
+    </nav>
+  </header>
+  <section class="panel">
+    <div class="hero-top">
+      <h1>Welcome to the Customizable Transcription application.</h1>
+      <div class="lang-picker">
+        <span class="lang-picker-label">Select your local language</span>
+        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+        </div>
+      </div>
+    </div>
+    <div data-lang-block="en">
+      <p>The Customizable Transcription app is designed to help you process large batches of archival images directly from your computer without uploading anything to the Internet. The app can output a transcript of your images into a formatted DOCX file, including translations to Italian and English. You can then convert the transcript into an XLSX index file using the Italian Parish Records standardized index templates.</p>
+    </div>
+    <div data-lang-block="it" hidden>
+      <p>L'app di Trascrizione Personalizzabile è progettata per aiutarti a elaborare grandi lotti di immagini d'archivio direttamente dal tuo computer, senza caricare nulla su Internet. L'app può generare la trascrizione delle tue immagini in un file DOCX formattato, comprese le traduzioni in italiano e inglese. Puoi quindi convertire la trascrizione in un file indice XLSX utilizzando i modelli di indice standardizzati per i registri parrocchiali italiani.</p>
+    </div>
+    <hr class="section-divider">
+
+    <div data-lang-block="en">
+      <h2>Workflow Overview</h2>
+      <p>Below is a general overview of the workflow. Go to the <a href="/getting-started">Getting Started</a> page for a complete explanation of each step.</p>
+      <div class="callout"><p><strong>Prerequisite:</strong> You must subscribe to a Google Gemini pro account or an Anthropic Claude pro account to use the app because it requires using a direct data connection to the AI system to process your files. Then, you must go to Gemini's <a href="https://aistudio.google.com/api-keys" target="_blank" rel="noopener noreferrer">AI Studio</a> or to <a href="https://platform.claude.com/dashboard" target="_blank" rel="noopener noreferrer">Claude's Platform dashboard</a> to create an API Key. An API key is a password that allows the app to use your pro account to process files.</p></div>
+      <ol class="workflow-steps">
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <rect x="20" y="8" width="20" height="26" rx="2" fill="#ffffff" stroke="#8a8377" stroke-width="1.6"/>
+              <rect x="30" y="14" width="20" height="26" rx="2" fill="#ffffff" stroke="#8a8377" stroke-width="1.6"/>
+              <path d="M6 24 h16 l4 -5 h24 a3 3 0 0 1 3 3 v28 a3 3 0 0 1 -3 3 H9 a3 3 0 0 1 -3 -3 V27 a3 3 0 0 1 3 -3 Z" fill="#cddcee" stroke="#255c99" stroke-width="1.8"/>
+            </svg>
+          </div>
+          <div class="step-text"><p>Gather your images in a dedicated folder on your computer. Make sure they are named descriptively and numbered sequentially. Good example: "Chiusa Sclafani Battesimi_001.jpg". Use a renamer utility app to rename all of your files in one command. See the <a href="/getting-started">Getting Started</a> page for an explanation.</p></div>
+        </li>
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <rect x="12" y="6" width="40" height="52" rx="3" fill="#ffffff" stroke="#8a8377" stroke-width="1.6"/>
+              <rect x="18" y="15" width="7" height="7" rx="1.5" fill="none" stroke="#255c99" stroke-width="1.6"/>
+              <path d="M19.5 18.5 l1.8 1.8 l3.2 -3.6" fill="none" stroke="#2f9e5c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="29" y1="18.5" x2="46" y2="18.5" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <rect x="18" y="27" width="7" height="7" rx="1.5" fill="none" stroke="#255c99" stroke-width="1.6"/>
+              <path d="M19.5 30.5 l1.8 1.8 l3.2 -3.6" fill="none" stroke="#2f9e5c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="29" y1="30.5" x2="46" y2="30.5" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <rect x="18" y="40" width="28" height="9" rx="1.5" fill="#f7f5f0" stroke="#8a8377" stroke-width="1.4"/>
+              <line x1="21" y1="44.5" x2="33" y2="44.5" stroke="#d9d4c8" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="step-text"><p>Build your prompt using the Prompt Builder page. Use the <a id="home-download-worksheets" href="/static/prompt-builder-worksheets/prompt-builder-worksheets-en.zip" download="prompt-builder-worksheets-en.zip">Prompt Builder DOCX files</a> as a worksheet, then copy your content into the Prompt Builder page.</p></div>
+        </li>
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <rect x="14" y="10" width="36" height="46" rx="3" fill="#ffffff" stroke="#8a8377" stroke-width="1.6"/>
+              <rect x="24" y="6" width="16" height="8" rx="2" fill="#cddcee" stroke="#255c99" stroke-width="1.4"/>
+              <line x1="21" y1="26" x2="43" y2="26" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="21" y1="34" x2="37" y2="34" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <circle cx="32" cy="46" r="11" fill="#2f9e5c"/>
+              <path d="M26.5 46.2 l4 4 l7.5 -8" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="step-text"><p>Test your prompt in the Preflight Test area of the Prompt Builder (optional but highly recommended), refine your prompt, and you are ready to go.</p></div>
+        </li>
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <path d="M16 6 h22 l10 10 v36 a3 3 0 0 1 -3 3 H16 a3 3 0 0 1 -3 -3 V9 a3 3 0 0 1 3 -3 Z" fill="#ffffff" stroke="#255c99" stroke-width="1.6"/>
+              <path d="M38 6 v10 h10 Z" fill="#cddcee" stroke="#255c99" stroke-width="1.4" stroke-linejoin="round"/>
+              <line x1="19" y1="30" x2="41" y2="30" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="19" y1="36" x2="41" y2="36" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="19" y1="42" x2="34" y2="42" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <rect x="14" y="47" width="36" height="12" rx="2" fill="#255c99"/>
+              <text x="32" y="55.5" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#ffffff" text-anchor="middle">DOCX</text>
+            </svg>
+          </div>
+          <div class="step-text">
+            <p>Go to the Transcribe page and select your AI Model, then paste in your API key. Select your Prompt Profile, then run the preflight check. If the preflight is clear, click Confirm and Run and the app will process your files automatically. The app will post an alert when the batch is completed. Follow the Progress Console for the status of your batch. When it is completed, click the Download Document button.</p>
+            <div class="callout"><p><strong>Pro Tip:</strong> Always start with a small batch of 1-3 files to test your prompt for accuracy first before running the entire batch.</p></div>
+          </div>
+        </li>
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <path d="M16 6 h22 l10 10 v36 a3 3 0 0 1 -3 3 H16 a3 3 0 0 1 -3 -3 V9 a3 3 0 0 1 3 -3 Z" fill="#ffffff" stroke="#2f9e5c" stroke-width="1.6"/>
+              <path d="M38 6 v10 h10 Z" fill="#d3f0df" stroke="#2f9e5c" stroke-width="1.4" stroke-linejoin="round"/>
+              <rect x="19" y="22" width="22" height="20" fill="none" stroke="#d9d4c8" stroke-width="1.6"/>
+              <line x1="19" y1="28.7" x2="41" y2="28.7" stroke="#d9d4c8" stroke-width="1.4"/>
+              <line x1="19" y1="35.3" x2="41" y2="35.3" stroke="#d9d4c8" stroke-width="1.4"/>
+              <line x1="26.3" y1="22" x2="26.3" y2="42" stroke="#d9d4c8" stroke-width="1.4"/>
+              <line x1="33.7" y1="22" x2="33.7" y2="42" stroke="#d9d4c8" stroke-width="1.4"/>
+              <rect x="14" y="47" width="36" height="12" rx="2" fill="#2f9e5c"/>
+              <text x="32" y="55.5" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#ffffff" text-anchor="middle">XLSX</text>
+            </svg>
+          </div>
+          <div class="step-text"><p>When your transcript is completed, check it to make sure everything was processed. Then, go to the XLSX Conversion page. Select the AI Model and paste in your API key. Upload or drop your DOCX transcript into the panel, select the range of transcription you want, choose the output language, run the Preflight, then click Convert. Your conversion XLSX file will download automatically.</p></div>
+        </li>
+      </ol>
+    </div>
+    <div data-lang-block="it" hidden>
+      <h2>Panoramica del flusso di lavoro</h2>
+      <p>Di seguito è riportata una panoramica generale del flusso di lavoro. Vai alla pagina <a href="/getting-started">Per iniziare</a> per una spiegazione completa di ogni passaggio.</p>
+      <div class="callout"><p><strong>Prerequisito:</strong> Per usare l'app devi sottoscrivere un account Google Gemini Pro o un account Anthropic Claude Pro, poiché l'app richiede una connessione dati diretta al sistema di intelligenza artificiale per elaborare i tuoi file. Successivamente, devi accedere a Gemini <a href="https://aistudio.google.com/api-keys" target="_blank" rel="noopener noreferrer">AI Studio</a> oppure alla <a href="https://platform.claude.com/dashboard" target="_blank" rel="noopener noreferrer">dashboard della piattaforma di Claude</a> per creare una chiave API. Una chiave API è una password che consente all'app di utilizzare il tuo account Pro per elaborare i file.</p></div>
+      <ol class="workflow-steps">
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <rect x="20" y="8" width="20" height="26" rx="2" fill="#ffffff" stroke="#8a8377" stroke-width="1.6"/>
+              <rect x="30" y="14" width="20" height="26" rx="2" fill="#ffffff" stroke="#8a8377" stroke-width="1.6"/>
+              <path d="M6 24 h16 l4 -5 h24 a3 3 0 0 1 3 3 v28 a3 3 0 0 1 -3 3 H9 a3 3 0 0 1 -3 -3 V27 a3 3 0 0 1 3 -3 Z" fill="#cddcee" stroke="#255c99" stroke-width="1.8"/>
+            </svg>
+          </div>
+          <div class="step-text"><p>Raccogli le tue immagini in una cartella dedicata sul tuo computer. Assicurati che siano denominate in modo descrittivo e numerate in sequenza. Buon esempio: "Chiusa Sclafani Battesimi_001.jpg". Usa un'app di ridenominazione per rinominare tutti i tuoi file con un solo comando. Consulta la pagina <a href="/getting-started">Per iniziare</a> per una spiegazione.</p></div>
+        </li>
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <rect x="12" y="6" width="40" height="52" rx="3" fill="#ffffff" stroke="#8a8377" stroke-width="1.6"/>
+              <rect x="18" y="15" width="7" height="7" rx="1.5" fill="none" stroke="#255c99" stroke-width="1.6"/>
+              <path d="M19.5 18.5 l1.8 1.8 l3.2 -3.6" fill="none" stroke="#2f9e5c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="29" y1="18.5" x2="46" y2="18.5" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <rect x="18" y="27" width="7" height="7" rx="1.5" fill="none" stroke="#255c99" stroke-width="1.6"/>
+              <path d="M19.5 30.5 l1.8 1.8 l3.2 -3.6" fill="none" stroke="#2f9e5c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="29" y1="30.5" x2="46" y2="30.5" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <rect x="18" y="40" width="28" height="9" rx="1.5" fill="#f7f5f0" stroke="#8a8377" stroke-width="1.4"/>
+              <line x1="21" y1="44.5" x2="33" y2="44.5" stroke="#d9d4c8" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="step-text"><p>Crea il tuo prompt utilizzando la pagina Generatore di prompt. Usa i <a id="home-download-worksheets-it" href="/static/prompt-builder-worksheets/prompt-builder-worksheets-it.zip" download="prompt-builder-worksheets-it.zip">file DOCX del Generatore di prompt</a> come foglio di lavoro, poi copia i tuoi contenuti nella pagina Generatore di prompt.</p></div>
+        </li>
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <rect x="14" y="10" width="36" height="46" rx="3" fill="#ffffff" stroke="#8a8377" stroke-width="1.6"/>
+              <rect x="24" y="6" width="16" height="8" rx="2" fill="#cddcee" stroke="#255c99" stroke-width="1.4"/>
+              <line x1="21" y1="26" x2="43" y2="26" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="21" y1="34" x2="37" y2="34" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <circle cx="32" cy="46" r="11" fill="#2f9e5c"/>
+              <path d="M26.5 46.2 l4 4 l7.5 -8" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="step-text"><p>Testa il tuo prompt nell'area Controllo preliminare del Generatore di prompt (facoltativo ma altamente consigliato), perfeziona il tuo prompt e sei pronto per partire.</p></div>
+        </li>
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <path d="M16 6 h22 l10 10 v36 a3 3 0 0 1 -3 3 H16 a3 3 0 0 1 -3 -3 V9 a3 3 0 0 1 3 -3 Z" fill="#ffffff" stroke="#255c99" stroke-width="1.6"/>
+              <path d="M38 6 v10 h10 Z" fill="#cddcee" stroke="#255c99" stroke-width="1.4" stroke-linejoin="round"/>
+              <line x1="19" y1="30" x2="41" y2="30" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="19" y1="36" x2="41" y2="36" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="19" y1="42" x2="34" y2="42" stroke="#d9d4c8" stroke-width="2.2" stroke-linecap="round"/>
+              <rect x="14" y="47" width="36" height="12" rx="2" fill="#255c99"/>
+              <text x="32" y="55.5" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#ffffff" text-anchor="middle">DOCX</text>
+            </svg>
+          </div>
+          <div class="step-text">
+            <p>Vai alla pagina Trascrivi e seleziona il tuo modello IA, poi incolla la tua chiave API. Seleziona il tuo profilo del prompt, quindi esegui il controllo preliminare. Se il controllo preliminare è positivo, clicca su Conferma ed esegui e l'app elaborerà i tuoi file automaticamente. L'app mostrerà un avviso al termine dell'elaborazione del lotto. Segui la Console di avanzamento per lo stato del tuo lotto. Al termine, clicca sul pulsante Scarica documento.</p>
+            <div class="callout"><p><strong>Consiglio:</strong> Inizia sempre con un piccolo lotto di 1-3 file per verificare prima l'accuratezza del tuo prompt, prima di elaborare l'intero lotto.</p></div>
+          </div>
+        </li>
+        <li class="step-row">
+          <div class="step-icon">
+            <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+              <path d="M16 6 h22 l10 10 v36 a3 3 0 0 1 -3 3 H16 a3 3 0 0 1 -3 -3 V9 a3 3 0 0 1 3 -3 Z" fill="#ffffff" stroke="#2f9e5c" stroke-width="1.6"/>
+              <path d="M38 6 v10 h10 Z" fill="#d3f0df" stroke="#2f9e5c" stroke-width="1.4" stroke-linejoin="round"/>
+              <rect x="19" y="22" width="22" height="20" fill="none" stroke="#d9d4c8" stroke-width="1.6"/>
+              <line x1="19" y1="28.7" x2="41" y2="28.7" stroke="#d9d4c8" stroke-width="1.4"/>
+              <line x1="19" y1="35.3" x2="41" y2="35.3" stroke="#d9d4c8" stroke-width="1.4"/>
+              <line x1="26.3" y1="22" x2="26.3" y2="42" stroke="#d9d4c8" stroke-width="1.4"/>
+              <line x1="33.7" y1="22" x2="33.7" y2="42" stroke="#d9d4c8" stroke-width="1.4"/>
+              <rect x="14" y="47" width="36" height="12" rx="2" fill="#2f9e5c"/>
+              <text x="32" y="55.5" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#ffffff" text-anchor="middle">XLSX</text>
+            </svg>
+          </div>
+          <div class="step-text"><p>Quando la trascrizione è completata, controllala per assicurarti che tutto sia stato elaborato. Poi, vai alla pagina Conversione XLSX. Seleziona il modello IA e incolla la tua chiave API. Carica o trascina il tuo documento DOCX trascritto nel pannello, seleziona l'intervallo di trascrizione che desideri, scegli la lingua di output, esegui il controllo preliminare, poi clicca su Converti. Il tuo file di conversione XLSX verrà scaricato automaticamente.</p></div>
+        </li>
+      </ol>
+    </div>
+  </section>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
+</main>
+</body>
+</html>"""
+
+
+def getting_started_page() -> str:
+    """Full orientation content, in collapsible sections -- one <details> per
+    starred heading in the source doc the user supplied (Getting Started.rtf),
+    bilingual via the same data-lang-block pattern privacy_page()/home_page()
+    already use (static/i18n.js toggles [data-lang-block] visibility by the
+    lang cookie), since this is long narrative prose rather than short UI
+    strings i18n.js's dictionary-lookup approach is built for.
+
+    The section content itself lives in GETTING_STARTED.html/.it.html (plain
+    HTML fragments, not markdown -- unlike privacy_page()'s PRIVACY.md, there's
+    no markdown-to-HTML render step here) so it can be edited on its own
+    without touching this function's page shell (nav/CSS/footer). Read in and
+    substituted via plain string replace, not an f-string, since the CSS below
+    is full of literal `{`/`}` that would otherwise all need doubling."""
+    content_en = (PROJECT_DIR / "GETTING_STARTED.html").read_text(encoding="utf-8")
+    content_it = (PROJECT_DIR / "GETTING_STARTED.it.html").read_text(encoding="utf-8")
+    page = """<!doctype html>
+<html lang="en">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getting Started</title>
+  <script src="/static/i18n.js" defer></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+    body {
+      margin: 0;
+      background: #f7f5f0;
+      color: #1f2933;
+    }
+    main {
+      width: min(980px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 26px;
+    }
+    .site-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .site-heading {
+      display: grid;
+      gap: 4px;
+    }
+    .byline {
+      margin: 0;
+      color: #5f6b76;
+      font-size: 13px;
+    }
+    .byline-row {
+      display: flex;
+      align-items: center;
+      gap: 0 8px;
+      flex-wrap: wrap;
+    }
+    .lang-toggle {
+      display: inline-flex;
+      gap: 4px;
+    }
+    .lang-flag {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      padding: 1px 4px;
+      font-size: 15px;
+      line-height: 1.3;
+      cursor: pointer;
+    }
+    .lang-flag[aria-pressed="true"] {
+      border-color: #255c99;
+      background: #eef4fb;
+    }
+    .lang-flag:hover {
+      background: #eef4fb;
+    }
+    .lang-flag:focus-visible {
+      outline: 3px solid #255c99;
+      outline-offset: 1px;
+    }
+    .site-nav {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 4px;
+      align-items: center;
+    }
+    .nav-link {
+      display: inline-block;
+      padding: 8px 10px 7px;
+      border-bottom: 3px solid transparent;
+      color: #255c99;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .nav-link:hover {
+      border-bottom-color: #9eb8d7;
+      background: #eef4fb;
+      color: #173f6d;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .nav-link:focus-visible {
+      outline: 3px solid #255c99;
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+    .nav-home {
+      font-size: 17px;
+      padding: 6px 9px;
+    }
+    .skip-link {
+      position: absolute;
+      top: -43px;
+      left: 8px;
+      z-index: 100;
+      padding: 10px 16px;
+      background: #255c99;
+      color: #fff;
+      border-radius: 0 0 6px 6px;
+      text-decoration: none;
+      font-weight: 700;
+      transition: top 0.15s ease;
+    }
+    .skip-link:focus {
+      top: 0;
+    }
+    .panel p {
+      margin: 12px 0;
+    }
+    .license {
+      margin: 8px 0 0;
+      color: #5f6b76;
+      font-size: 12px;
+    }
+    .license a {
+      color: #255c99;
+    }
+    .gs-intro {
+      margin: 0 0 18px;
+      color: #5f6b76;
+    }
+    details.gs-section {
+      background: #ffffff;
+      border: 1px solid #d9d4c8;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 14px;
+    }
+    details.gs-section summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 17px;
+    }
+    details.gs-section summary::-webkit-details-marker {
+      display: none;
+    }
+    details.gs-section summary::before {
+      content: "\\25B8";
+      color: #255c99;
+      display: inline-block;
+      transition: transform 0.12s ease;
+    }
+    details.gs-section[open] summary::before {
+      transform: rotate(90deg);
+    }
+    .gs-body {
+      margin-top: 14px;
+    }
+    .gs-body p {
+      margin: 12px 0;
+    }
+    .gs-body ul, .gs-body ol {
+      margin: 12px 0;
+      padding-left: 24px;
+    }
+    .gs-body li {
+      margin: 6px 0;
+    }
+    .gs-body a {
+      color: #255c99;
+    }
+    .gs-example {
+      background: #f4f5f6;
+      border: 1px solid #d9d4c8;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    @media (max-width: 720px) {
+      .site-header { align-items: stretch; }
+    }
+    @media (max-width: 520px) {
+      .site-header { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content" tabindex="-1">
+  <header class="site-header">
+    <div class="site-heading">
+      <h1>Getting Started</h1>
+      <div class="byline-row">
+        <p class="byline">Created by Steve Covello, 2026</p>
+        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+        </div>
+      </div>
+    </div>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
+      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
+      <a class="nav-link" href="/transcribe">Transcribe</a>
+      <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
+      <a class="nav-link" href="/test-mode">Test Mode</a>
+    </nav>
+  </header>
+
+  <div data-lang-block="en">
+%%GETTING_STARTED_EN%%  </div>
+
+  <div data-lang-block="it" hidden>
+%%GETTING_STARTED_IT%%  </div>
+
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
+</main>
+</body>
+</html>"""
+    return page.replace("%%GETTING_STARTED_EN%%", content_en).replace("%%GETTING_STARTED_IT%%", content_it)
 
 
 def page() -> str:
@@ -2286,6 +2995,10 @@ def page() -> str:
       outline-offset: 2px;
       border-radius: 2px;
     }}
+    .nav-home {{
+      font-size: 17px;
+      padding: 6px 9px;
+    }}
     .nav-link[aria-current="page"] {{
       border-bottom-color: #255c99;
       background: #e5eef9;
@@ -2829,8 +3542,9 @@ def page() -> str:
       </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
       <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
-      <a class="nav-link" href="/" aria-current="page">Transcribe</a>
+      <a class="nav-link" href="/transcribe" aria-current="page">Transcribe</a>
       <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode">Test Mode</a>
     </nav>
@@ -2947,7 +3661,7 @@ def page() -> str:
     <button id="refresh-status-button" class="button-secondary" type="button">Refresh Status</button>
     <pre id="log">{escaped_log}</pre>
   </section>
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a></footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
 </main>
 </body>
 </html>"""
@@ -3698,6 +4412,10 @@ def test_mode_page() -> str:
       outline-offset: 2px;
       border-radius: 2px;
     }}
+    .nav-home {{
+      font-size: 17px;
+      padding: 6px 9px;
+    }}
     .nav-link[aria-current="page"] {{
       border-bottom-color: #255c99;
       background: #e5eef9;
@@ -4285,8 +5003,9 @@ def test_mode_page() -> str:
       </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
       <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
-      <a class="nav-link" href="/">Transcribe</a>
+      <a class="nav-link" href="/transcribe">Transcribe</a>
       <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode" aria-current="page">Test Mode</a>
     </nav>
@@ -4431,7 +5150,7 @@ def test_mode_page() -> str:
     <div id="progress-rows" class="progress-rows"></div>
     <pre id="log">{escaped_log}</pre>
   </section>
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a></footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
 </main>
 </body>
 </html>"""
@@ -4946,6 +5665,10 @@ def prompt_builder_page(
       outline-offset: 2px;
       border-radius: 2px;
     }}
+    .nav-home {{
+      font-size: 17px;
+      padding: 6px 9px;
+    }}
     .nav-link[aria-current="page"] {{
       border-bottom-color: #255c99;
       background: #e5eef9;
@@ -5099,26 +5822,37 @@ def prompt_builder_page(
     .license a {{
       color: #255c99;
     }}
+    .pb-top-split {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: stretch;
+      margin-bottom: 14px;
+    }}
+    .pb-top-panel {{
+      background: #eef4fb;
+      border: 1px solid #c7d9ec;
+      border-radius: 8px;
+      padding: 14px 18px;
+    }}
+    .pb-top-panel .panel-title,
+    .pb-top-panel > label {{
+      margin-top: 0;
+    }}
     .pb-toolbar {{
       display: flex;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       align-items: center;
       gap: 10px;
-      margin-bottom: 4px;
+      margin-bottom: 14px;
     }}
     .pb-toolbar button {{
       margin-top: 0;
       flex: 0 0 auto;
     }}
-    .pb-download-group {{
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-left: auto;
-      min-width: 0;
-    }}
-    .pb-download-group a {{
+    .pb-download-btn {{
       margin-top: 0;
+      flex: 0 0 auto;
       white-space: nowrap;
       display: inline-block;
       padding: 6px 10px;
@@ -5131,19 +5865,17 @@ def prompt_builder_page(
       text-decoration: none;
       cursor: pointer;
     }}
-    .pb-download-group a:hover {{
+    .pb-download-btn:hover {{
       filter: brightness(0.92);
     }}
-    .pb-download-group a:focus-visible {{
+    .pb-download-btn:focus-visible {{
       outline: 3px solid rgba(37, 92, 153, 0.32);
       outline-offset: 2px;
     }}
     .pb-download-caption {{
       font-size: 13px;
       color: #5f6b76;
-      text-align: right;
-      flex: 1 1 auto;
-      min-width: 0;
+      margin: 10px 0 0;
     }}
     .pb-banner {{
       padding: 12px 14px;
@@ -5160,16 +5892,6 @@ def prompt_builder_page(
       background: #fbeae7;
       color: #8a2c1d;
       border: 1px solid #eec3ba;
-    }}
-    .pb-load-bar {{
-      background: #eef4fb;
-      border: 1px solid #c7d9ec;
-      border-radius: 8px;
-      padding: 14px 18px;
-      margin-bottom: 14px;
-    }}
-    .pb-load-bar label {{
-      max-width: 420px;
     }}
     .pb-editing-status {{
       color: #255c99;
@@ -5604,11 +6326,8 @@ def prompt_builder_page(
       .pb-checklist-2col .pb-checkbox {{ white-space: normal; }}
       .pb-radio-group {{ flex-direction: column; flex-wrap: wrap; }}
       .pb-info-panel {{ max-width: calc(100vw - 60px); }}
-      .pb-toolbar {{ flex-wrap: wrap; }}
       .pb-ie-grid {{ grid-template-columns: 1fr; }}
-      .pb-download-group {{ margin-left: 0; flex-basis: 100%; flex-direction: column; align-items: stretch; }}
-      .pb-download-caption {{ text-align: left; max-width: none; flex: 0 0 auto; }}
-      .pb-download-group a {{ text-align: center; }}
+      .pb-top-split {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 520px) {{
       .site-header {{ flex-direction: column; }}
@@ -5638,8 +6357,9 @@ def prompt_builder_page(
       </div>
     </div>
     <nav class="site-nav" aria-label="Primary navigation">
+      <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
       <a class="nav-link" href="/prompt-builder" aria-current="page">Prompt Builder</a>
-      <a class="nav-link" href="/">Transcribe</a>
+      <a class="nav-link" href="/transcribe">Transcribe</a>
       <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
       <a class="nav-link" href="/test-mode">Test Mode</a>
     </nav>
@@ -5656,27 +6376,29 @@ def prompt_builder_page(
     <input type="hidden" name="edit_profile_id" id="pb-edit-profile-id" value="">
     <input type="hidden" name="pb_answers_json" id="pb-answers-json">
 
-    <div class="pb-load-bar" id="pb-load-bar">
-      <label>Load an existing profile to edit
-        <select id="pb-load-select">
-          <option value="">Select a profile</option>
-          {load_profile_options}
-        </select>
-      </label>
-      <p class="hint">Only profiles created or edited in Prompt Builder can be loaded here -- a profile written by hand or edited only on the Transcribe page's free-text editor isn't listed. Loading one fills in this questionnaire with its saved answers; saving updates that same profile unless you choose "Save as a new profile" below instead.</p>
-      <p class="hint pb-editing-status" id="pb-editing-status" hidden></p>
-    </div>
+    <div class="pb-top-split">
+      <div class="pb-top-panel pb-top-create">
+        <h2 class="panel-title">Create a new profile</h2>
+        <a id="pb-download-worksheets" class="pb-download-btn" href="/static/prompt-builder-worksheets/prompt-builder-worksheets-en.zip" download="prompt-builder-worksheets-en.zip">Download DOCX (ENG)</a>
+        <p class="pb-download-caption" id="pb-download-caption">Download DOCX templates of the questionnaire to complete offline, then copy your selections into the app.</p>
+      </div>
 
-    <h2 class="panel-title">Create a new profile</h2>
+      <div class="pb-top-panel" id="pb-load-bar">
+        <label>Load an existing profile to edit
+          <select id="pb-load-select">
+            <option value="">Select a profile</option>
+            {load_profile_options}
+          </select>
+        </label>
+        <p class="hint">Only profiles created or edited in the Prompt Builder can be edited here - custom profiles are excluded. Saving edits will update that same profile unless you choose "Save as a new profile" instead.</p>
+        <p class="hint pb-editing-status" id="pb-editing-status" hidden></p>
+      </div>
+    </div>
 
     <div class="pb-toolbar">
       <button type="button" id="pb-expand-all" class="button-tiny">Expand all</button>
       <button type="button" id="pb-collapse-all" class="button-tiny">Collapse all</button>
       <button type="button" id="pb-reset-form" class="button-tiny">Reset form</button>
-      <div class="pb-download-group">
-        <span class="pb-download-caption" id="pb-download-caption">Download DOCX templates of the questionnaire to complete offline, then copy your selections into the app.</span>
-        <a id="pb-download-worksheets" href="/static/prompt-builder-worksheets/prompt-builder-worksheets-en.zip" download="prompt-builder-worksheets-en.zip">Download DOCX (ENG)</a>
-      </div>
     </div>
 
     <details class="pb-section" open>
@@ -5853,13 +6575,19 @@ def prompt_builder_page(
       <div class="pb-example-entries">
         <span>Example entries{pb_info_button_html("pb-info-example-entries", "Each example is a verified, 100% accurate transcription of one real entry from this register, shown to the AI purely as a formatting and style reference -- never as content to copy. More than one example, especially covering different situations (a straightforward entry, one with an illegible word, one where a heading and body disagree), calibrates the AI's judgment better than a single example can. An optional label just helps you tell examples apart later -- e.g. in Preflight Test, if you add more than one.")}</span>
         <p class="hint">Paste in a completed 100% accurate entry in the native language of the sources for this project. This will be used as a critically important formatting reference for the AI to generate the proper output.</p>
-        <div id="pb-example-rows"></div>
+        <div id="pb-example-rows">
+          <div class="pb-row pb-example-row">
+            <input type="text" class="pb-example-label" placeholder="Label (optional), e.g. Image 193 Entry 1">
+            <textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea>
+            <button type="button" class="button-tiny pb-row-remove">Remove</button>
+          </div>
+        </div>
         <button type="button" id="pb-add-example" class="button-tiny">Add another example</button>
       </div>
 
       <div class="pb-preflight">
         <h3>Preflight Test <span class="pb-preflight-optional">(optional but recommended)</span></h3>
-        <p class="hint">For testing your prompt, upload the image that corresponds to the selected Example entry text above. The app will check your example against its source and offer suggestions to improve your prompt, if needed. Clicking "Run Preflight Test" first saves your current answers as a draft profile, so nothing is lost if something goes wrong.</p>
+        <p class="hint">For testing your prompt, upload the image or PDF that corresponds to the selected Example entry text above. JPEG, PNG, and PDF are all supported -- detected automatically from the file itself, so its filename doesn't need to say which one it is. The app will check your example against its source and offer suggestions to improve your prompt, if needed. Clicking "Run Preflight Test" first saves your current answers as a draft profile, so nothing is lost if something goes wrong.</p>
         <div class="row">
           <label>Model
             <select id="pb-preflight-model">
@@ -5868,10 +6596,10 @@ def prompt_builder_page(
           </label>
           <label>API key
             <input type="password" id="pb-preflight-api-key" autocomplete="off" placeholder="Paste your API key for this test">
-            <p class="hint">Used only for this browser session/request. It is not saved to the project files or the profile. Running a preflight test sends this key and your uploaded image directly to your chosen AI provider's API — see PRIVACY.md.</p>
+            <p class="hint">Used only for this browser session/request. It is not saved to the project files or the profile. Running a preflight test sends this key and your uploaded file directly to your chosen AI provider's API — see PRIVACY.md.</p>
           </label>
         </div>
-        <input type="file" id="pb-preflight-image" accept="image/jpeg,image/png">
+        <input type="file" id="pb-preflight-image" accept="image/jpeg,image/png,application/pdf">
         <label id="pb-preflight-example-row" hidden>Which example does this image show?
           <select id="pb-preflight-example-select"></select>
         </label>
@@ -5965,7 +6693,7 @@ def prompt_builder_page(
     </div>
   </details>
 
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a></footer>
+  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
 </main>
 </body>
 </html>"""
@@ -6650,6 +7378,10 @@ class Handler(BaseHTTPRequestHandler):
             self.status()
             return
 
+        if parsed.path == "/version":
+            self.respond_json({"version": APP_VERSION})
+            return
+
         if parsed.path == "/download":
             self.download()
             return
@@ -6664,6 +7396,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path in {"/privacy", "/privacy/"}:
             self.respond(privacy_page())
+            return
+
+        if parsed.path in {"/transcribe", "/transcribe/"}:
+            self.respond(page())
+            return
+
+        if parsed.path in {"/getting-started", "/getting-started/"}:
+            self.respond(getting_started_page())
             return
 
         if parsed.path == "/prompt-builder/export-profile":
@@ -6682,7 +7422,7 @@ class Handler(BaseHTTPRequestHandler):
             self.redirect_home()
             return
 
-        self.respond(page())
+        self.respond(home_page())
 
     def do_POST(self) -> None:
         if urllib.parse.urlparse(self.path).path == "/api/xls-conversion/upload":
@@ -7127,11 +7867,17 @@ class Handler(BaseHTTPRequestHandler):
 
             image_entry = files.get("image")
             if not image_entry or not image_entry[1]:
-                raise RuntimeError("Choose an image to upload before running the preflight test.")
-            filename, image_bytes = image_entry
-            suffix = Path(filename).suffix.lower()
-            if suffix not in {".jpg", ".jpeg", ".png"}:
-                raise RuntimeError("The preflight image must be a JPEG or PNG file.")
+                raise RuntimeError("Choose a file to upload before running the preflight test.")
+            _filename, image_bytes = image_entry
+            # Detected from the file's own leading bytes, not its filename --
+            # see sniff_file_type() in core.py. A renamed/mislabeled upload is
+            # still handled correctly (or cleanly rejected) instead of being
+            # sent to the AI provider tagged with whatever MIME type its
+            # extension happened to imply.
+            detected_type = sniff_file_type(image_bytes)
+            if detected_type is None:
+                raise RuntimeError("The preflight file must be a JPEG, PNG, or PDF.")
+            suffix = next(iter(FILE_TYPE_EXTENSIONS[detected_type]))
 
             example_entry = fields.get("example_entry", "").strip()
             if not example_entry:
@@ -7406,11 +8152,11 @@ class Handler(BaseHTTPRequestHandler):
     def reset(self) -> None:
         with lock:
             if state["running"]:
-                self.redirect_home()
+                self.redirect_transcribe()
                 return
         stop_event.clear()
         reset_ui_state()
-        self.redirect_home()
+        self.redirect_transcribe()
 
     def add_to_queue(self) -> None:
         with test_lock:
@@ -7761,6 +8507,11 @@ class Handler(BaseHTTPRequestHandler):
     def redirect_home(self) -> None:
         self.send_response(303)
         self.send_header("Location", "/")
+        self.end_headers()
+
+    def redirect_transcribe(self) -> None:
+        self.send_response(303)
+        self.send_header("Location", "/transcribe")
         self.end_headers()
 
     def redirect_test_mode(self) -> None:

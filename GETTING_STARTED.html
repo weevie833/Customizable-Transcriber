@@ -1,0 +1,91 @@
+  <details class="gs-section" open>
+    <summary>Prerequisites before starting</summary>
+    <div class="gs-body">
+      <ol>
+        <li>You must subscribe to a Google Gemini Pro account or an Anthropic Claude Pro account to use the app, because it requires a direct data connection to your AI system to process your files.</li>
+        <li>Go to Gemini's <a href="https://aistudio.google.com/api-keys" target="_blank" rel="noopener noreferrer">AI Studio</a> or <a href="https://platform.claude.com/dashboard" target="_blank" rel="noopener noreferrer">Claude's Platform dashboard</a> to create an API key. An API key is a password that lets the app use your Pro account to process files. Copy your API key and save it securely on your computer -- do not save it in an email or in an online file. Treat your API key like a private password.</li>
+        <li>In your Pro AI account, set up a billing method to pay for the token usage required to process image files. Token costs are generally very inexpensive, but they can add up quickly with large batches of files. Check your Pro account dashboard to monitor your usage so you don't run out of tokens in the middle of a batch. Most billing methods include an automatic replenish option.</li>
+      </ol>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>How does the app work using AI?</summary>
+    <div class="gs-body">
+      <p>The app uses AI to interpret your images, then transcribes them into digital text according to the rules you set in your prompt. That's why your prompt needs to be very explicit about what's in your files and what the content means. The <a href="/prompt-builder">Prompt Builder</a> is designed to help you build the strongest prompt possible.</p>
+      <p>In the footer area, you'll see a <a href="/privacy">Privacy</a> link that explains how data is used in the app, along with other security details.</p>
+      <p>The app processes images into digital text the same way as if you uploaded a single image into ChatGPT's, Claude's, or Gemini's chatbot -- except you have more control over how the image is interpreted. The app also lets you process a large batch of files without running into chat-length limitations (chatbots get "dumber" over the course of a long conversation). The prompt profile feature lets you reload and repeat the same process consistently and reliably.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>Preparing your project</summary>
+    <div class="gs-body">
+      <p>This section explains how to prepare your files for processing and how to put together some "ground truth" material for the AI to use as a reference. First, place your image files in a folder that's easy to find so you can select it later. Name each image with a descriptive term and a number, like this:</p>
+      <div class="gs-example">Chiusa Sclafani Battesimi_001.jpg
+Chiusa Sclafani Battesimi_002.jpg</div>
+      <p>The name of each file gets copied into the transcript and the index spreadsheet, so you can easily locate the original file for manual review. Avoid names like <em>image_201.jpg</em> -- you may have many other files in your collection with the same generic name. Several file-renaming utilities can do this very quickly; just search "file renamer app for Windows" or "file renamer app for Mac." They're often inexpensive and simple to use. Use the Sequence feature if it's OK to rename your files completely -- choose a three-digit numbering scheme if you have hundreds of files. If you need to keep part of your existing filenames, use the Prepend feature, then use Sequence to add numbers at the end.</p>
+      <p><strong>Content prep:</strong> The AI system needs examples of your content to use as a reference for predicting what it will find when it transcribes your images into digital text. At the top of the <a href="/prompt-builder">Prompt Builder</a> page, you'll see a "Download DOCX" button that downloads prompt profile worksheets for each type of content. The worksheets include sections where you can enter a manually transcribed example of your source material. Supplying 2-3 examples of accurate entries will help the AI system work more accurately.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>How does the Prompt Builder work?</summary>
+    <div class="gs-body">
+      <p>The first time you use the app, you need to create a prompt profile. On the <a href="/prompt-builder">Prompt Builder</a> page, look for "Create a new profile" and follow the instructions for each section. You'll also see a "Download DOCX" button that downloads prompt profile worksheets for each type of content. It's a good idea to work out all the details of your prompt profile in the DOCX before entering content into the Prompt Builder page -- it can take some time to put everything together:</p>
+      <ul>
+        <li>Reference guides for the format of your content.</li>
+        <li>Structural guides that show where key content is located in each entry.</li>
+        <li>Common abbreviations, terms, and other quirks unique to your material.</li>
+        <li>A list of surnames and given names for the region you're transcribing. This is very important -- it gives the AI system a lexicon to compare against the most likely interpretation of the scribe's handwritten script.</li>
+        <li>Editorial rules unique to your content (optional).</li>
+        <li>At least one fully transcribed and corrected example. This is very important for showing the AI system what a typical entry should look like. Add 2-3 examples if you can, using the "Add another example" button.</li>
+      </ul>
+      <p>Once you've assembled all the source material for your prompt in the DOCX worksheet, enter your content into the Prompt Builder. Try the Preflight Test to make sure your prompt is working -- it will also offer suggestions to improve your prompt. These are optional, but highly recommended.</p>
+      <p>Next, choose whether you want your transcript entries translated from their native language into Italian or English (or both). Note that this uses your AI account for the additional translation step.</p>
+      <p>Last, name your profile and save it. It will then appear throughout the rest of the app once you refresh the pages. Pro tip: always add a version number to your profile name, like "Chiusa Sclafani Battesimi V1," since you'll likely create multiple versions of your profiles over time.</p>
+      <p><strong>Updating your prompt profile:</strong> on the Prompt Builder page, in the top blue section, select your saved profile from the list. It will load all of its settings into the Prompt Builder. Change whatever you need, then scroll to the bottom and either click Update Profile to overwrite the profile you selected, or Save as New Profile to create a new version of it.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>How to generate a transcript</summary>
+    <div class="gs-body">
+      <p>On the <a href="/transcribe">Transcribe</a> page, select the source folder with your image files. If you're just starting a new project, place only 2-3 files in your source folder to test your prompt before running the entire batch.</p>
+      <p>Select your AI model and paste in your API key. Keep your API key somewhere secure on your computer -- never post it online or send it in an email. It's the same as a password. The app does not save your API key.</p>
+      <p>Select your preferred Process order, then select the file type that matches your collection of images.</p>
+      <p>Select your Prompt profile, then click Preflight Check to confirm your settings are correct. When you're ready, click Confirm and Run. The app processes your files in the order you selected. Watch the Progress Console at the bottom -- you'll get an alert when the batch is complete.</p>
+      <p>When the batch is complete, click Download Document, and a DOCX transcript will download to wherever your browser is set to save downloads.</p>
+      <p><strong>Note:</strong> Do not edit the header in the DOCX file. That data is used during XLSX conversion to automatically detect what kind of content is in your transcript.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>How to convert your transcript into a spreadsheet</summary>
+    <div class="gs-body">
+      <p>Once your transcript is complete and you've reviewed the DOCX file, you're ready to convert it into an XLSX spreadsheet index.</p>
+      <p>Go to the <a href="/xls-conversion">XLSX Conversion</a> page, select an AI model, and paste in your API key.</p>
+      <p>Upload or drag and drop your transcript DOCX file into the upload panel. The app automatically detects the type of content in your transcript, and the Source material menu sets itself to match.</p>
+      <p>In the "Choose the source material" panel, type in the image range you want converted, or check Process all. Use the image range if you want to skip certain images (because there's nothing in them) or test a range of entries before converting everything. The numbers in the image range refer to the image number at the end of the source image's filename, as copied into the start of each section of your transcript, for example:</p>
+      <div class="gs-example">START OF RECORD: San Mango D'Aquino Matrimoni_Book 18 Page_004.jpg</div>
+      <p>The image number for the record above is "004."</p>
+      <p>In the "Choose output languages" area, you can pick from whatever's available in the transcript. If the transcript has both a native-language version and a translation, you can convert one or both. Note that this step uses AI processing too, so more tasks means more cost.</p>
+      <p>Click Preflight to check your settings and confirm the AI system can detect the entries in your transcript. Review the results, then click Convert if everything looks right. If Preflight reports an error, you can stop and fix it, or override the error and proceed anyway.</p>
+      <p>The process takes a few minutes depending on how many entries need processing -- for very long transcripts, conversion can take up to 10 minutes.</p>
+      <p>When conversion is complete, an XLSX file downloads automatically to wherever your browser saves downloads. XLSX index files follow the indexing templates from the <a href="https://www.italianparishrecords.org/volunteer/indexing-civil-parish-records" target="_blank" rel="noopener noreferrer">Italian Parish Records</a> organization.</p>
+    </div>
+  </details>
+
+  <details class="gs-section">
+    <summary>Advanced Features</summary>
+    <div class="gs-body">
+      <p>On the <a href="/transcribe">Transcribe</a> page, look for the Manual Prompt Override section and expand it to see three fields: Role and local context, Ground truth and reference material, and Output format. You can paste in your own prompt manually, without using the Prompt Builder, and save it as a new custom profile. You can also load an existing prompt profile, edit it by hand, and save it. However, custom profiles can't be loaded back into the Prompt Builder for revision.</p>
+      <p>All prompt profiles are saved in a separate location on your computer, so they're preserved whenever you update the core software:</p>
+      <div class="gs-example">macOS: ~/Library/Application Support/Transcription Bot/
+Windows: %APPDATA%\Transcription Bot\
+Linux: ~/.local/share/Transcription Bot/ (respecting XDG_DATA_HOME if set)</div>
+      <p><strong>Sharing prompt profiles:</strong> at the bottom of the Prompt Builder page, look for the Import/Export Profiles section and expand it. Select a profile to export and click the download button. The profile is a plain text file -- it doesn't execute code -- so you can share it by email. You can import a shared profile using the Import a profile feature.</p>
+      <p><strong>Test Mode:</strong> <a href="/test-mode">Test Mode</a> lets you generate multiple transcripts of the same source material using different models, so you can compare how accurate each one is against an existing corrected transcript of the same material. You can create multiple batches with different model pairs and run them all automatically.</p>
+      <p>When processing is complete, use the Compare Results feature to compare your test transcripts against your corrected transcript. The app generates a report calculating the accuracy of each draft against the corrected version, based on a set of metrics -- each metric set includes an explanation of the figures and how they were derived.</p>
+    </div>
+  </details>

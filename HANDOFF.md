@@ -1,5 +1,51 @@
 # Customizable Transcription Interface Handoff
 
+## Committed 2026-08-31
+
+Everything in this file marked "Not yet committed" below (profiles/settings.json
+removal, rendi-* retirement, Chiusa Sclafani v3→v4, Import/Export Profiles, nav
+order + i18n audit, user profiles moved out of the repo) was committed and
+pushed to origin/main in this session, along with this session's own work:
+
+- **Prompt Builder Preflight Test now accepts PDF, not just JPEG/PNG** —
+  format is sniffed from the file's own leading bytes (`sniff_file_type()` in
+  `transcription_bot/core.py`), not trusted from the filename extension, so a
+  mislabeled upload is handled correctly instead of silently sent to the AI
+  provider under the wrong MIME type.
+- **Prompt Builder's top panel redesigned**: "Create a new profile" and "Load
+  an existing profile to edit" are now side-by-side equal-height panels
+  (`.pb-top-split`); Expand all/Collapse all/Reset form moved to their own row
+  above Section 1; Download DOCX floated up under the Create panel's title.
+- **Getting Started page (`/getting-started`) built out** from a placeholder
+  stub to full bilingual content — 7 collapsible sections, content sourced
+  from `GETTING_STARTED.html`/`GETTING_STARTED.it.html` (new files at the repo
+  root, plain HTML fragments) rather than inline in `app.py`, specifically so
+  the user can edit the text directly without touching page-shell code. Links
+  to AI Studio/Claude's Platform dashboard match the homepage Overview's
+  hrefs; the Italian Parish Records mention links to their indexing-guide URL.
+- **Version number added to every page's footer**, after the Privacy link.
+  Single source of truth is a new root `VERSION` file (SemVer, currently
+  `0.1.0`), served via `GET /version` and filled into `#app-version` by
+  `static/i18n.js` on every page load — including the static
+  `xls_conversion/index.html`, which has no Python templating of its own.
+  Deliberately not git-derived (commit hash/tag): real end users run a
+  downloaded-and-unzipped copy with no `.git` directory. **Convention going
+  forward: bump `VERSION` per SemVer (MAJOR.MINOR.PATCH) as part of each
+  commit to main** — saved as a standing memory so this isn't forgotten.
+
+## To-Do — Next Session
+
+**Test Mode: add XLSX comparison, not just DOCX.** Test Mode currently only
+compares candidate *transcripts* (DOCX) against a corrected DOCX — see
+`test_mode/comparison.py`'s `score_transcription()`. The ask is to extend
+Test Mode so it can also compare the *XLSX conversion output* (spreadsheet
+index rows produced by `xls_conversion/ai_parser.py`) against a corrected
+XLSX, not just the transcription stage. Needs scoping next session: what a
+row-level/cell-level accuracy metric looks like for a spreadsheet (vs.
+CER/WER for text), how it fits into the existing batch/model-pair UI, and
+whether it's a new comparison mode alongside the DOCX one or a second stage
+after it.
+
 ## Done this session (2026-08-30): profiles/settings.json removed
 
 User asked what it was for. Traced every read site: it was write-only in
@@ -206,7 +252,7 @@ distributing to non-Mac users.
 
 It creates timestamped `.docx` output in `outputs/` and also writes an intermediate timestamped `.md` file.
 
-Current development is saved locally as WIP/dev only. Do not commit or push this state to GitHub until the user explicitly asks.
+Commit/push policy: only when the user explicitly asks (see CLAUDE.md's global instructions) — not a blanket "never commit."
 
 ## Current Workflow
 

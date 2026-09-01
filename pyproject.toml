@@ -1,0 +1,19 @@
+[project]
+name = "customizable-transcription"
+version = "0.3.0"
+description = "Local web app that sends archival page images to Gemini or Claude, writes a plain-text transcription, and exports .docx; a separate XLS Conversion tool turns that text into a spreadsheet."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+
+# Pinned/floored dependency versions live in requirements.txt, not here --
+# this app is run in place (`python3 app.py`), never built or installed as a
+# package, so requirements.txt (already read by "pip install -r
+# requirements.txt" in README's Setup section) stays the single source of
+# truth for what to install. This file exists so tooling (pip, IDEs, CI) has
+# a formal `requires-python` floor to check against, and so the project has
+# one declared identity/version instead of only the bare VERSION file app.py
+# reads at runtime for its footer.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

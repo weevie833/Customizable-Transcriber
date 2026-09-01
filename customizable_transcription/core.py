@@ -51,7 +51,47 @@ def sniff_file_type(data: bytes) -> str | None:
         if data.startswith(signature):
             return file_type
     return None
+# Single source of truth for every model id/label the app offers, in every
+# dropdown (Transcribe, Test Mode, Prompt Builder, XLS Conversion) and every
+# DOCX/report label that names a model. Lives here (not app.py, where it
+# used to be defined) so test_mode/report_docx.py can use it too without
+# creating an app.py <-> test_mode circular import -- app.py already imports
+# from this module for DEFAULT_MODEL/provider_for_model() etc., and
+# test_mode/report_docx.py only needs this one dict, not anything else from
+# app.py.
+MODELS = {
+    "gemini-3.7-flash": "Gemini 3.7 Flash - latest balanced speed / intelligence",
+    "gemini-3.6-flash": "Gemini 3.6 Flash - previous balanced speed / intelligence",
+    "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - higher accuracy",
+    "gemini-2.5-pro": "Gemini 2.5 Pro - stable, high-accuracy baseline",
+    "claude-opus-5": "Claude Opus 5 - highest accuracy",
+    "claude-sonnet-5": "Claude Sonnet 5 - balanced speed / intelligence",
+    "claude-haiku-4-5-20251001": "Claude Haiku 4.5 - fastest, lower cost",
+}
+
+# Reverted from gemini-2.5-pro back to the preview model, 2026-09, on the
+# user's own explicit instruction after their Test Mode comparisons showed
+# gemini-3.1-pro-preview producing meaningfully better transcriptions.
+# Accepted knowingly, not overlooked: this is Google's only Gemini 3.1 Pro
+# release -- there is no separate, non-preview "Gemini 3.1 Pro" to fall back
+# to (confirmed against Google's own model docs, which list only
+# gemini-3.1-pro-preview and a -customtools variant under Gemini 3.1 Pro) --
+# so the preview-deprecation risk the gemini-2.5-pro default was chosen to
+# avoid is real and still applies. If Google deprecates this model, every
+# profile/run relying on this default breaks until DEFAULT_MODEL is updated
+# again; gemini-2.5-pro remains in MODELS above as the fallback to switch
+# back to. Users who want the stable baseline instead can still select
+# "Gemini 2.5 Pro" from the model dropdown.
 DEFAULT_MODEL = "gemini-3.1-pro-preview"
+# A per-call bound for the real Transcribe/Test Mode batch, not the tight
+# PREFLIGHT_TIMEOUT_SECONDS-style bound app.py uses for a single foreground
+# call. Genuinely slow-but-working images are common and shouldn't be
+# aborted, but with no bound at all a fully hung connection can never be
+# interrupted -- Stop only takes effect between images, so one dead request
+# would otherwise wait forever rather than surfacing as a single failed
+# image and letting the batch continue. 10 minutes is long enough that a
+# real response essentially always arrives well before it.
+BATCH_REQUEST_TIMEOUT_SECONDS = 600
 USER_INSTRUCTION = "Transcribe and translate this document word-for-word."
 MONTHS = {
     "jan": 1,
@@ -273,7 +313,11 @@ def count_source_files_by_type(folder: Path) -> dict[str, int]:
 
 
 def default_output_file(project_dir: Path) -> Path:
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Microsecond precision, not just seconds -- defense in depth alongside
+    # the atomic run-slot reservation in app.py's /run and /test-mode/run
+    # handlers, which is what actually prevents two overlapping jobs from
+    # ever computing this stamp at the same moment in the first place.
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     return project_dir / "outputs" / f"transcription-{stamp}.md"
 
 
@@ -290,13 +334,17 @@ def make_client(
     api_key_override: str | None = None,
     timeout_seconds: float | None = None,
 ) -> LLMClient:
-    # timeout_seconds is None for every existing caller (run_batch(), via the
-    # real Transcribe page) -- a real batch run is a long-lived background job
-    # with its own per-image progress log, and deliberately gives the provider
-    # unlimited patience rather than aborting a slow-but-working image. Only
-    # Prompt Builder's Preflight Test (app.py) passes a real value, since that
-    # call blocks a single foreground request and a hung connection there has
-    # no progress log to fall back on -- see preflight_test_prompt_builder().
+    # run_batch() passes BATCH_REQUEST_TIMEOUT_SECONDS (a generous per-call
+    # bound, not a per-batch one -- see its own comment) since a real batch
+    # run is a long-lived background job with its own per-image progress log
+    # and can tolerate a genuinely slow-but-working image; it just can't
+    # tolerate a connection that never returns at all, since Stop only takes
+    # effect between images. Prompt Builder's Preflight Test (app.py) passes
+    # its own, much tighter value, since that call blocks a single foreground
+    # request with no progress log to fall back on -- see
+    # preflight_test_prompt_builder(). Any other caller that omits
+    # timeout_seconds entirely (e.g. validate_api_key()'s quick key check)
+    # gets the SDK's own default behavior.
     provider = provider_for_model(model)
     if provider == "claude":
         key = (api_key_override or "").strip() or claude_api_key(project_dir)
@@ -505,7 +553,9 @@ def run_batch(
             progress(message)
 
     log(f"Found {len(files)} source file(s).")
-    client = make_client(project_dir, config.model, config.api_key_override)
+    client = make_client(
+        project_dir, config.model, config.api_key_override, timeout_seconds=BATCH_REQUEST_TIMEOUT_SECONDS
+    )
     results: list[ImageResult] = []
 
     with config.output_file.open("w", encoding="utf-8") as output:

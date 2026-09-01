@@ -46,6 +46,36 @@
   const downloadRowsEl = document.getElementById("downloadRows");
   const recordType = document.getElementById("recordType");
 
+  // Single source of truth for the model list lives in app.py's MODELS dict
+  // -- Transcribe/Test Mode/Prompt Builder build their <select> from it
+  // server-side, but this page is a static asset with no Python templating,
+  // so it used to keep its own hand-typed copy of the same list. That copy
+  // drifted (a model app.py had was missing here, or vice versa); fetching
+  // it at load time instead means there is exactly one place to update.
+  let defaultModelId = "";
+
+  async function loadModelOptions() {
+    try {
+      const response = await fetch("/api/models", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const models = Array.isArray(data.models) ? data.models : [];
+      if (!models.length) throw new Error("empty model list");
+      geminiModel.innerHTML = "";
+      models.forEach(({ id, label }) => {
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = label;
+        geminiModel.appendChild(option);
+      });
+      defaultModelId = typeof data.default === "string" && data.default ? data.default : models[0].id;
+      geminiModel.value = defaultModelId;
+    } catch (err) {
+      setMessage("Could not load the model list from the server. Reload the page to try again.", true);
+    }
+  }
+  loadModelOptions();
+
   sourceFile.addEventListener("change", uploadSource);
   ["dragenter", "dragover"].forEach((eventName) => {
     uploadBox.addEventListener(eventName, (event) => {
@@ -366,11 +396,22 @@
       }
       return numbers.size;
     }
-    return parseImageRangeClientSide(imageRange.value.trim()).length;
+    return countImageRangeClientSide(imageRange.value.trim());
   }
 
-  function parseImageRangeClientSide(value) {
-    const images = new Set();
+  // Mirrors the server's parse_image_range() caps (xls_conversion/ai_parser.py)
+  // so a typo like "1-1000000000" gets an instant, capped estimate here
+  // instead of the tab looping toward a billion Set insertions. Counts
+  // arithmetically -- never materializes the individual image numbers, since
+  // this is only ever used for the on-screen "Estimated: ~N images" figure;
+  // the actual range string is what's sent to the server, which does its own
+  // real (and also capped) expansion and de-duplication.
+  const MAX_IMAGE_RANGE_SPAN_ESTIMATE = 5000;
+  const MAX_IMAGES_PER_REQUEST_ESTIMATE = 5000;
+
+  function countImageRangeClientSide(value) {
+    const singles = new Set();
+    let rangeTotal = 0;
     (value || "").split(",").forEach((part) => {
       const trimmed = part.trim();
       if (!trimmed) return;
@@ -378,12 +419,13 @@
       if (rangeMatch) {
         const start = parseInt(rangeMatch[1], 10);
         const end = parseInt(rangeMatch[2], 10);
-        for (let n = start; n <= end; n += 1) images.add(String(n));
+        if (end < start) return;
+        rangeTotal += Math.min(end - start + 1, MAX_IMAGE_RANGE_SPAN_ESTIMATE);
       } else if (/^\d+$/.test(trimmed)) {
-        images.add(trimmed);
+        singles.add(trimmed);
       }
     });
-    return Array.from(images);
+    return Math.min(singles.size + rangeTotal, MAX_IMAGES_PER_REQUEST_ESTIMATE);
   }
 
   function currentLanguageCountForEstimate() {
@@ -849,7 +891,7 @@
     imageRange.value = "";
     imageRange.disabled = false;
     processAll.checked = false;
-    geminiModel.value = "gemini-3.1-pro-preview";
+    if (defaultModelId) geminiModel.value = defaultModelId;
     geminiApiKey.value = "";
     clearSource();
     invalidatePreflight();

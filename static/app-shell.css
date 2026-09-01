@@ -1,0 +1,386 @@
+/* CSS shared between the Transcribe and Test Mode pages specifically --
+   not universal enough for base.css (Prompt Builder/Home/Privacy/Getting
+   Started don't use most of these: run controls, the profile editor, the
+   settings-alert modal, the download link, the progress spinner). See
+   CLAUDE.md's app.py-modularization section. Transcribe and Test Mode are
+   near-twin pages by design (same nav, same profile editor, same run
+   controls shape), which is why ~90% of their combined CSS turned out to
+   be exactly this file. */
+
+.nav-link[aria-current="page"] {
+  border-bottom-color: #255c99;
+  background: #e5eef9;
+  color: #173f6d;
+  font-weight: 750;
+  text-decoration: none;
+}
+form, .panel {
+  background: #ffffff;
+  border: 1px solid #d9d4c8;
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 18px;
+}
+label {
+  display: block;
+  font-weight: 650;
+  margin-top: 14px;
+}
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+legend {
+  display: block;
+  padding: 0;
+  font-weight: 650;
+  margin-top: 14px;
+}
+input[type="text"], input[type="password"], input[type="number"], select, textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid #8a8377;
+  border-radius: 6px;
+  font: inherit;
+  background: #fff;
+  color: #1f2933;
+}
+.path-control-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 6px;
+}
+.path-control-row button {
+  margin-top: 0;
+  white-space: nowrap;
+  background: #53616f;
+}
+.path-control-row button.button-tiny {
+  background: #fff;
+}
+.path-control-row .path-display {
+  margin-top: 0;
+}
+.path-manual-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+}
+.path-manual-row[hidden] {
+  display: none;
+}
+.path-manual-row button {
+  white-space: nowrap;
+  background: #53616f;
+}
+.path-display {
+  min-height: 22px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  color: #4b5563;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+.path-display[data-selected="false"] {
+  color: #5f6b76;
+  font-style: italic;
+}
+textarea {
+  min-height: 140px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.hint {
+  margin: 6px 0 0;
+  color: #5f6b76;
+  font-size: 13px;
+  font-weight: 400;
+}
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.run-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+.profile-save-row, .profile-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.profile-save-row button, .profile-select-row button {
+  margin-top: 6px;
+  white-space: nowrap;
+}
+.radio-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.radio-option input {
+  margin: 0;
+}
+button {
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: #255c99;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+button:not(:disabled):hover, .button-label:hover, .download:hover {
+  filter: brightness(0.92);
+}
+button:not(:disabled):focus-visible, .button-label:focus-visible, .download:focus-visible {
+  outline: 3px solid rgba(37, 92, 153, 0.32);
+  outline-offset: 2px;
+}
+#reset-button, #profile-save-button, #refresh-status-button {
+  background: #255c99;
+}
+#reset-button:not(:disabled):hover, #profile-save-button:not(:disabled):hover, #refresh-status-button:not(:disabled):hover {
+  background: #1f4d80;
+  filter: none;
+}
+#run-button {
+  background: #22863a;
+}
+#run-button:not(:disabled):hover {
+  background: #176f2c;
+}
+#run-button:disabled, #confirm-run-button:disabled {
+  background: #8d99a6;
+  color: #eef2f6;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.run-actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 22px;
+}
+.run-button-stack {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+}
+.run-button-stack button {
+  width: 200px;
+  margin-top: 0;
+}
+.run-confirmation {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-content: flex-start;
+  align-items: flex-start;
+  min-height: 72px;
+  margin-top: 0;
+  padding: 10px 12px;
+  border: 1px solid #d9d4c8;
+  border-radius: 6px;
+  background: #fbfaf7;
+  color: #1f2933;
+  font-size: 13px;
+}
+.profile-work-area {
+  margin: 20px -18px -18px;
+  padding: 18px;
+  border-top: 1px solid #d9d4c8;
+  border-radius: 0 0 8px 8px;
+  background: #f4f5f6;
+}
+.profile-work-area > .hint:first-child {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+.profile-work-area > .hint:first-child + label {
+  margin-top: 0;
+}
+.run-confirmation-settings[hidden] {
+  display: none;
+}
+.run-confirmation-title {
+  font-weight: 700;
+}
+.run-confirmation-settings {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: #4b5563;
+}
+#confirm-run-button {
+  margin-top: 0;
+  background: #22863a;
+}
+.settings-alert {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(31, 41, 51, 0.34);
+}
+.settings-alert[hidden] {
+  display: none;
+}
+.settings-alert-box {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid #d9d4c8;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgba(31, 41, 51, 0.24);
+  text-align: center;
+}
+.settings-alert-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 750;
+}
+.settings-alert-message {
+  margin: 0;
+  color: #4b5563;
+}
+#settings-alert-close {
+  margin-top: 16px;
+}
+.run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+  color: #37546b;
+  font-size: 13px;
+  font-weight: 650;
+}
+.run-status[hidden] {
+  display: none;
+}
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #b8c2cc;
+  border-top-color: #22863a;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.actions form {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.danger {
+  background: #a33a2b;
+}
+.download-note {
+  color: #5f6b76;
+  font-size: 13px;
+}
+.button-label, .download {
+  display: inline-block;
+  margin-top: 0;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: #53616f;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.download {
+  background: #22863a;
+}
+.download:not(.disabled-link):hover {
+  background: #176f2c;
+  filter: none;
+}
+.download.disabled-link {
+  background: #8d99a6;
+  color: #eef2f6;
+  cursor: not-allowed;
+  opacity: 0.72;
+  pointer-events: none;
+}
+.button-secondary {
+  margin-top: 8px;
+  background: #255c99;
+}
+button:disabled {
+  background: #8d99a6;
+  cursor: not-allowed;
+}
+.button-tiny {
+  margin-top: 10px;
+  padding: 5px 10px;
+  border: 1px solid #255c99;
+  background: #fff;
+  color: #255c99;
+  font-size: 12px;
+  font-weight: 650;
+}
+.button-tiny:not(:disabled):hover {
+  background: #eef4fb;
+  filter: none;
+}
+pre {
+  min-height: 150px;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: #15191f;
+  color: #e8edf2;
+  border-radius: 8px;
+  padding: 14px;
+}
+.summary {
+  color: #37546b;
+  font-weight: 650;
+}
+.panel-title {
+  margin: 0 0 10px;
+  font-size: 16px;
+}

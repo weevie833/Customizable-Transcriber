@@ -19,6 +19,43 @@ BATTESIMI_COLUMN_WIDTHS = [
     11, 19, 19, 32, 19, 19, 32, 34, 26, 42,
 ]
 
+# Excel/OOXML forbidden sheet-name characters -- writing one of these raw into
+# workbook.xml's <sheet name="..."> attribute produces a file Excel and
+# openpyxl both refuse to open (reproduced: `Battesimi (Latin/Italian)` raises
+# "Invalid character / found in sheet title" the moment openpyxl re-reads a
+# hand-written file containing it -- combine_language_xlsx() in ai_parser.py
+# builds names from an AI-detected language string, which is exactly the kind
+# of value that can contain one of these unpredictably). escape() elsewhere in
+# this module handles XML-escaping (`<`, `&`, `"`) but has nothing to do with
+# this -- these are additional characters Excel itself treats as reserved
+# regardless of XML validity.
+_SHEET_NAME_FORBIDDEN = re.compile(r"[\[\]:*?/\\]")
+_SHEET_NAME_MAX_LENGTH = 31
+
+
+def sanitize_sheet_name(name: str, used: Iterable[str] = ()) -> str:
+    """Coerce an arbitrary string (e.g. an AI-detected language name) into a
+    name Excel will actually accept: forbidden characters stripped, leading/
+    trailing apostrophes removed (Excel also rejects a name that starts or
+    ends with one), truncated to the 31-character hard limit, and
+    de-duplicated case-insensitively against `used` -- matching Excel's own
+    case-insensitive sheet-name comparison -- by appending a numeric suffix
+    that itself respects the 31-character limit."""
+    cleaned = _SHEET_NAME_FORBIDDEN.sub("", str(name or "")).strip().strip("'")
+    cleaned = cleaned[:_SHEET_NAME_MAX_LENGTH] or "Sheet"
+
+    used_lower = {existing.lower() for existing in used}
+    if cleaned.lower() not in used_lower:
+        return cleaned
+
+    suffix = 2
+    while True:
+        tag = f" {suffix}"
+        candidate = cleaned[: _SHEET_NAME_MAX_LENGTH - len(tag)] + tag
+        if candidate.lower() not in used_lower:
+            return candidate
+        suffix += 1
+
 
 @dataclass(frozen=True)
 class SheetSpec:
@@ -102,12 +139,15 @@ def rows_to_xlsx_multi(sheets: Sequence[SheetSpec]) -> bytes:
         raise ValueError("rows_to_xlsx_multi requires at least one sheet.")
 
     sheet_entries: list[tuple[int, str, str]] = []
+    used_names: list[str] = []
     for index, spec in enumerate(sheets, start=1):
+        name = sanitize_sheet_name(spec.sheet_name, used_names)
+        used_names.append(name)
         data_rows = [[row.get(field, "") for field in spec.fields] for row in spec.rows]
         all_rows = [list(spec.group_headers), list(spec.column_headers), *data_rows]
         widths = list(spec.column_widths) if spec.column_widths is not None else BATTESIMI_COLUMN_WIDTHS
         worksheet_xml = _worksheet_xml(all_rows, spec.numeric_columns, spec.padded_column, widths)
-        sheet_entries.append((index, spec.sheet_name, worksheet_xml))
+        sheet_entries.append((index, name, worksheet_xml))
 
     content_type_overrides = "\n".join(
         f'  <Override PartName="/xl/worksheets/sheet{index}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'

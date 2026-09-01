@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import random
 import re
 import time
 from collections.abc import Iterable
@@ -11,6 +12,7 @@ from typing import Callable
 import anthropic
 import httpx
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from customizable_transcription.core import provider_for_model
 from xls_conversion.spreadsheet_export import SheetSpec, rows_to_csv, rows_to_xlsx, rows_to_xlsx_multi
@@ -817,6 +819,16 @@ def normalize_image_number(value: str) -> str:
     return value.zfill(max(3, len(value))) if value.isdigit() else value
 
 
+# A typo like "1-1000000000" (or a stray extra zero) used to be expanded
+# into a literal Python list of that many strings before anything else got a
+# chance to validate it -- hundreds of millions of elements, enough to stall
+# the request and pressure server memory well before the "no images found"
+# error a smaller mistake would trigger. These bound any single "start-end"
+# span and the total after de-duplication across every comma-separated part.
+MAX_IMAGE_RANGE_SPAN = 5000
+MAX_IMAGES_PER_REQUEST = 5000
+
+
 def parse_image_range(value: str) -> list[str]:
     images: list[str] = []
     for part in str(value or "").split(","):
@@ -826,10 +838,24 @@ def parse_image_range(value: str) -> list[str]:
         range_match = re.fullmatch(r"(\d+)\s*-\s*(\d+)", part)
         if range_match:
             start, end = int(range_match.group(1)), int(range_match.group(2))
+            if end < start:
+                raise RuntimeError(f'Image range "{part}" ends before it starts.')
+            span = end - start + 1
+            if span > MAX_IMAGE_RANGE_SPAN:
+                raise RuntimeError(
+                    f'Image range "{part}" covers {span} images, more than the '
+                    f"{MAX_IMAGE_RANGE_SPAN}-image limit for a single range."
+                )
             width = max(3, len(range_match.group(1)), len(range_match.group(2)))
             images.extend(str(number).zfill(width) for number in range(start, end + 1))
         elif part.isdigit():
             images.append(normalize_image_number(part))
+        else:
+            raise RuntimeError(f'"{part}" is not a valid image number or range (e.g. "3" or "12-18").')
+        if len(images) > MAX_IMAGES_PER_REQUEST:
+            raise RuntimeError(
+                f"That selection covers more than {MAX_IMAGES_PER_REQUEST} images total; narrow the range."
+            )
     return list(dict.fromkeys(images))
 
 
@@ -1027,7 +1053,52 @@ def call_claude_json(
     return _parse_json_response(raw)
 
 
+# A 429 (rate limit) or 5xx (provider-side overload/outage) is a transient
+# failure worth a short retry, not a reason to give up on this image or abort
+# the rest of the batch -- both are common on the sequential per-image calls
+# parse_generic()'s loop makes and usually clear up within a few seconds.
+# MAX_TRANSIENT_RETRIES bounds that to a handful of attempts with capped
+# exponential backoff plus jitter (spreads retries out so a whole batch
+# retrying in lockstep doesn't itself look like a burst to the provider).
+MAX_TRANSIENT_RETRIES = 3
+RETRY_BASE_DELAY_SECONDS = 1.0
+RETRY_MAX_DELAY_SECONDS = 20.0
+
+
+def _is_transient_provider_error(exc: Exception) -> bool:
+    if isinstance(exc, anthropic.APIConnectionError):
+        return True
+    if isinstance(exc, anthropic.APIStatusError):
+        return exc.status_code == 429 or exc.status_code >= 500
+    if isinstance(exc, genai_errors.APIError):
+        return exc.code == 429 or exc.code >= 500
+    return False
+
+
 def call_ai_json(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_message: str,
+) -> object:
+    attempt = 0
+    while True:
+        try:
+            return _call_ai_json_once(api_key, model, system_prompt, user_message)
+        except Exception as exc:
+            if not _is_transient_provider_error(exc) or attempt >= MAX_TRANSIENT_RETRIES:
+                raise
+            delay = min(RETRY_BASE_DELAY_SECONDS * (2**attempt), RETRY_MAX_DELAY_SECONDS)
+            delay += random.uniform(0, delay * 0.25)
+            print(
+                f"[xls-conversion] {model} transient error ({exc}); "
+                f"retry {attempt + 1}/{MAX_TRANSIENT_RETRIES} in {delay:.1f}s"
+            )
+            time.sleep(delay)
+            attempt += 1
+
+
+def _call_ai_json_once(
     api_key: str,
     model: str,
     system_prompt: str,
@@ -1344,10 +1415,18 @@ def parse_generic(
         )
         try:
             records = call_ai(api_key, model, system_prompt, user_message)
-        except RuntimeError:
+        except Exception as exc:
+            # Catches more than RuntimeError deliberately: call_ai_json()
+            # re-raises the provider SDK's own exception type as-is for
+            # anything that isn't a timeout or an already-exhausted transient
+            # retry (a 429, a malformed-response edge case, an SDK-specific
+            # error) -- narrowing this to RuntimeError only let one such
+            # image abort the entire remaining batch instead of being
+            # recorded as a single failed image like every other failure
+            # mode here.
             if index == 0:
                 raise
-            exceptions.append(f"Image {image_number or 'unknown'}: AI extraction failed.")
+            exceptions.append(f"Image {image_number or 'unknown'}: AI extraction failed ({exc}).")
             continue
         normalized = normalize_rows(config, records, image_number)
         rows.extend(normalized)
@@ -1435,26 +1514,24 @@ def combine_language_xlsx(
     config = RECORD_TYPES.get(record_type)
     if not config:
         raise RuntimeError(f"AI extraction for {record_type} is not configured yet.")
-    used_names: set[str] = set()
-    specs: list[SheetSpec] = []
-    for language, rows in sheets:
-        name = f"{config.sheet_name} ({language})"[:31]
-        suffix = 2
-        while name in used_names:
-            name = f"{config.sheet_name} ({language}) {suffix}"[:31]
-            suffix += 1
-        used_names.add(name)
-        specs.append(
-            SheetSpec(
-                group_headers=config.group_headers,
-                column_headers=config.column_headers,
-                fields=config.fields,
-                rows=rows,
-                sheet_name=name,
-                numeric_columns=config.numeric_columns,
-                padded_column=config.padded_column,
-                column_widths=list(config.column_widths),
-            )
+    # sheet_name here is only ever a candidate: rows_to_xlsx_multi() (via
+    # sanitize_sheet_name() in spreadsheet_export.py) strips characters Excel
+    # forbids in a sheet name, truncates to 31 characters, and de-duplicates
+    # -- necessary because `language` is an AI-detected string (e.g. "Latin/
+    # Italian") that can legally contain any of those forbidden characters,
+    # and a naive f-string + [:31] here had no way to know that.
+    specs: list[SheetSpec] = [
+        SheetSpec(
+            group_headers=config.group_headers,
+            column_headers=config.column_headers,
+            fields=config.fields,
+            rows=rows,
+            sheet_name=f"{config.sheet_name} ({language})",
+            numeric_columns=config.numeric_columns,
+            padded_column=config.padded_column,
+            column_widths=list(config.column_widths),
         )
+        for language, rows in sheets
+    ]
     xlsx_bytes = rows_to_xlsx_multi(specs)
     return base64.b64encode(xlsx_bytes).decode("ascii")

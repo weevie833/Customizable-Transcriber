@@ -1,5 +1,5 @@
 /*
- * Client-side EN/IT toggle for the Transcription Bot UI.
+ * Client-side EN/IT toggle for the Customizable Transcription UI.
  *
  * Scope: static UI chrome only (headings, nav, labels, buttons, hints,
  * placeholders, footers). It does NOT translate: user-entered profile

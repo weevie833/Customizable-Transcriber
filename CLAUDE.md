@@ -1,21 +1,74 @@
-# Transcription Bot — working context
+# Customizable Transcription — working context
 
 Local Python web app that sends archival page images to Gemini, writes a plain-text
 transcription, and exports `.docx`. A separate browser tool then converts that text
-into a spreadsheet for a human indexer.
+into a spreadsheet for a human indexer. Formerly named "Transcription Bot" — see
+"Product rename" below.
 
-Launch: `cd path/to/Transcription-Bot && .venv/bin/python app.py`
+Launch: `cd path/to/Customizable-Transcription && .venv/bin/python app.py`
 → http://127.0.0.1:8765
 
 See `HANDOFF.md` for app/UI state. **Do not commit or push without being asked.**
 
+## Product rename: "Transcription Bot" → "Customizable Transcription"
+
+The app and its GitHub repo were originally named "Transcription Bot"; the
+user asked for a full rebrand to "Customizable Transcription" (GitHub repo
+slug: `Customizable-Transcription`, hyphenated since GitHub names can't
+contain spaces). This touched more than docs — several things were real
+functional identifiers, not just prose:
+
+- **Python package renamed**: `transcription_bot/` → `customizable_transcription/`
+  (directory + all imports across `app.py`, `xls_conversion/ai_parser.py`,
+  `xls_conversion/tests/run_parser_test.py`, and the self-referential path in
+  `core.py`'s own truncation-notice string, which is user-visible text
+  embedded in DOCX output, not just a comment).
+- **User-data directory renamed** (`~/Library/Application Support/Transcription
+  Bot/` → `.../Customizable Transcription/`, and the Windows/Linux
+  equivalents). This holds every saved profile, so a bare rename would have
+  orphaned existing installs' data. Fixed with a one-time migration in
+  `ensure_profiles_dir()` (`app.py`): if the new directory doesn't exist yet
+  but the old one does, it's moved wholesale (best-effort, falls through to a
+  fresh empty directory on any `OSError` rather than crashing). Self-heals on
+  first run after updating — no separate migration script needed, consistent
+  with this app's "download a fresh copy, replace the folder" update model
+  (see "Profile storage" below).
+- **Import/Export profile format identifier changed**, but with backward
+  compatibility: `PROFILE_EXPORT_FORMAT` is now `"customizable-transcription-
+  profile"` (was `"transcription-bot-profile"`, kept as
+  `PROFILE_EXPORT_FORMAT_LEGACY` and still accepted on import) and
+  `app_name` in the export envelope is now `"Customizable Transcription"` —
+  so a `.tbprofile.json` someone exported before the rename still imports
+  cleanly. The `.tbprofile.json` file extension itself was deliberately left
+  unchanged (it's a technical file-extension convention, not user-facing
+  branding, and changing it would break already-shared files for no benefit).
+- **Local project folder renamed** to `Customizable Transcription` (was
+  `Transcription Bot`) — cosmetic only, nothing in the code depends on the
+  containing folder's name.
+- **GitHub repo renamed** to `Customizable-Transcription` via `gh repo
+  rename`; the local `origin` remote URL was updated to match rather than
+  relying on GitHub's automatic old→new redirect indefinitely.
+- **Docs updated**: README.md, this file, HANDOFF.md, and the Getting
+  Started page's app-data-folder examples (`GETTING_STARTED.html`/`.it.html`)
+  all now say "Customizable Transcription" and the new folder-path forms.
+  The Prompt Builder worksheet DOCX build tool (`profiles/worksheets/
+  build.js`) had its `creator` metadata field updated too, and the shipped
+  `static/prompt-builder-worksheets/*.zip` files were rebuilt so the change
+  actually reaches the downloadable worksheets, not just the source script.
+- **Not renamed, deliberately**: the CLAUDE.md line documenting the user's
+  own Desktop folder (`~/Desktop/Claude-Codex Projects/Customizable
+  Transcription Bot/Index templates/*.xlsx`) — that's a pre-existing,
+  unrelated folder on the user's own machine (source material the user
+  supplied), not part of this app's product name, and outside this repo's
+  scope to touch.
+
 ## The pipeline, and who reads what
 
 1. **Gemini → text.** Prompt comes from a profile in `profiles/`. Temperature is
-   pinned to 0 in `transcription_bot/core.py`'s `transcribe_image` — the prompt
+   pinned to 0 in `customizable_transcription/core.py`'s `transcribe_image` — the prompt
    asked for this from the start but the code didn't actually set it until this
    was caught and fixed.
-2. **`transcription_bot/core.py` → `.md` / `.docx`.** `render_entry` strips any
+2. **`customizable_transcription/core.py` → `.md` / `.docx`.** `render_entry` strips any
    model-emitted `--- START OF RECORD ---`, then `collapse_source_line_breaks`
    merges consecutive lines into paragraphs, then `write_docx` writes each line as
    a Word paragraph. **There is no parser here** — whatever the model emits lands
@@ -606,9 +659,9 @@ to the other's `profiles/`/`USER_PROFILES_DIR` (see "Profile storage" above).
   giving up that safe base extension. Envelope shape:
   ```json
   {
-    "format": "transcription-bot-profile",
+    "format": "customizable-transcription-profile",
     "format_version": 1,
-    "app_name": "Transcription Bot",
+    "app_name": "Customizable Transcription",
     "exported_at": "2026-08-30T14:57:10Z",
     "profile": { "label": "...", "role_context": "...", "reference_context": "...",
                  "output_format": "...", "native_language": "...",
@@ -1004,9 +1057,9 @@ which.**
   a per-OS application-data directory computed by `_user_data_dir()` in
   `app.py`, deliberately **outside** the app's own install folder so a full
   folder replace can never reach it:
-  - macOS: `~/Library/Application Support/Transcription Bot/profiles/`
-  - Windows: `%APPDATA%\Transcription Bot\profiles\`
-  - Linux: `$XDG_DATA_HOME/Transcription Bot/profiles/` (falls back to
+  - macOS: `~/Library/Application Support/Customizable Transcription/profiles/`
+  - Windows: `%APPDATA%\Customizable Transcription\profiles\`
+  - Linux: `$XDG_DATA_HOME/Customizable Transcription/profiles/` (falls back to
     `~/.local/share/...` if `XDG_DATA_HOME` isn't set)
 
 `ensure_profiles_dir()` creates both on startup. `load_custom_profiles()`
@@ -1085,7 +1138,7 @@ profiles/                                    shipped reference examples only (gi
 xls_conversion/tests/                        baptism-parser.js regression tests (offline, no API key)
 xls_conversion/ai_parser.py                  the LIVE xls-conversion parser (see pipeline section above)
 ~/Library/Application Support/               user-saved profiles, outside the repo (see "Profile storage" above);
-  Transcription Bot/profiles/                  %APPDATA%\Transcription Bot\profiles\ on Windows, $XDG_DATA_HOME/... on Linux
+  Customizable Transcription/profiles/         %APPDATA%\Customizable Transcription\profiles\ on Windows, $XDG_DATA_HOME/... on Linux
 ```
 
 The lexicon came from an indexer-corrected spreadsheet: strikethrough marked

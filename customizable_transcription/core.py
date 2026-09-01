@@ -339,7 +339,7 @@ _TRUNCATION_NOTICE = (
     "\n\n[TRUNCATED: this image's response hit the model's output token limit before "
     "finishing. Everything above is genuine model output, but later entries on this image "
     "may be missing entirely. Re-run this image on its own, or raise the output token limit "
-    "in transcription_bot/core.py, to recover the rest.]"
+    "in customizable_transcription/core.py, to recover the rest.]"
 )
 
 

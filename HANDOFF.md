@@ -1,5 +1,48 @@
 # Customizable Transcription Interface Handoff
 
+## To-Do — Next Session
+
+**Test Mode: add XLSX comparison, not just DOCX.** Test Mode currently only
+compares candidate *transcripts* (DOCX) against a corrected DOCX — see
+`test_mode/comparison.py`'s `score_transcription()`. The ask is to extend
+Test Mode so it can also compare the *XLSX conversion output* (spreadsheet
+index rows produced by `xls_conversion/ai_parser.py`) against a corrected
+XLSX, not just the transcription stage. Needs scoping next session: what a
+row-level/cell-level accuracy metric looks like for a spreadsheet (vs.
+CER/WER for text), how it fits into the existing batch/model-pair UI, and
+whether it's a new comparison mode alongside the DOCX one or a second stage
+after it.
+
+## Committed 2026-09-01: product rebrand, "Transcription Bot" → "Customizable Transcription"
+
+Full rebrand, not just the GitHub repo name — see CLAUDE.md's "Product
+rename" section for the complete list. Summary:
+
+- Python package `transcription_bot/` → `customizable_transcription/`
+  (directory + every import).
+- User-data directory renamed (`~/Library/Application Support/Transcription
+  Bot/` → `.../Customizable Transcription/`, similarly on Windows/Linux),
+  with a one-time self-healing migration in `ensure_profiles_dir()` so
+  existing installs' saved profiles move automatically on first run rather
+  than being orphaned. **Verified on this actual dev machine**: the real
+  `~/Library/Application Support/Transcription Bot/` directory (8 saved
+  profiles, including `chiusa-sclafani-battesimi-v4`) migrated cleanly on
+  server restart; app listed all profiles correctly afterward.
+- Import/Export format identifier changed to `"customizable-transcription-
+  profile"`, with the old `"transcription-bot-profile"` string kept as
+  `PROFILE_EXPORT_FORMAT_LEGACY` and still accepted on import — verified a
+  synthetic old-format `.tbprofile.json` still imports cleanly.
+- Local project folder and the GitHub repo (`weevie833/Transcription-Bot` →
+  `weevie833/Customizable-Transcription`) renamed; local `origin` remote
+  updated to match.
+- README.md, CLAUDE.md, this file, and `GETTING_STARTED.html`/`.it.html`'s
+  app-data-folder examples all updated. `profiles/worksheets/build.js`'s
+  DOCX `creator` metadata updated and the shipped
+  `static/prompt-builder-worksheets/*.zip` worksheets rebuilt so the change
+  reaches the actual downloadable files, not just the source script.
+- `VERSION` bumped `0.1.0` → `0.2.0` (structural rename + migration, not a
+  breaking change from the user's own perspective since it self-migrates).
+
 ## Committed 2026-08-31
 
 Everything in this file marked "Not yet committed" below (profiles/settings.json
@@ -32,19 +75,6 @@ pushed to origin/main in this session, along with this session's own work:
   downloaded-and-unzipped copy with no `.git` directory. **Convention going
   forward: bump `VERSION` per SemVer (MAJOR.MINOR.PATCH) as part of each
   commit to main** — saved as a standing memory so this isn't forgotten.
-
-## To-Do — Next Session
-
-**Test Mode: add XLSX comparison, not just DOCX.** Test Mode currently only
-compares candidate *transcripts* (DOCX) against a corrected DOCX — see
-`test_mode/comparison.py`'s `score_transcription()`. The ask is to extend
-Test Mode so it can also compare the *XLSX conversion output* (spreadsheet
-index rows produced by `xls_conversion/ai_parser.py`) against a corrected
-XLSX, not just the transcription stage. Needs scoping next session: what a
-row-level/cell-level accuracy metric looks like for a spreadsheet (vs.
-CER/WER for text), how it fits into the existing batch/model-pair UI, and
-whether it's a new comparison mode alongside the DOCX one or a second stage
-after it.
 
 ## Done this session (2026-08-30): profiles/settings.json removed
 
@@ -174,7 +204,7 @@ silently deleted any profile a user had made.
 Now: `profiles/` stays git-tracked and ships only reference examples
 (`rendi-*`, `chiusa-sclafani-*`); every profile saved or edited through the
 running app writes to a new per-OS external directory instead (macOS
-`~/Library/Application Support/Transcription Bot/profiles/`; see
+`~/Library/Application Support/Customizable Transcription/profiles/`; see
 CLAUDE.md's "Profile storage: shipped examples vs. user data" section for
 the Windows/Linux paths and the full design). Six profiles that were real
 working profiles rather than shipped examples (`caiazzo-matrimoni-v1`,
@@ -188,28 +218,10 @@ newer version" section now explain this to end users.
 Not yet committed — review `git status`/`git diff` before committing/pushing
 per the standing instruction below.
 
-## To-Do — Next Session (added 2026-08-23)
-
-Add a **Privacy** link to the footer on all four pages (Transcribe, Test Mode,
-Prompt Builder, XLS Conversion — same 4 places the license footer text
-already lives, `app.py` ×3 + `xls_conversion/index.html` ×1), pointing to a
-full in-app disclosure page.
-
-Context: `PRIVACY.md` (repo root) is the written data-processing/GDPR notice,
-and the three API-key field hints now say "see PRIVACY.md" — but nothing in
-the running app actually links there, so a user reading that hint has no way
-to reach it without leaving the app and finding the raw file on GitHub/disk.
-Needs an actual route (e.g. `/privacy`) that renders `PRIVACY.md`'s content
-as a real page — reuse the doc's markdown as the source of truth rather than
-duplicating its text into `app.py`, so the two can't drift out of sync the
-way CLAUDE.md and the code did earlier this session. A simple `markdown`
-render step, or even a plain `<pre>`-wrapped read of the file, would satisfy
-"opens to a full disclosure" without needing a rich renderer.
-
-(Note, unrelated to the above: the rest of this HANDOFF.md is stale — it
-describes an old model list and an outdated "don't commit to GitHub without
-asking" instruction that no longer reflects how this project actually works.
-Worth a real rewrite pass sometime, not done here due to context budget.)
+(The old "add a Privacy link" to-do that lived here is done — see `/privacy`.
+The rest of this HANDOFF.md below "Current State" describes an old model
+list and workflow from early in the project; kept as history, not current
+behavior — CLAUDE.md is the up-to-date working reference.)
 
 ## Current State
 
@@ -222,7 +234,7 @@ http://127.0.0.1:8765
 Launch command:
 
 ```bash
-cd path/to/Transcription-Bot && .venv/bin/python app.py
+cd path/to/Customizable-Transcription && .venv/bin/python app.py
 ```
 
 The app uses Gemini to transcribe local archival images from a source folder chosen via
@@ -353,5 +365,5 @@ Possible design:
 Use this prompt to continue:
 
 ```text
-We are continuing work on the local Customizable Transcription Interface app at path/to/Transcription-Bot. Read HANDOFF.md first. Current state is local WIP/dev only; do not commit or push to GitHub unless explicitly asked. The app uses saved JSON prompt profiles, recursive chronological source scanning from a user-selected source folder, JPEG/PNG/PDF file-type radio selection with preflight source-folder checks, model selection, a per-run Gemini API key field, compact oldest/newest process-order radio controls with oldest-to-newest as the default, a Reset button beside Source folder, a Preflight Check plus disabled-by-default `Confirm and run` flow with an always-visible `Confirm settings` box, visually separated profile-editing controls below the run area, automatic status updates, a stop button, incremental `.md` output, and timestamped `.docx` output. Next task: continue UI/testing refinements or add a user-friendly feature to transform raw pasted ground-truth material, such as a long unformatted list of names, into structured profile reference content before saving. Please inspect the current code and continue from the handoff.
+We are continuing work on the local Customizable Transcription Interface app at path/to/Customizable-Transcription. Read HANDOFF.md first. Current state is local WIP/dev only; do not commit or push to GitHub unless explicitly asked. The app uses saved JSON prompt profiles, recursive chronological source scanning from a user-selected source folder, JPEG/PNG/PDF file-type radio selection with preflight source-folder checks, model selection, a per-run Gemini API key field, compact oldest/newest process-order radio controls with oldest-to-newest as the default, a Reset button beside Source folder, a Preflight Check plus disabled-by-default `Confirm and run` flow with an always-visible `Confirm settings` box, visually separated profile-editing controls below the run area, automatic status updates, a stop button, incremental `.md` output, and timestamped `.docx` output. Next task: continue UI/testing refinements or add a user-friendly feature to transform raw pasted ground-truth material, such as a long unformatted list of names, into structured profile reference content before saving. Please inspect the current code and continue from the handoff.
 ```

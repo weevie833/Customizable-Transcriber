@@ -23,7 +23,7 @@ from xml.etree import ElementTree
 
 import httpx
 
-from transcription_bot.core import (
+from customizable_transcription.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
     TranscriptionConfig,
@@ -87,22 +87,33 @@ except OSError:
     APP_VERSION = "dev"
 
 
+def _app_data_base() -> Path:
+    """Per-OS application-data base directory. Mirrors the platform.system()
+    dispatch pattern pick_source_folder_dialog() already uses for the same
+    "this varies by OS" reason."""
+    system = platform.system()
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support"
+    if system == "Windows":
+        return Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+    return Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+
+
 def _user_data_dir() -> Path:
     """Per-OS application-data directory for this app's user-generated files
     (currently just saved prompt profiles) -- deliberately outside
     PROJECT_DIR/PROFILES_DIR, so a software update (this app's documented
     update path is: download a fresh copy, replace the old folder) can never
-    delete a profile a user created, no matter how the replace is done.
-    Mirrors the platform.system() dispatch pattern pick_source_folder_dialog()
-    already uses for the same "this varies by OS" reason."""
-    system = platform.system()
-    if system == "Darwin":
-        base = Path.home() / "Library" / "Application Support"
-    elif system == "Windows":
-        base = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
-    return base / "Transcription Bot"
+    delete a profile a user created, no matter how the replace is done."""
+    return _app_data_base() / "Customizable Transcription"
+
+
+def _legacy_user_data_dir() -> Path:
+    """The app's old name ("Transcription Bot", pre-rebrand) app-data
+    directory -- kept only so ensure_profiles_dir() can migrate an existing
+    install's saved profiles into the new directory name the first time it
+    runs after the rename, instead of orphaning them."""
+    return _app_data_base() / "Transcription Bot"
 
 
 USER_DATA_DIR = _user_data_dir()
@@ -737,6 +748,22 @@ def find_profile_path(profile_id: str) -> Path | None:
 
 def ensure_profiles_dir() -> None:
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    # One-time migration for an existing install: the app-data directory was
+    # renamed from "Transcription Bot" to "Customizable Transcription" as
+    # part of the product rebrand. If the new directory doesn't exist yet but
+    # the old one does, move it wholesale so already-saved profiles aren't
+    # orphaned -- rather than leaving them stranded under the old name where
+    # nothing looks for them anymore. Best-effort: on any failure (e.g. a
+    # cross-device move on an unusual setup) fall through and just create a
+    # fresh empty directory below, same as a brand-new install would get.
+    if not USER_DATA_DIR.exists():
+        legacy_dir = _legacy_user_data_dir()
+        if legacy_dir.exists() and legacy_dir != USER_DATA_DIR:
+            try:
+                USER_DATA_DIR.parent.mkdir(parents=True, exist_ok=True)
+                legacy_dir.rename(USER_DATA_DIR)
+            except OSError:
+                pass
     USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -1138,7 +1165,11 @@ def update_profile(profile_id: str, role_context: str, reference_context: str, o
 # and to this app on import. The envelope (format/format_version wrapper)
 # lets import reject an unrelated JSON file with a clear error instead of
 # silently misreading it as a profile.
-PROFILE_EXPORT_FORMAT = "transcription-bot-profile"
+PROFILE_EXPORT_FORMAT = "customizable-transcription-profile"
+# The pre-rebrand format string ("Transcription Bot"). Only ever checked on
+# import, never written -- keeps a .tbprofile.json exported before the rename
+# importable, rather than silently breaking a file someone already shared.
+PROFILE_EXPORT_FORMAT_LEGACY = "transcription-bot-profile"
 PROFILE_EXPORT_FORMAT_VERSION = 1
 
 
@@ -1152,7 +1183,7 @@ def export_profile_payload(profile_id: str) -> tuple[str, bytes]:
     envelope = {
         "format": PROFILE_EXPORT_FORMAT,
         "format_version": PROFILE_EXPORT_FORMAT_VERSION,
-        "app_name": "Transcription Bot",
+        "app_name": "Customizable Transcription",
         "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "profile": {
             "label": profile["label"],
@@ -1175,7 +1206,7 @@ def import_custom_profile(file_text: str) -> dict[str, str]:
     except json.JSONDecodeError as exc:
         raise RuntimeError("That file isn't a valid profile export (not valid JSON).") from exc
 
-    if isinstance(data, dict) and data.get("format") == PROFILE_EXPORT_FORMAT:
+    if isinstance(data, dict) and data.get("format") in (PROFILE_EXPORT_FORMAT, PROFILE_EXPORT_FORMAT_LEGACY):
         profile_data = data.get("profile")
     else:
         # Tolerate a bare profile JSON too -- e.g. one of this app's own
@@ -1183,7 +1214,7 @@ def import_custom_profile(file_text: str) -> dict[str, str]:
         # through Export. Same shape either way: a flat dict of profile fields.
         profile_data = data
     if not isinstance(profile_data, dict):
-        raise RuntimeError("That file doesn't contain a recognizable Transcription Bot profile.")
+        raise RuntimeError("That file doesn't contain a recognizable Customizable Transcription profile.")
 
     label = str(profile_data.get("label", "") or "").strip()
     if not label:

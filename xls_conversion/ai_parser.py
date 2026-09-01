@@ -12,7 +12,7 @@ import anthropic
 import httpx
 from google import genai
 from google.genai import types
-from transcription_bot.core import provider_for_model
+from customizable_transcription.core import provider_for_model
 from xls_conversion.spreadsheet_export import SheetSpec, rows_to_csv, rows_to_xlsx, rows_to_xlsx_multi
 
 

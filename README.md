@@ -21,12 +21,12 @@ from [python.org/downloads](https://www.python.org/downloads/) first, then run
 `python3 --version` again to confirm.
 
 **2. Move into the project folder.** In Terminal, type `cd ` (with a trailing
-space, don't press Return yet), then drag the `Transcription Bot` folder from
+space, don't press Return yet), then drag the `Customizable Transcription` folder from
 Finder into the Terminal window — it fills in the correct path for you — then
 press Return:
 
 ```bash
-cd path/to/Transcription-Bot
+cd path/to/Customizable-Transcription
 ```
 
 **3. Create and activate a virtual environment.** This keeps this app's Python
@@ -87,7 +87,7 @@ Each time you come back to use the app, open Terminal and run just these three
 lines:
 
 ```bash
-cd path/to/Transcription-Bot
+cd path/to/Customizable-Transcription
 source .venv/bin/activate
 python3 app.py
 ```
@@ -95,7 +95,7 @@ python3 app.py
 ### Updating to a newer version
 
 Download the latest copy of this project and replace your existing
-`Transcription-Bot` folder with it, then repeat steps 3–4 above
+`Customizable-Transcription` folder with it, then repeat steps 3–4 above
 (`python3 -m venv .venv` / `source .venv/bin/activate` / `pip install -r
 requirements.txt`) inside the new folder — dependencies can change between
 versions, so it's worth reinstalling them rather than assuming the old
@@ -152,14 +152,14 @@ Saved profiles:
 - **Every profile you create or edit yourself — through `Save Profile`,
   Prompt Builder, or the profile-editor boxes — is saved outside the app
   folder entirely**, in a per-user data location:
-  - macOS: `~/Library/Application Support/Transcription Bot/profiles/`
-  - Windows: `%APPDATA%\Transcription Bot\profiles\`
-  - Linux: `$XDG_DATA_HOME/Transcription Bot/profiles/` (or
-    `~/.local/share/Transcription Bot/profiles/` if that variable isn't set)
+  - macOS: `~/Library/Application Support/Customizable Transcription/profiles/`
+  - Windows: `%APPDATA%\Customizable Transcription\profiles\`
+  - Linux: `$XDG_DATA_HOME/Customizable Transcription/profiles/` (or
+    `~/.local/share/Customizable Transcription/profiles/` if that variable isn't set)
 
   This is deliberate: it's what keeps your own profiles safe when you update
   the app later. Updating means downloading a fresh copy of this project and
-  replacing the old `Transcription-Bot` folder — since your profiles live
+  replacing the old `Customizable-Transcription` folder — since your profiles live
   outside that folder, replacing it never touches them. You'll see every
   profile you've saved again the moment you launch the updated app, with
   nothing to move or back up yourself.

@@ -716,7 +716,7 @@ function buildDoc(lang, type) {
   ];
 
   return new Document({
-    creator: "Transcription Bot",
+    creator: "Customizable Transcription",
     title: `${S.docTitle} — ${recordLabel}`,
     sections: [
       {

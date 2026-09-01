@@ -43,6 +43,8 @@
     "So `Franciscus`, `Francisci`, `Francisco`, and `Franciscum` are four grammatical forms of one name, not four people and not four spellings to reconcile. Seeing two different case-forms of the same name at two different points in one entry is expected, not an error.",
     "",
     "Transcribe each occurrence exactly as it is inflected on the page; never normalize a genitive or ablative form to the nominative within the transcription itself. That normalization happens only once, in the translation.",
+    "",
+    "A related pitfall, worth its own check: `filius` (\"son of\") and `filia` (\"daughter of\") differ by a single letter, and are a frequently misread pair. Because the fidelity rules above normalize a name's ending to agree with whichever gendered word was read, misreading one silently regenders that person's given names everywhere they appear in the transcription and translation, not just at the point of the error. Whenever `filius`/`filia` (or an equivalent inflected form) identifies a person by their parentage, check that reading against the person's own given-name endings (masculine `-us`/`-ius`, feminine `-a`) and against any other gendered form of the same word elsewhere in the entry (for example `natum`/`natam`, \"born,\" when the entry uses it), rather than assuming the first occurrence you read is correct. If the readings conflict, flag it on the Notes line and mark confidence low rather than silently picking one.",
   ].join("\n");
 
   function fidelityRulesBlock(langs) {
@@ -894,6 +896,18 @@
     var row = document.createElement("div");
     row.className = "pb-row" + (extraClass ? " " + extraClass : "");
     row.innerHTML = rowHtml + ' <button type="button" class="button-tiny pb-row-remove">Remove</button>';
+    // These repeatable-row fields have no <label> -- there's no static markup
+    // for a dynamically-added row to attach one to -- so their placeholder
+    // was their only accessible name, which fails WCAG SC 3.3.2 (placeholder
+    // text isn't a substitute for a label). Backfill aria-label from the
+    // same string instead: TRANSLATABLE_ATTRS in i18n.js already includes
+    // aria-label, so tbRefreshLanguage() below picks it up and translates it
+    // using the same dictionary entry as the placeholder itself.
+    row.querySelectorAll("input[placeholder], textarea[placeholder]").forEach(function (field) {
+      if (!field.hasAttribute("aria-label")) {
+        field.setAttribute("aria-label", field.getAttribute("placeholder"));
+      }
+    });
     container.appendChild(row);
     wireRow(row);
     // New placeholders/labels (and the "Remove" button above) are only ever

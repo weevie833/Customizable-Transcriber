@@ -68,10 +68,17 @@ telemetry anywhere, and does not transmit anything to the software's
 publisher.
 
 **API key handling** (verified in this project's own production-readiness
-audit): keys are held only in memory for the duration of the request that
-uses them. They are never written to any file, never logged, and never
-transmitted anywhere except the one AI provider's API endpoint you're
-actively using.
+audit): if you paste your key into the browser each run (the default, and
+the option README recommends first), the app itself never writes it to any
+file or log — it's held only in memory for the duration of the request that
+uses it, and transmitted only to the one AI provider's API endpoint you're
+actively using. README also documents an optional convenience for skipping
+that paste step: saving your key yourself into a local `.env` file so the
+app can read it back automatically. If you choose that option, your key
+does sit in a plain-text file on your own machine (protected only by your
+computer's normal file permissions) — the app doesn't create or modify that
+file on its own, but it will read whatever you put there. Use the paste-it-
+each-time option instead if you'd rather your key never touch disk at all.
 
 ## If your records involve living individuals
 

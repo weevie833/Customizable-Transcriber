@@ -31,18 +31,18 @@
       </header>
 
       <section class="panel">
-        <div class="gemini-settings">
+        <!-- Model <select> is populated at load time from GET /api/models (see app.js's
+             loadModelOptions()) instead of a hand-maintained duplicate of app.py's MODELS
+             dict, which drifted out of sync with it (Transcribe/Test Mode/Prompt Builder
+             all build their model <select> from that same dict server-side; this page
+             can't, since it's a static asset with no Python templating). Comment lives
+             here, outside the label, so its text nodes mirror the API key label's -- a
+             comment inside the label perturbed CSS grid's implicit row auto-sizing and
+             made the select hang lower than the input (see CLAUDE.md). -->
+        <div class="model-settings">
           <label>
             Model
-            <select id="geminiModel">
-              <option value="gemini-3.7-flash">Gemini 3.7 Flash - latest balanced speed / intelligence</option>
-              <option value="gemini-3.6-flash">Gemini 3.6 Flash - previous balanced speed / intelligence</option>
-              <option value="gemini-3.1-pro-preview" selected>Gemini 3.1 Pro Preview - higher accuracy</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro - stable, high-accuracy baseline</option>
-              <option value="claude-opus-5">Claude Opus 5 - highest accuracy</option>
-              <option value="claude-sonnet-5">Claude Sonnet 5 - balanced speed / intelligence</option>
-              <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 - fastest, lower cost</option>
-            </select>
+            <select id="geminiModel"></select>
             <span class="field-help">Select a model</span>
           </label>
           <label>

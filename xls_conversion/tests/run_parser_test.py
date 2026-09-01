@@ -26,43 +26,46 @@ REPO = HERE.parent.parent
 # The row every fixture entry must produce. Compare against the transcription in
 # fixture-expected-format.md if one of these ever fails.
 #
-# KNOWN GAP — Child surname (tracked, not yet fixed): Section 3's entry heading
-# used to be a fabricated "Page N - Entry n: Surname, Given Names" line that
+# Child surname (fixed — was a tracked gap): Section 3's entry heading used to
+# be a fabricated "Page N - Entry n: Surname, Given Names" line that
 # baptism-parser.js's parseChild() read the child's surname from (via the
 # titleName parameter). That heading was replaced with a pure locator plus a
 # verbatim "Marginal Heading:" block (see CLAUDE.md "Chiusa Sclafani battesimi
-# — decisions"), so titleName is now always "" and parseChild() can no longer
-# recover a surname — Child comes back as given-names-only when the English
-# translation supplies a name, and "" entirely for the rarer entries (like #2
-# here) whose translation has no "was given the name" clause at all.
+# — decisions"), so titleName went permanently empty and Child regressed to
+# given-names-only.
 #
-# The obvious fix — parse the surname out of the Marginal Heading's own Latin
-# formula ("[Child] filius/filia [Father] et [Mother] [Surname]") — is NOT a
-# safe find-the-last-token-after-"et" heuristic: entry 6 below (Collica) has
-# the surname trailing the FATHER before "et", not the mother after it,
-# unlike entry 1 (Manfre) where it trails the mother. A positional regex
-# would silently misattribute the surname on real data from this exact
-# register — worth doing properly, but not as a rushed regex here. The live
-# parser (xls_conversion/ai_parser.py) already has its equivalent fallback
-# fixed to reference the Marginal Heading block instead of the old entry
-# title. baptism-parser.js is not live (see CLAUDE.md), so this gap doesn't
-# affect the running app — only this offline format-compliance check.
+# Fixed via parseChildSurnameFromHeading() + childSurname() in
+# baptism-parser.js: parses the Marginal Heading's own "et <mother>" clause
+# structurally (token count after stripping a trailing "jug."/"conj." — not a
+# naive "last token after et" positional guess, which is unsafe here — entry
+# 6 (Collica) has the surname trailing the FATHER before "et" in the heading,
+# not the mother after it, unlike entry 1 (Manfre)). When the heading itself
+# doesn't state a trailing surname (entry 6's "...et Rosae jug." has nothing
+# left after stripping "jug." but the mother's bare given name), falls back
+# to whichever parent's own already-parsed name has one — father first, then
+# mother, since entry 6's own body attaches "Collica" to the mother instead
+# of the father, so trying both recovers it either way.
+#
+# Entries 2 and 7 still come back Child: "" — a separate, still-open gap: the
+# English translation has no "was given the name X" clause to read a given
+# name from at all (entry 2: no naming formula in the body; entry 7: the name
+# is "[illegible]" in the body). Not what this fix addresses.
 EXPECTED = {
-    "1": {"Year": "1752", "Date": "23 September", "Child": "Filippa Maria",
+    "1": {"Year": "1752", "Date": "23 September", "Child": "Manfre, Filippa Maria",
           "Child's Father": "Josephus", "Child's Mother": "Manfre, Anna Maria",
           "Godparent 1": "Guagliano, Josephus"},
     "2": {"Year": "1752", "Date": "24 September", "Child": "",
           "Child's Father": "Franciscus", "Child's Mother": "Chiantella, Francisca",
           "Godparent 1": ""},
     "3": {"Year": "1752", "Date": "26 September",
-          "Child": "Vincentius Hiacynthus Josephus",
+          "Child": "de Chiara, Vincentius Hiacynthus Josephus",
           "Child's Father": "Stephanus", "Child's Mother": "de Chiara, Antonia",
           "Godparent 1": "Ragusa, Cajetanus", "Godparent 2": "Creddo, Rosa"},
-    "5": {"Year": "1752", "Date": "3 October", "Child": "Franciscus Blasius",
+    "5": {"Year": "1752", "Date": "3 October", "Child": "Giordano, Franciscus Blasius",
           "Child's Father": "Petrus", "Child's Mother": "Giordano, Rosaria",
           "Godparent 1": "Vernaci, Francius", "Godparent 2": "Vernaci, Anna Maria"},
     "6": {"Year": "1752", "Date": "7 October",
-          "Child": "Rosarius Marianus Archangelus",
+          "Child": "Collica, Rosarius Marianus Archangelus",
           "Child's Father": "Joachimus", "Child's Mother": "Collica, Rosa",
           "Godparent 1": "Cusenza, Franciscus"},
     "7": {"Year": "1752", "Date": "8 October", "Child": "",

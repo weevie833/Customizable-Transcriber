@@ -117,6 +117,32 @@
     "lo",
   ]);
 
+  // Trailing words that end a Marginal Heading's "et <mother>" clause but
+  // aren't a name -- "jug." ("jugales", the married couple) is the attested
+  // form (see xls_conversion/tests/fixture-expected-format.md, Entry 6);
+  // "conj."/"conjug." ("conjuges", same meaning) is the same word family and
+  // appears in this same document's own Latin body text, so it's included
+  // pre-emptively. Extend this set if a real register turns up another one --
+  // see parseChildSurnameFromHeading().
+  const MARGINAL_HEADING_TRAILING_NON_NAME = new Set(["jug", "conj", "conjug"]);
+
+  // Given ordered given-name/surname tokens with no separating comma (e.g.
+  // ["Antoniae", "de", "Chiara"]), splits at the last surname-particle
+  // boundary (SURNAME_PREFIXES) if there is one, otherwise treats the final
+  // token alone as the surname. Shared by formatName() and
+  // parseChildSurnameFromHeading() -- both need the same "which trailing
+  // token(s) are the surname" logic, just starting from different text.
+  function splitSurnameFromTokens(tokens) {
+    let surnameStart = tokens.length - 1;
+    // Strip a leading "[" only for the lookup: a bracketed uncertain surname
+    // ("[de Pocopila?]") still splits as "de" + "Pocopila?]" tokens, and the
+    // particle check needs to see "de", not "[de", to keep the bracket
+    // wrapped around the whole surname instead of splitting inside it.
+    const previous = tokens[tokens.length - 2]?.toLowerCase().replace(/^\[/, "");
+    if (SURNAME_PREFIXES.has(previous)) surnameStart = tokens.length - 2;
+    return { given: tokens.slice(0, surnameStart).join(" "), surname: tokens.slice(surnameStart).join(" ") };
+  }
+
   function convertTextToPsv(sourceText, options = {}) {
     return convertText(sourceText, options).psv;
   }
@@ -278,9 +304,10 @@
     if (!english) return null;
 
     const titleName = parseTitleName(entry.title);
+    const marginalHeading = extractMarginalHeading(entry.body);
     const dateParts = parseDate(english);
     const parents = parseParents(english);
-    const child = parseChild(english, titleName);
+    const child = parseChild(english, titleName, marginalHeading, parents);
     const godparents = parseGodparents(english);
 
     return {
@@ -305,6 +332,16 @@
 
   function extractEnglish(body) {
     const match = body.match(/\*{0,2}English Translation:\*{0,2}\s*([\s\S]*?)(?=\n\s*\*{0,2}\s*(?:(?:Entry\s+)?\d+\s*[:.]|Transcription\s*(?:\(\s*Entry\s+\d+\s*:[^)]+\))?:?|English Translation:)|$)/i);
+    return match ? stripMarkdown(match[1]).trim() : "";
+  }
+
+  function extractMarginalHeading(body) {
+    // Per the block-structure contract (CLAUDE.md's Chiusa Sclafani notes),
+    // Marginal Heading always comes first and is always followed by Date --
+    // stopping there is enough; no need for English's more elaborate
+    // next-entry lookahead. Absent entirely for a register with no separate
+    // marginal-heading zone, in which case this returns "".
+    const match = body.match(/\*{0,2}Marginal Heading:\*{0,2}\s*([\s\S]*?)(?=\n\s*\*{0,2}\s*Date:|$)/i);
     return match ? stripMarkdown(match[1]).trim() : "";
   }
 
@@ -608,14 +645,76 @@
     return { father: "", mother: "" };
   }
 
-  function parseChild(text, titleName) {
+  function parseChild(text, titleName, marginalHeading, parents) {
     const nameGiven = text.match(/(?:was given the name|given the name)\s+([A-Z][A-Za-z' -]+?)(?=\s*[.,]|\s*$)/i);
     if (nameGiven) {
       const given = cleanName(nameGiven[1]);
-      const surname = titleName ? titleName.split(",")[0] : "";
+      const surname = childSurname(titleName, marginalHeading, parents);
       return surname ? `${surname}, ${given}` : given;
     }
     return titleName;
+  }
+
+  // Where the child's surname comes from, in priority order:
+  //
+  // 1. titleName -- an explicit surname already stated in the older
+  //    inline-name heading style ("Page 34 - Entry 1: Manfre, Filippa
+  //    Maria"). Most direct when present, though current profiles never
+  //    populate it: the locator line is now a pure "Page N - Entry n:" with
+  //    the name moved to its own Marginal Heading block instead (see
+  //    CLAUDE.md's Chiusa Sclafani notes).
+  // 2. The Marginal Heading's own trailing-surname clause, parsed
+  //    structurally (see parseChildSurnameFromHeading) rather than
+  //    positionally guessed.
+  // 3./4. Whichever parent's own already-parsed name (from the entry's own
+  //    body text) carries a surname -- father first, per this register's
+  //    dominant convention (see CLAUDE.md's editorial rules: the child
+  //    normally carries the father's surname), then mother. Needed because
+  //    some entries only ever attach a surname to one parent's clause, and
+  //    it isn't always the same one the Marginal Heading uses: fixture
+  //    Entry 6's heading attaches "Collica" to the father, but the body's
+  //    own English attaches it to the mother instead ("to the spouses
+  //    Joachimus and Rosa Collica") -- both name the same real surname,
+  //    just on different parents, so trying both recovers it either way
+  //    instead of returning blank.
+  //
+  // Never invents a surname with no textual basis anywhere in the entry --
+  // if none of the four sources has one, this returns "" rather than
+  // guessing, matching this register's own "leave blank when the document
+  // doesn't state it" convention.
+  function childSurname(titleName, marginalHeading, parents) {
+    if (titleName) {
+      const fromTitle = titleName.split(",")[0];
+      if (fromTitle) return fromTitle;
+    }
+    const fromHeading = parseChildSurnameFromHeading(marginalHeading);
+    if (fromHeading) return fromHeading;
+    const fromFather = surnameFrom(parents.father);
+    if (fromFather) return fromFather;
+    return surnameFrom(parents.mother);
+  }
+
+  function parseChildSurnameFromHeading(headingText) {
+    if (!headingText) return "";
+    // The dominant pattern in this register states the surname once,
+    // trailing the mother's given name at the very end of the entry's own
+    // "et <mother>" clause (see CLAUDE.md's Chiusa Sclafani notes) -- but
+    // not every entry states one there. Capture everything from "et" to the
+    // end of the heading.
+    const etMatch = headingText.match(/\bet\s+([A-Za-z''.[\]?ÀÁÈÉÌÍÒÓÙÚàáèéìíòóù -]+?)\.?\s*$/i);
+    if (!etMatch) return "";
+
+    let tokens = etMatch[1].split(/\s+/).filter(Boolean);
+    const lastBare = tokens[tokens.length - 1]?.toLowerCase().replace(/\.$/, "");
+    if (MARGINAL_HEADING_TRAILING_NON_NAME.has(lastBare)) tokens = tokens.slice(0, -1);
+
+    // Nothing left but the mother's bare given name (e.g. "...et Rosae
+    // jug." once "jug." is stripped) -- this heading doesn't state a
+    // trailing surname at all, so don't guess one; let childSurname() fall
+    // back to a parsed parent instead.
+    if (tokens.length < 2) return "";
+
+    return splitSurnameFromTokens(tokens).surname;
   }
 
   function parseGodparents(text) {
@@ -671,16 +770,7 @@
       return fallbackSurname ? `${fallbackSurname}, ${tokens[0]}` : tokens[0];
     }
 
-    let surnameStart = tokens.length - 1;
-    // Strip a leading "[" only for the lookup: a bracketed uncertain surname
-    // ("[de Pocopila?]") still splits as "de" + "Pocopila?]" tokens, and the
-    // particle check needs to see "de", not "[de", to keep the bracket
-    // wrapped around the whole surname instead of splitting inside it.
-    const previous = tokens[tokens.length - 2]?.toLowerCase().replace(/^\[/, "");
-    if (SURNAME_PREFIXES.has(previous)) surnameStart = tokens.length - 2;
-
-    const surname = tokens.slice(surnameStart).join(" ");
-    const given = tokens.slice(0, surnameStart).join(" ");
+    const { given, surname } = splitSurnameFromTokens(tokens);
     return given ? `${surname}, ${given}` : surname;
   }
 

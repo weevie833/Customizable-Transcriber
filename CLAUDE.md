@@ -697,6 +697,59 @@ to the other's `profiles/`/`USER_PROFILES_DIR` (see "Profile storage" above).
   profile JSON (no envelope) all produce the expected result; a missing
   `profile_id` on export and a missing file on import both fail cleanly.
 
+**Later session: matrimoni/morti parity with battesimi's page-number and
+fidelity treatment.** Open item from "Chiusa Sclafani battesimi —
+decisions" — confirmed by the user, then investigated before touching
+anything, since two of the three fixes turned out to already apply
+everywhere:
+
+- **Page-number/Act-number locator handling** — already universal. Each
+  `RECORD_TYPES` entry (`static/prompt-builder.js`) carries its own
+  `locatorKind: "page"`/`"act"`, and `buildOutputFormat()`'s `# BLOCK
+  STRUCTURE` generation reads it generically for all 6 types. Nothing to
+  port.
+- **Anti-hallucination entry-count self-check** — already universal, part
+  of the same fixed boilerplate every record type's Section 1 gets
+  (`static/prompt-builder.js`'s task-sentence assembly). Nothing to port.
+- **Godparent/witness/informant honorific tightening** (Don/Master only,
+  everything else moves to Notes) — already universal, gated on whether a
+  translation language is selected, same for all 6 types. Nothing to port.
+- **The `filius`/`filia` gender cross-check — the one real gap, now
+  closed.** This specific rule (misreading `filius` for `filia` or vice
+  versa silently regenders that person's given names throughout the
+  transcription and translation, because the fidelity rules normalize name
+  endings to agree with whichever was read) only existed as free text in
+  Chiusa Sclafani v4's own "Additional editorial rules" field — private to
+  that one profile, and phrased around "the child," which doesn't even fit
+  matrimoni (groom/bride) or morti (the deceased's own filiation), both of
+  which use `filius`/`filia` in their own formula fields just as battesimi
+  does. Promoted into `LATIN_DECLENSION_BLOCK` (`static/prompt-builder.js`)
+  as a new paragraph under the existing "Include Latin grammatical
+  case-declension guidance" checkbox — same toggle as the rest of the
+  declension content, not a new one, since both are the same category of
+  risk (a subtle Latin word-form misread silently corrupting fidelity) and
+  there's no scenario where a user would want one but not the other.
+  Reworded generically ("whenever `filius`/`filia`... identifies a person
+  by their parentage") instead of assuming a child, and softened the
+  battesimi-specific "check against the body's matching `natum`/`natam`"
+  clause to an illustrative example rather than a hard requirement, since
+  matrimoni/morti entries don't necessarily use that exact word. Verified
+  live for matrimoni and morti (Latin native language, declension checked):
+  the new paragraph appears in the Full Prompt Preview for both, and
+  disappears along with the rest of `LATIN_DECLENSION_BLOCK` when the
+  checkbox is unchecked, confirming the gating is shared correctly.
+
+  **Not done as part of this**: Chiusa Sclafani v4's own profile still
+  carries its private version of this rule in "Additional editorial rules"
+  — now redundant with the universal version rather than wrong, since a
+  system prompt repeating an instruction twice is harmless. Left alone
+  rather than hand-edited, since a Prompt-Builder profile's assembled prose
+  should be regenerated through the app's own Load/Update flow, not patched
+  directly in the saved JSON (see the "browser can silently revert this
+  file" footgun above) — worth a quick cleanup pass through the UI if
+  someone's already in there editing that profile for another reason, but
+  not worth a special trip on its own.
+
 ## Accessibility (WCAG)
 
 Page `<h1>` titles: Transcribe = "Customizable Transcription", XLS Conversion =
@@ -959,20 +1012,37 @@ since the model still sees that block in the source text it's extracting
 from (the instruction to "ignore Latin/Italian transcription text" was
 already treated as not applying to this one fallback case, same as before).
 
-**Known gap, not fixed: `baptism-parser.js`'s Child-column surname is now
-broken for this register** (offline parser only — not live, see the pipeline
-section above). Its `parseChild()` got the child's surname from the old
-fabricated heading via a `titleName` parameter; that's now always empty, so
-Child comes back given-names-only (or blank entirely, for the rarer entries
-whose translation has no "was given the name" clause). The fix would be
-parsing the surname out of the Marginal Heading's own Latin formula, but a
-naive "last token after et" heuristic is unsafe: entry 6 in
+**Fixed, later session: `baptism-parser.js`'s Child-column surname** (offline
+parser only — not live, see the pipeline section above). Its `parseChild()`
+used to get the child's surname from the old fabricated heading via a
+`titleName` parameter; once that heading was replaced with a pure locator,
+`titleName` went permanently empty and Child regressed to given-names-only.
+A naive "last token after et" fix on the Marginal Heading's own Latin formula
+was flagged unsafe at the time: entry 6 in
 `xls_conversion/tests/fixture-expected-format.md` (Collica) has the surname
 trailing the *father* before "et", not the mother after it, unlike entry 1
 (Manfre) where it trails the mother — real structural variation within the
-same register, not a hypothetical edge case. `run_parser_test.py`'s
-`EXPECTED` values were updated to the honest current output rather than left
-silently wrong; see its comment block for the full reasoning.
+same register, not a hypothetical edge case.
+
+Fixed properly rather than left as a documented gap: `parseChildSurnameFromHeading()`
+parses the heading's "et \<mother\>" clause structurally — after stripping a
+trailing non-name word ("jug."/"conj.", Latin for "the married couple"), if
+fewer than 2 tokens remain, the heading doesn't state a trailing surname at
+all (that's entry 6: "...et Rosae jug." leaves only the mother's bare given
+name), so it's not guessed at that position. `childSurname()` then falls back
+to whichever parent's own already-parsed surname (from the entry's body text,
+via `parseParents()`) is non-empty — father first, per this register's
+dominant convention (see the editorial rules above), then mother. This is
+what actually recovers entry 6's surname: its Marginal Heading attaches
+"Collica" to the father, but its own body attaches it to the mother instead
+("to the spouses Joachimus and Rosa Collica") — trying both parents recovers
+the same real surname either way, without the positional heuristic that was
+correctly flagged as unsafe. `run_parser_test.py`'s `EXPECTED` values were
+updated accordingly; see its comment block. Entries whose translation has no
+"was given the name" clause at all (or where that name is itself
+`[illegible]`) still come back with no given name, since that's a separate
+gap this fix doesn't address — nothing to build a surname onto in the first
+place.
 
 Editorial rules, each of which someone will be tempted to "improve" — don't:
 
@@ -1137,8 +1207,10 @@ profiles/                                    shipped reference examples only (gi
                                               user-data directory, not a shipped/built file here.)
 xls_conversion/tests/                        baptism-parser.js regression tests (offline, no API key)
 xls_conversion/ai_parser.py                  the LIVE xls-conversion parser (see pipeline section above)
-~/Library/Application Support/               user-saved profiles, outside the repo (see "Profile storage" above);
-  Customizable Transcription/profiles/         %APPDATA%\Customizable Transcription\profiles\ on Windows, $XDG_DATA_HOME/... on Linux
+tests/                                       pytest suite added in the 2026-09 security/reliability review (see that section)
+~/Library/Application Support/               user-saved profiles AND generated outputs/settings, outside the repo
+  Customizable Transcription/profiles/         (see "Profile storage" above and the 2026-09 review section);
+  Customizable Transcription/outputs/          %APPDATA%\Customizable Transcription\... on Windows, $XDG_DATA_HOME/... on Linux
 ```
 
 The lexicon came from an indexer-corrected spreadsheet: strikethrough marked
@@ -1187,32 +1259,397 @@ than guessing it.
   several surname disagreements the ground truth disputes. Self-reported
   confidence alone won't catch everything — see the review tool below.
 
+## External security/reliability review (2026-09) — fixes
+
+An external review of the whole app produced 11 findings (4 high, 7 medium).
+All 11 were independently verified against the actual code (several
+reproduced directly — the DOCTYPE bypass, the sheet-name crash, the
+reservation race) before fixing, and all 11 were then fixed in the same
+pass. Findings and fixes:
+
+- **No CSRF/Host/Origin defense (high).** `app.py`'s `do_POST`/`do_GET` had
+  no auth of any kind — any webpage open in the same browser could POST to
+  `/stop`, `/reset`, `/delete-profile`, `/api/pick-source-folder` (opens the
+  native file dialog), or `/run` with no way to block it; binding to
+  `127.0.0.1` doesn't stop this since the browser's same-origin policy
+  blocks *reading* a cross-origin response, never *sending* the request, and
+  DNS rebinding can defeat even that read restriction. Confirmed reproducible:
+  `Host: evil.example` got `200 OK`. Fixed with three independent checks
+  (each closes what the others miss) — see `_security_check()`/`end_headers()`/
+  `version_string()` in `app.py`: Host-header validation on every request
+  (defeats DNS rebinding outright), Origin validation on state-changing
+  requests, and a per-launch random token handed to the browser as a
+  `SameSite=Strict` cookie (`CSRF_TOKEN`) that a cross-site request has no
+  way to attach. Also added the security headers the review asked for
+  (`Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`,
+  `Referrer-Policy`) and suppressed the default Python-version-bearing
+  `Server` header. Verified live via a throwaway probe server on a spare
+  port (never the user's own running instance) — see
+  `tests/test_http_security.py` for the automated version.
+- **DOCTYPE entity-expansion bypass (high).** `extract_docx_text()`'s guard
+  (`app.py`) only rejected a DOCTYPE anchored at the very start of
+  `word/document.xml`; a comment or processing instruction first
+  (`<!--x--><!DOCTYPE ...>`) slid straight past it. Reproduced the bypass,
+  then fixed by searching for `<!DOCTYPE`/`<!ENTITY` anywhere in the
+  document rather than anchoring the check — a real Word document.xml never
+  contains either, so this has no false positives. See
+  `tests/test_docx_security.py`.
+- **Unbounded image-range expansion (high).** Both `parse_image_range()`
+  (`xls_conversion/ai_parser.py`, the live path) and its client-side mirror
+  in `xls_conversion/app.js` expanded a typed range like `1-1000000000`
+  into a literal list before validating anything. Fixed server-side with
+  `MAX_IMAGE_RANGE_SPAN`/`MAX_IMAGES_PER_REQUEST` caps plus explicit
+  rejection of descending ranges and malformed fragments (previously
+  silently dropped); fixed client-side by computing the on-screen estimate
+  arithmetically (`countImageRangeClientSide()`) instead of materializing
+  the range at all. See `tests/test_image_range.py`.
+- **Excel sheet-name injection (high).** `combine_language_xlsx()` built a
+  sheet name from an AI-detected language string with no sanitization;
+  reproduced the exact crash (`Battesimi (Latin/Italian)` → openpyxl
+  `ValueError: Invalid character /`) since this app hand-writes XLSX XML
+  rather than going through openpyxl. Fixed with `sanitize_sheet_name()` in
+  `xls_conversion/spreadsheet_export.py` (strips Excel's forbidden
+  characters, strips edge apostrophes, truncates to 31 chars, de-duplicates
+  case-insensitively) wired into `rows_to_xlsx_multi()` itself so every
+  caller gets it automatically, not just the one call site that triggered
+  the report. See `tests/test_sheet_name_sanitization.py`.
+- **Outputs/settings stored inside the app folder (medium).** `outputs/`
+  and `app_settings.json` lived in `PROJECT_DIR`, conflicting with this
+  app's own documented "download a fresh copy, replace the old folder"
+  update path — same problem the "Profile storage" section above already
+  solved for profiles, just not extended to these two. Fixed the same way:
+  `USER_OUTPUTS_DIR`/`APP_SETTINGS_FILE` now live under `USER_DATA_DIR`,
+  with a best-effort one-time migration in `ensure_profiles_dir()` for an
+  existing install's `outputs/` folder and `app_settings.json`.
+
+  **Follow-up, same review, user-flagged:** moving outputs out of
+  `PROJECT_DIR` traded one problem for a smaller one — profiles never
+  needed this fix's downside because a user never browses to a profile file
+  directly (everything about them goes through the app's own UI), but a
+  generated `.docx` is a real deliverable per this file's own "pipeline"
+  section (handed to a human indexer), and `USER_OUTPUTS_DIR` sits under
+  the normally-hidden `~/Library` on macOS. Printing the raw path on the
+  page (already done, `<p id="output">`) doesn't help a non-technical user
+  actually navigate there. Fixed with an **"Open Outputs Folder" button**
+  on both the Transcribe and Test Mode pages (next to Download/Refresh
+  Status) that reveals `USER_OUTPUTS_DIR` in the native file manager —
+  `open_folder_in_file_manager()` in `app.py` mirrors
+  `pick_source_folder_dialog()`'s existing per-OS subprocess dispatch
+  (`open`/`explorer`/`xdg-open`), reached via a new `POST
+  /api/open-outputs-folder` endpoint (`open_outputs_folder()` handler),
+  following the same fetch-and-`showSettingsAlert`-on-error pattern already
+  used by the Browse-source-folder button. One quirk handled explicitly:
+  `explorer.exe` routinely exits 1 even when it opens the window
+  successfully, so that branch doesn't treat a non-zero return code as
+  failure the way the macOS/Linux branches do. Considered and rejected:
+  letting the user pick a custom output directory (more moving parts, more
+  ways for the setting to go stale, for a location that's really just an
+  archival copy — see next paragraph) and defaulting to a visible location
+  like `~/Documents/...` instead (mixes generated app output into the
+  user's own Documents folder, deviates from the OS-convention app-data
+  directory profiles already use).
+
+  Worth noting for context, not something this follow-up changed: the
+  server-side `outputs/` archive isn't actually the primary way a user gets
+  their file — the Download button triggers a browser download to wherever
+  the browser saves downloads (see `DOWNLOAD_HELP_TEXT`), which most users
+  already know how to find. The server-side copy is more of a complete,
+  timestamped archive of every run (the browser download is just the most
+  recent one, and only if the user remembered to click it) — which is
+  exactly the case the new button serves: finding an older run without
+  re-transcribing it.
+- **`/run` and `/test-mode/run` reservation race (medium).** The
+  `if state["running"]: ...` check released `lock` before `state["running"]
+  = True` was actually set, so two near-simultaneous requests could both
+  pass the check and both start a job. Fixed by moving the reservation into
+  the same lock acquisition as the check. **Writing the regression test for
+  this surfaced a second, more serious pre-existing bug the review didn't
+  catch**: six handlers (`/run`, `/delete-profile`, `/test-mode/run`,
+  `/test-mode/queue/add`, `/test-mode/queue/remove`,
+  `/test-mode/delete-profile`) called `page()`/`test_mode_page()` — which
+  each acquire the *same* lock — from *inside* the `with lock:`/`with
+  test_lock:` block already held for that check. `threading.Lock` isn't
+  reentrant, so hitting any of these while a job was already running
+  deadlocked that request's thread forever (confirmed: didn't return even
+  past a 5s client timeout). Fixed by moving every such `respond()` call
+  outside its lock block. See `tests/test_run_concurrency.py` for both the
+  race and the deadlock, reproduced and then verified fixed at the real
+  HTTP layer.
+- **Batch failures not bounded (medium).** `parse_generic()`'s per-image
+  loop (`ai_parser.py`) caught only `RuntimeError`, so a native SDK
+  exception (a 429, a malformed-response edge case) aborted the whole
+  remaining batch instead of being recorded as one failed image. Fixed by
+  widening that catch to `Exception`, and separately added real
+  retry-with-backoff-and-jitter for transient 429/5xx errors
+  (`call_ai_json()`'s `_is_transient_provider_error()`/`MAX_TRANSIENT_RETRIES`)
+  so most of these never even reach the per-image failure path. Also gave
+  `run_batch()`'s real transcription calls a generous bounded timeout
+  (`BATCH_REQUEST_TIMEOUT_SECONDS` = 10 minutes, `core.py`) instead of
+  none at all — the original "unlimited patience" was a deliberate choice
+  for tolerating a slow-but-working image, but it also meant a fully hung
+  connection could never be interrupted, since Stop only takes effect
+  between images. See `tests/test_ai_retry.py`.
+- **Docs contradicted actual behavior (medium).** `GETTING_STARTED.html`/
+  `.it.html` claimed a Gemini Pro or Claude Pro *consumer subscription* was
+  required — API access is separate, pay-as-you-go billing; fixed the
+  wording in both languages. `PRIVACY.md`'s "keys are never written to any
+  file" was true only for the paste-it-each-run path; README's `.env`
+  option is a real, documented alternative that does put the key in a
+  plain-text file — reworded `PRIVACY.md` to describe both paths honestly
+  instead of contradicting README.
+- **Test coverage gap (medium).** The only substantive regression suite
+  (`xls_conversion/tests/`) exercises the orphaned offline regex parser, not
+  the live `ai_parser.py` extraction path or app.py's HTTP layer — already
+  flagged in this file's own "Open items" before this review. Added
+  `tests/` (pytest): DOCTYPE-bypass fixtures, image-range caps, sheet-name
+  sanitization, HTTP security (Host/Origin/CSRF, live server on an
+  ephemeral port), the reservation-race-and-deadlock fix, and mocked
+  provider-failure/retry behavior — see each file's own docstring for exact
+  scope. This does not cover `ai_parser.py`'s actual semantic extraction
+  quality (still needs a real API key/call, per "Open items" below) or
+  reach 100% of the app; it targets the defects this review found. Wired
+  into GitHub Actions (`.github/workflows/tests.yml`) across Linux, Windows,
+  and macOS, alongside the existing offline Node-based suite.
+- **Installation/maintenance formalization (medium).** Added `pyproject.toml`
+  (`requires-python = ">=3.9"`, matching `str.removeprefix()`'s actual floor
+  — the strictest real requirement found by inspection, not a guess), a
+  Windows-specific setup callout in README (the existing steps were Mac-only
+  prose), fixed README's stale `transcription_bot/core.py` path (leftover
+  from the pre-rename package) and stale "Battesimi extraction is currently
+  configured" line (all 6 record types have been live for a while). Not
+  done: release checksums and a formal support policy — judged not worth it
+  yet for a single-maintainer local tool with no external contributors, but
+  worth revisiting if that changes.
+- **Model registry duplication + preview default (medium).** The model list
+  was hand-duplicated in `xls_conversion/index.html` (a static asset)
+  alongside `app.py`'s `MODELS` dict, and had already drifted stale by the
+  time this was caught. Added `GET /api/models` as the single source of
+  truth; `xls_conversion/app.js`'s `loadModelOptions()` populates the
+  `<select>` from it at load time instead of hardcoding `<option>` tags.
+  Also changed `DEFAULT_MODEL` from `gemini-3.1-pro-preview` to
+  `gemini-2.5-pro` (this codebase's own "stable, high-accuracy baseline"
+  label) — Google can deprecate a preview model on short notice, which
+  would otherwise silently break every run relying on the default. This is
+  a real behavior change, not just a safety fix: anyone who doesn't
+  explicitly pick a model now gets a different one. Users who specifically
+  want the newer preview can still select it from the dropdown.
+
+  **Reverted, later session, on the user's explicit instruction.** Test
+  Mode comparisons showed `gemini-3.1-pro-preview` producing meaningfully
+  better transcriptions than `gemini-2.5-pro`, and the user asked for the
+  preview model back as the default — a deliberate, evidence-based
+  trade-off of the deprecation risk above, not an oversight. Checked first
+  against Google's own model docs (`ai.google.dev`): there is no separate,
+  non-preview "Gemini 3.1 Pro" release to prefer instead — 3.1 Pro exists
+  only as `gemini-3.1-pro-preview` (plus a `-customtools` variant), so
+  "Gemini 3.1" and "Gemini 3.1 Pro Preview" are the same model, and the
+  original deprecation concern still applies at full force. `DEFAULT_MODEL`
+  is `gemini-3.1-pro-preview` again; `gemini-2.5-pro` stays in `MODELS` as
+  the documented fallback if Google deprecates it.
+
+## app.py modularization (2026-09)
+
+`app.py` had grown to 8,865 lines — the user asked whether that was
+sustainable and what "best practice" looked like here. Analysis: over 40%
+of the file was HTML/CSS/JS embedded in Python f-strings, not Python logic
+at all (~2,500 lines of inline `<style>`, ~1,200 of inline `<script>`), and
+diffing the six pages' CSS found ~92% of it byte-identical between
+Transcribe and Test Mode alone — already a real, paid cost (the WCAG
+contrast fix earlier in this file needed the same value changed in 4
+separate spots because of exactly this duplication). This repo already had
+the right instinct for the fix: `customizable_transcription/`,
+`xls_conversion/`, `test_mode/` are each already a separate module for a
+separate concern, and `static/i18n.js`/`static/prompt-builder.js` were
+already externalized JS. `app.py` was the one remaining "everything else"
+file. Agreed scope with the user: do the low/medium-risk extractions now
+(five items below), leave splitting the five page-render functions
+themselves (`page()`, `test_mode_page()`, `prompt_builder_page()`,
+`home_page()`, `privacy_page()` — the biggest remaining win, ~4,900 lines)
+for a separate future pass, since it needs those functions' module-level
+dependencies restructured first and is a meaningfully bigger, riskier lift
+than the rest of this list.
+
+Every extraction below was verified behavior-preserving before being
+considered done — not just "it compiles": rendered-output diffing (byte-
+for-byte identical HTML outside the moved content, and for CSS/JS
+specifically, identical *effective* rule/function sets computed from
+inline + externalized content together, not just "the inline part looks
+right"), the full `tests/` suite, the offline `xls_conversion/tests/`
+suite, and live browser verification through a throwaway probe server on a
+spare port (never the user's own running instance, which stayed on
+pre-refactor code throughout this whole pass).
+
+1. **Shared CSS → `static/base.css` + `static/app-shell.css`.** All six
+   pages repeated the same shell CSS (`:root`/`body`/`main`/nav/forms/
+   buttons). `static/base.css` holds the 23 rules identical across all six;
+   `static/app-shell.css` holds 68 more identical only between Transcribe
+   and Test Mode (run controls, settings-alert modal, download link,
+   spinner — Prompt Builder's own styling has diverged too much from
+   those two to share past the base tier). Verified by parsing every
+   page's rendered `<style>` block into individual CSS rules and diffing
+   the *set* of effective rules (inline + linked stylesheets) against the
+   pre-extraction set for all six pages: zero missing, zero extra, on
+   every page.
+2. **Shared JS → `static/app-common.js`.** Transcribe's and Test Mode's
+   inline `<script>` blocks defined 12 functions with byte-identical
+   bodies (`showSettingsAlert`, `pickSourceFolder`, `openOutputsFolder`,
+   etc.) out of ~30 each. These reference module-level `let` variables
+   (`settingsAlertReturnFocus`, `runConfirmed`, `preflightComplete`)
+   declared in each page's own remaining inline script — confirmed safe by
+   testing directly in a browser that top-level `let`/`const` in one
+   classic (non-module) `<script>` tag is visible to a *later* script tag
+   in the same document, and none of the 12 are called until a later user
+   action, by which point every script on the page has already run.
+   Loaded via a plain (non-deferred) `<script src>` so load order can
+   never matter regardless. The other 8 functions sharing a name between
+   the two pages have diverged bodies and were deliberately left alone —
+   not touched in this pass.
+3. **`PROMPT_BUILDER_SECTION_HELP` and friends → `prompt_builder_content.py`.**
+   Seven pure-data constants (record-type formulas, vocabulary checklists,
+   core rules) with zero logic, consumed by app.py's `pb_*_html()`
+   functions but never containing any HTML-building logic themselves.
+   Mechanical extraction, verified via byte-identical rendered
+   `/prompt-builder` output.
+4. **`build_compare_report_docx()` → `test_mode/report_docx.py`.** Test
+   Mode's "Download Comparison Report" DOCX builder, alongside the
+   `test_mode/comparison.py` module that already scores the comparison
+   this report describes. Surfaced two shared dependencies that needed
+   resolving to avoid an app.py ↔ test_mode circular import: `MODELS`
+   (moved from app.py to `customizable_transcription/core.py`, which
+   already owned `DEFAULT_MODEL`/`provider_for_model()` — a genuine
+   improvement, not just a workaround, since core.py's own comment already
+   referenced "MODELS (app.py)" before this) and the two generic OOXML
+   package-XML functions both DOCX writers need (`content_types_xml()`/
+   `root_rels_xml()`, moved to a new tiny `docx_package.py` that both
+   app.py and `test_mode/report_docx.py` import from, rather than either
+   importing from the other).
+5. **Profile storage → `profiles_store.py`.** The single largest cohesive
+   concern still in app.py: every profile path-resolution/load/save/
+   update/delete/import/export function (19 functions total), plus
+   `PROJECT_DIR`/`safe_filename()`/the per-OS app-data-directory helpers
+   they depend on (moved here too rather than duplicated or creating a
+   circular import — `PROJECT_DIR` resolves identically regardless of
+   which repo-root module computes it, so this is a change in which file
+   owns the name, not a behavior change). `selected_profile_id()`,
+   `profile_options_html()`, `profiles_for_browser()`, and
+   `resolve_profile_for_run()` deliberately stay in app.py, since they
+   depend on `FormData`/HTML rendering and aren't storage. `ensure_profiles_dir()`
+   also moved, trimmed to just profile-directory setup and the legacy-
+   rename migration; the outputs/settings migration that had been bolted
+   onto the same function (see the security/reliability review section
+   above) is now `migrate_legacy_outputs_and_settings()`, staying in
+   app.py since it's app.py's own data, not profiles.
+
+   **This one nearly caused a real bug in the test suite, not the app
+   itself**: `tests/conftest.py`'s `sandboxed_user_data` fixture used to
+   monkeypatch only `app.USER_PROFILES_DIR` — which, after this move, is
+   a *re-exported* name in app's own module namespace (`from
+   profiles_store import USER_PROFILES_DIR`), a separate binding from
+   `profiles_store.USER_PROFILES_DIR`. Every profile CRUD function reads
+   the name from `profiles_store`'s own module globals, not app's, so
+   patching only app's copy would have left tests silently writing profile
+   data into the real `~/Library/Application Support/Customizable
+   Transcription/` directory while still appearing to pass (return values
+   would be correct either way). Caught by inspection before the suite was
+   ever run against the real directory — fixed by patching both modules'
+   copies, and re-verified with a full save→load→delete round trip through
+   the real HTTP layer against a throwaway sandboxed directory, confirmed
+   with `find` that nothing landed in the real one.
+
+Net result of items 1-5: `app.py` 8,865 → 6,204 lines (30% smaller), with the
+extracted ~2,700 lines now living in 5 new focused files instead of one
+undifferentiated one.
+
+**Item 6, same session: the five page-render functions.** Split `page()`,
+`test_mode_page()`, `prompt_builder_page()`, `home_page()`, and
+`privacy_page()` into a new `pages/` package (`pages/transcribe.py`,
+`pages/test_mode.py`, `pages/prompt_builder.py`, `pages/home.py`,
+`pages/privacy.py` respectively — function names kept identical to their
+old app.py names, so every `self.respond(page())`-style call site in
+Handler needed zero changes beyond the import line). `getting_started_page()`
+was deliberately left in app.py, not folded into this — it wasn't part of
+the agreed scope and is already thin (mostly reads the external
+GETTING_STARTED.html/.it.html files).
+
+This is the item items 1-5's own writeup flagged as needing its module-level
+dependencies restructured first, and that turned out to be the real work:
+**`app_state.py`** is a new module holding the in-memory run state
+(`state`/`test_state` and their locks/events/`new_test_run_state()`),
+`USER_OUTPUTS_DIR`/`APP_SETTINGS_FILE`, and the functions that touch them
+(`add_log()`/`add_test_log()`, `reset_ui_state()`/`reset_test_ui_state()`,
+`status_payload()`/`test_status_payload()`, `load_source_folder()`/
+`save_source_folder()`/`clear_source_folder()`) — moved out of app.py for
+the same reason profiles/DOCX/model-registry code already had to be:
+`pages/*.py` needs to read live run status to render the current page, and
+app.py needs to import the render functions from `pages/*.py`, so whatever
+both sides depend on can't live in either one without a cycle.
+`profile_options_html()`/`profiles_for_browser()` moved to `profiles_store.py`
+for the identical reason, **superseding this file's own earlier note** that
+they "deliberately stay in app.py" — that was true until pages/*.py also
+needed them; both depend on nothing but `profiles_with_display_labels()`
+and `html.escape()`, so the move cost nothing.
+
+Dependency-mapping this correctly took real care, and two mistakes were
+caught before landing, both from the same root cause (assuming a gap
+between two known function names belonged entirely to one of them, without
+checking for other top-level definitions hiding in between): `home_page()`
+was assumed to span into what was actually `getting_started_page()`'s own
+territory, and `test_mode_page()` was assumed to extend into a block of
+`pb_*_html()` helper functions that actually belong to `prompt_builder_page()`
+alone (confirmed: those helpers are called only from within
+`prompt_builder_page()`'s own body, now in `pages/prompt_builder.py`
+alongside it). Re-verified with a script that scans each candidate range
+against every real name in `app`'s live module namespace (`dir(app)`, not
+just a grep of `^def`/`^class` lines, which misses imported names) before
+extracting anything.
+
+**A second occurrence of the profiles_store sandboxing bug, caught
+proactively this time.** `tests/conftest.py`'s `sandboxed_user_data` fixture
+patched `app.APP_SETTINGS_FILE`/`app.USER_OUTPUTS_DIR`, which — now that
+`load_source_folder()`/`save_source_folder()`/`clear_source_folder()` are
+defined in `app_state.py` — are re-exported names again, a second
+independent binding from `app_state`'s own copies. Same failure mode as
+before: those functions read `APP_SETTINGS_FILE` from `app_state.py`'s own
+globals, not app's, so patching only app's copy would have silently
+resumed writing to the real `~/Library/Application Support/Customizable
+Transcription/app_settings.json` the moment any test exercised
+`reset_ui_state()`/`reset_test_ui_state()` (neither did yet, at the time
+this was caught) or the source-folder settings directly. Fixed the fixture
+to patch both `app_state`'s and `app`'s copies, and added
+`tests/test_app_state_sandboxing.py` specifically exercising
+`load_source_folder()`/`save_source_folder()`/`clear_source_folder()`/
+`reset_ui_state()` against the fixture, so a future refactor that moves
+these again has an automated check pointing at the fixture, not just this
+paragraph.
+
+Verified the same way as items 1-5: every one of the six pages' rendered
+HTML is byte-for-byte identical to the last known-good snapshot (before vs.
+after this split), confirmed via a throwaway probe server, plus live
+browser interaction (the settings-alert modal, `/status` and
+`/test-mode/status` JSON, the Prompt Builder profile-loader) with zero
+console errors. Full `tests/` suite (56 tests) and the offline
+`xls_conversion/tests/` suite both pass.
+
+Net result, all six items: `app.py` 8,865 → 2,767 lines (69% smaller), with
+`pages/` (5 files, ~3,300 lines), `app_state.py` (~215 lines), and the five
+other extracted files from items 1-5 now holding what used to be one
+undifferentiated file.
+
 ## Open items
 
-- **Review post-process, not yet built.** Add flag columns to the indexer's XLSX:
-  child-vs-father surname mismatch, missing/`[illegible]` names, surname absent
-  from the lexicon, register-wide rare-vs-common near matches. On the 362-row
-  sample this flags 20 rows (6%) with essentially no false alarms. Agreed design:
-  flag columns appended, records left in register order, flagged rows coloured.
-  **It writes flags, never values** — a wrong cell is invisible, a blank one isn't.
-  Should read both the parser's rows and the raw transcription (to lift
-  `[illegible]` and `Confidence: low` out of `Notes:`).
-- Check image_194.jpg directly for the "Sebbia/Serra/Bella" entry (see above).
-- Consider fixing the `ejusdem`/`Eod.` year-continuity gap that likely caused
-  the 1753/1754 mismatch above.
+- **Review post-process tool — dropped, not just deprioritized.** A design for
+  flag columns (child-vs-father surname mismatch, missing/`[illegible]` names,
+  surname absent from the lexicon, register-wide rare-vs-common near matches)
+  existed here for a while, never built. Dropped at the user's explicit
+  request: their indexer workflow is surgical — every row gets manually
+  corrected regardless — so flagging a subset to prioritize review adds no
+  value when 100% of rows are already reviewed. Not revisited unless the
+  review workflow itself changes to something less than full-coverage.
 - `ai_parser.py`'s own extraction behavior hasn't been audited the way
   `baptism-parser.js` has — no equivalent regression-test coverage exists for
   it, and it can't be tested offline (needs a real Gemini call). Worth deciding
   whether that's acceptable long-term or whether `baptism-parser.js` should be
   wired back into the live UI as a free, deterministic first pass.
-- Decide whether the other registers (matrimoni, morti) need the same
-  page-number and fidelity treatment — their parsers have separate,
-  unexamined phrasing contracts, and neither prompt has been checked for the
-  fixes made here (hallucination guard, `filius`/`filia` cross-check,
-  godparent-honorific tightening).
-- **Parse the child's surname out of the Marginal Heading block in
-  `baptism-parser.js`.** See "Chiusa Sclafani battesimi — decisions" above —
-  not a simple last-token-after-"et" regex, since the surname's position
-  relative to "et" varies for real reasons within this same register. Not
-  live-critical (offline regression parser only), but the regression suite
-  currently documents the gap rather than testing correct behavior.
+- Matrimoni/morti now getting battesimi's page-number and fidelity treatment
+  is done — see "Later session: matrimoni/morti parity" under the Prompt
+  Builder section.

@@ -331,18 +331,26 @@
       "Before you output anything, count the distinct " + meta.nounSingular + " entries actually visible on the page -- your entry count must equal that count: never more, never fewer. Do not add an entry unless you can point to its own text on the page you were given; never generate one from the formula, from a nearby date, or from pattern-completion. A fabricated entry is worse than a skipped one -- a skipped entry leaves a detectable gap, but a fabricated one reads exactly like a real record and will be trusted as one by every downstream user."
     );
 
+    // Unconditional for all 6 record types -- not gated behind a checkbox.
+    // Used to be a civil-only opt-in, then briefly an opt-in for every type;
+    // promoted to always-on (same tier as the anti-hallucination entry-count
+    // check just above and the fidelity rules below -- no profile has a
+    // legitimate reason to want the model inventing a plausible ending
+    // instead of flagging a genuine cutoff) after a real Church Morti
+    // transcript showed the failure mode with the instruction absent
+    // entirely. The instruction itself only ever fires when the model
+    // perceives an actual cutoff, so it costs nothing on a register where
+    // entries never span images.
+    parts.push(
+      "An entry in this register can continue onto a following page image. If the visible portion of an entry looks incomplete -- cut off mid-sentence, no closing signature or date -- do not treat that as an error and do not invent a plausible ending. Transcribe exactly what is visible and add a note in the Notes block: \"Entry appears to continue on the next image.\" " +
+      "The reverse can also happen: if this image's content appears to pick up mid-record -- no opening date or officiant clause, starting straight into witness names or a closing signature block -- transcribe it under the SAME locator/entry number as the record it continues, not as a new entry, and add a note: \"Entry appears to continue from the previous image.\" Do not attempt to reconstruct the missing opening; transcribe only what is visible. Both notes use this exact wording so the downstream XLS Conversion step can recognize and link the split record automatically -- do not paraphrase them."
+    );
+
     if (isCivil) {
       var civilPageFormat = pbRadioVal(typeField("pageFormat"));
       if (civilPageFormat === "printed_form") {
         parts.push(
           "This register is a printed form with handwritten entries filled in. Expect two visually distinct scripts on the same page: the fixed printed boilerplate, and the clerk's handwriting in the blanks. Transcribe both, but weigh accuracy toward the handwritten fill-in content -- that is where the names, dates, and facts that matter for indexing are recorded; the printed boilerplate repeats unchanged throughout the register."
-        );
-      }
-      var civilActSpansPages = document.querySelector('[name="' + typeField("actSpansPages") + '"]');
-      if (civilActSpansPages && civilActSpansPages.checked) {
-        parts.push(
-          "An act in this register can continue onto a following page image. If the visible portion of an act looks incomplete -- cut off mid-sentence, no closing signature or date -- do not treat that as an error and do not invent a plausible ending. Transcribe exactly what is visible and add a note in the Notes block: \"Entry appears to continue on the next image.\" " +
-          "The reverse can also happen: if this image's content appears to pick up mid-record -- no opening date or officiant clause, starting straight into witness names or a closing signature block -- transcribe it under the SAME locator/entry number as the record it continues, not as a new entry, and add a note: \"Entry appears to continue from the previous image.\" Do not attempt to reconstruct the missing opening; transcribe only what is visible. Both notes use this exact wording so the downstream XLS Conversion step can recognize and link the split record automatically -- do not paraphrase them."
         );
       }
       // A signer who could not write is marked with a cross rather than a

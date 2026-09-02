@@ -115,12 +115,6 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
         "and the clerk's handwriting -- and to weigh transcription accuracy toward the handwritten fill-ins, since "
         "that is where the names and dates that matter for indexing are recorded."
     )
-    act_spans_info = (
-        "Birth and death acts usually fit on one page, but a marriage act especially can run onto a following page "
-        "image. If you check this, the AI is told not to invent a plausible ending when an act looks cut off at the "
-        "bottom of a page -- it transcribes exactly what is visible and flags the entry as continuing in Notes "
-        "instead."
-    )
     # Civil Birth only, confirmed against a real 1843 register: some registers
     # print a genuine two-column form, the birth act on the left and a
     # dedicated, separately-headed column on the right recording when the
@@ -150,10 +144,7 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
             <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="printed_form" checked> Printed form with handwritten entries filled in</label>
             <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="handwritten"> Entirely handwritten — no printed form on the page</label>
           </div>
-        </fieldset>
-        <div class="pb-inline-row">
-          <label class="pb-checkbox"><input type="checkbox" name="{type_key}_actSpansPages"> An act sometimes continues onto a following page</label>{pb_info_button_html(f"pb-info-actspans-{type_key}", act_spans_info)}
-        </div>{baptism_column_html}
+        </fieldset>{baptism_column_html}
       </div>"""
 
 

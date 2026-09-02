@@ -1,47 +1,15 @@
 from __future__ import annotations
 
-import json
 from collections import Counter
 
 from test_mode.comparison import character_edit_stats
-from xls_conversion.ai_parser import RecordTypeConfig, call_ai
+from xls_conversion.ai_parser import RecordTypeConfig
 
 from index_compare.align import align_rows, identity_fields
-from index_compare.heuristics import (
-    DIFFERS,
-    LATIN_FORM,
-    SPELLING_VARIANT,
-    UNCLASSIFIED,
-    WRONG_VALUE,
-    classify_diff,
-)
-from index_compare.text_utils import is_blank_or_illegible, normalize_for_comparison
+from index_compare.heuristics import classify_diff
+from index_compare.text_utils import is_blank_or_illegible
 
 Row = dict[str, str]
-
-# The only categories the AI-assisted pass is allowed to hand back --
-# "match"/"missing" are already resolved deterministically before this ever
-# runs (see classify_diff()'s own check order), and "unclassified" is what
-# we're trying to replace, not a valid answer.
-_AI_ASSIST_CATEGORIES = (SPELLING_VARIANT, LATIN_FORM, WRONG_VALUE, DIFFERS)
-
-_AI_SYSTEM_PROMPT = (
-    "You are assisting a genealogical indexer by classifying differences between a "
-    "corrected/ground-truth spreadsheet index and an AI-generated candidate index. A "
-    "deterministic first pass already resolved every difference it could; you are only "
-    "shown the ones it could not confidently bucket.\n\n"
-    "For each difference, decide which single category best describes it:\n"
-    f'- "{SPELLING_VARIANT}": the same name/word, spelled differently (transliteration, '
-    "minor letter differences) -- not a different name.\n"
-    f'- "{LATIN_FORM}": a Latin-declension or honorific-title difference, not a real error '
-    '(e.g. "Paulus" vs "fu Pauli", "D. Felix" vs "Felix").\n'
-    f'- "{WRONG_VALUE}": a genuinely incorrect value (a misread digit, date, or other fact).\n'
-    f'- "{DIFFERS}": the two values name or describe a different person/thing entirely.\n\n'
-    "Return only a JSON array with one object per difference, in the same order given, each "
-    'with exactly these fields: "index" (the integer index from the input, copied back '
-    'unchanged), "category" (one of the four values above, spelled exactly as shown), and '
-    '"rationale" (one short sentence explaining the call).'
-)
 
 
 def _numeric_fields(config: RecordTypeConfig) -> set[str]:
@@ -176,7 +144,7 @@ def score_candidate(truth_rows: list[Row], candidate_rows: list[Row], config: Re
     # nothing was actually compared, not that the candidate is flawless.
     # Reproduced in a real report: a candidate with 0 matched rows showed
     # 100% accuracy across every field group. error_rate is None here
-    # instead, and callers (report_xlsx.py) must treat that as "not
+    # instead, and callers (report_docx.py) must treat that as "not
     # computed", not as a real 0%.
     def rate_or_none(edits: int, ref_chars: int) -> float | None:
         return _error_rate(edits, ref_chars) if matched_count > 0 else None
@@ -224,133 +192,25 @@ def score_candidate(truth_rows: list[Row], candidate_rows: list[Row], config: Re
     }
 
 
-def _recount_categories(result: dict) -> None:
-    result["category_counts"] = dict(Counter(d["category"] for d in result["diffs"]))
-
-
-def apply_ai_classification(result: dict, api_key: str, model: str) -> None:
-    """Mutates `result` (a score_candidate() return value) in place: sends
-    only its `unclassified` diffs to the model, batched into ONE call (never
-    one call per diff -- see CLAUDE.md's own review notes on why per-record
-    AI calls don't scale), and reclassifies whichever ones come back with a
-    recognized category. Never raises: if the call fails outright, or comes
-    back malformed, the affected diffs are simply left `unclassified` rather
-    than losing the rest of an otherwise-complete comparison over one
-    optional enhancement."""
-    unclassified = [diff for diff in result["diffs"] if diff["category"] == UNCLASSIFIED]
-    if not unclassified:
-        return
-    payload = [
-        {
-            "index": index,
-            "field": diff["field"],
-            "truth_value": diff["truth_value"],
-            "candidate_value": diff["candidate_value"],
-        }
-        for index, diff in enumerate(unclassified)
-    ]
-    user_message = "Differences to classify:\n" + json.dumps(payload, ensure_ascii=False)
-    try:
-        records = call_ai(api_key, model, _AI_SYSTEM_PROMPT, user_message)
-    except Exception:
-        return
-
-    resolved: dict[int, tuple[str, str]] = {}
-    for record in records:
-        index = record.get("index")
-        category = record.get("category")
-        if isinstance(index, int) and 0 <= index < len(unclassified) and category in _AI_ASSIST_CATEGORIES:
-            resolved[index] = (category, str(record.get("rationale") or ""))
-
-    for index, diff in enumerate(unclassified):
-        if index in resolved:
-            category, rationale = resolved[index]
-            diff["category"] = category
-            diff["ai_assisted"] = True
-            diff["ai_rationale"] = rationale
-    _recount_categories(result)
-
-
-def _field_agreement_counts(rows_a: list[Row], rows_b: list[Row], config: RecordTypeConfig) -> dict[str, dict[str, int]]:
-    alignment = align_rows(rows_a, rows_b, config)
-    counts = {field: {"agree": 0, "disagree": 0, "with_data": 0} for field in config.fields}
-    for row_a, row_b in alignment.matched:
-        for field in config.fields:
-            value_a = row_a.get(field, "")
-            value_b = row_b.get(field, "")
-            if is_blank_or_illegible(value_a) and is_blank_or_illegible(value_b):
-                continue  # neither side has data for this field -- not informative either way
-            counts[field]["with_data"] += 1
-            if normalize_for_comparison(value_a) == normalize_for_comparison(value_b):
-                counts[field]["agree"] += 1
-            else:
-                counts[field]["disagree"] += 1
-    return counts
-
-
-def score_agreement(config: RecordTypeConfig, candidates: list[tuple[str, list[Row]]]) -> dict:
-    """Agreement mode: no ground truth needed. Every pair of candidates is
-    aligned and compared field-by-field (simple normalized-equality, not the
-    full classify_diff() taxonomy -- "do these two agree" is a coarser,
-    binary question than "why do they differ"), and the counts are summed
-    across all pairs into one field-reliability ranking, worst-agreement-
-    first -- the same shape and sort order as the Grimaldi example
-    workbook's own "Model Disagreements" tab. Useful before a corrected
-    index even exists: fields where models already agree are lower-priority
-    for a human to double-check than fields where they don't."""
-    if len(candidates) < 2:
-        raise RuntimeError("Agreement mode needs at least 2 candidates to compare against each other.")
-
-    totals = {field: {"agree": 0, "disagree": 0, "with_data": 0} for field in config.fields}
-    for i in range(len(candidates)):
-        for j in range(i + 1, len(candidates)):
-            pair_counts = _field_agreement_counts(candidates[i][1], candidates[j][1], config)
-            for field, counts in pair_counts.items():
-                totals[field]["agree"] += counts["agree"]
-                totals[field]["disagree"] += counts["disagree"]
-                totals[field]["with_data"] += counts["with_data"]
-
-    field_reliability = [
-        {
-            "field": field,
-            "with_data": counts["with_data"],
-            "agree": counts["agree"],
-            "disagree": counts["disagree"],
-            "agree_pct": round(counts["agree"] / counts["with_data"], 4),
-        }
-        for field, counts in totals.items()
-        if counts["with_data"] > 0
-    ]
-    field_reliability.sort(key=lambda entry: entry["agree_pct"])
-
-    return {"mode": "agreement", "field_reliability": field_reliability}
-
-
 def compare_indexes(
     config: RecordTypeConfig,
-    ground_truth: tuple[str, list[Row]] | None,
+    ground_truth: tuple[str, list[Row]],
     candidates: list[tuple[str, list[Row]]],
-    *,
-    use_ai: bool = False,
-    api_key: str = "",
-    model: str = "",
 ) -> dict:
-    """Top-level entry point: Accuracy mode when a ground-truth (label,
-    rows) pair is given, Agreement mode otherwise. AI-assisted
-    classification only applies in Accuracy mode -- Agreement mode's
-    agree/disagree counting has no `unclassified` bucket to begin with."""
+    """Top-level entry point: scores every candidate against the required
+    ground-truth (label, rows) pair. Accuracy mode only -- this feature
+    used to also offer an Agreement mode (candidates compared only to each
+    other, no ground truth needed) plus an optional AI-assisted pass to
+    resolve ambiguous diffs; both were dropped when the downloadable report
+    was rebuilt as a DOCX distilling statistical accuracy, since the user's
+    own review of individual entries already happens by eye against the
+    corrected index -- see index_compare/report_docx.py's own docstring."""
     if not candidates:
         raise RuntimeError("Upload at least one candidate index to compare.")
-
     if ground_truth is None:
-        return score_agreement(config, candidates)
+        raise RuntimeError("Upload a corrected/ground-truth index to compare candidates against.")
 
     ground_truth_label, ground_truth_rows = ground_truth
-    results = []
-    for label, rows in candidates:
-        result = score_candidate(ground_truth_rows, rows, config)
-        if use_ai and api_key and model:
-            apply_ai_classification(result, api_key, model)
-        results.append({"label": label, **result})
+    results = [{"label": label, **score_candidate(ground_truth_rows, rows, config)} for label, rows in candidates]
 
     return {"mode": "accuracy", "ground_truth_label": ground_truth_label, "candidates": results}

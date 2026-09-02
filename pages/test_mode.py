@@ -400,13 +400,6 @@ def test_mode_page() -> str:
       container.appendChild(row);
     }}
 
-    function updateIndexCompareAiFields() {{
-      const checkbox = document.getElementById("ic-use-ai-checkbox");
-      const fields = document.getElementById("ic-ai-fields");
-      if (!checkbox || !fields) return;
-      fields.hidden = !checkbox.checked;
-    }}
-
     // ---- Index Compare: run / mapping / results (see index_compare/ and
     // app.py's /api/index-compare/* handlers) ----
 
@@ -544,6 +537,10 @@ def test_mode_page() -> str:
 
       const groundTruthFile = document.getElementById("ic-ground-truth-file").files[0];
       const groundTruthLabel = (document.getElementById("ic-ground-truth-label").value || "").trim() || "Ground truth";
+      if (!groundTruthFile) {{
+        if (status) status.textContent = "Upload a 100% Corrected index to compare candidates against.";
+        return;
+      }}
       const candidateEntries = icCandidateEntries();
       if (!candidateEntries.length) {{
         if (status) status.textContent = "Add at least one candidate index to compare.";
@@ -551,10 +548,8 @@ def test_mode_page() -> str:
       }}
 
       const body = new FormData();
-      if (groundTruthFile) {{
-        body.append("ground_truth_file", groundTruthFile);
-        body.append("ground_truth_label", groundTruthLabel);
-      }}
+      body.append("ground_truth_file", groundTruthFile);
+      body.append("ground_truth_label", groundTruthLabel);
       candidateEntries.forEach((entry, index) => {{
         body.append("candidate_file_" + index, entry.file);
         body.append("candidate_label_" + index, entry.label);
@@ -564,13 +559,6 @@ def test_mode_page() -> str:
       Object.keys(mappings).forEach((slot) => {{
         body.append(slot + "_mapping", JSON.stringify(mappings[slot]));
       }});
-
-      const useAi = document.getElementById("ic-use-ai-checkbox").checked;
-      body.append("use_ai", useAi ? "true" : "false");
-      if (useAi) {{
-        body.append("api_key", document.getElementById("ic-api-key").value || "");
-        body.append("model", document.getElementById("ic-model").value || "");
-      }}
 
       button.disabled = true;
       if (status) status.textContent = "Comparing...";
@@ -620,7 +608,7 @@ def test_mode_page() -> str:
         const url = URL.createObjectURL(lastIndexCompareReportBlob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = "index-comparison-report.xlsx";
+        link.download = "index-comparison-report.docx";
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -854,10 +842,6 @@ def test_mode_page() -> str:
       if (addIcCandidateButton) {{
         addIcCandidateButton.addEventListener("click", addIndexCandidateRow);
       }}
-      const icUseAiCheckbox = document.getElementById("ic-use-ai-checkbox");
-      if (icUseAiCheckbox) {{
-        icUseAiCheckbox.addEventListener("change", updateIndexCompareAiFields);
-      }}
       const icRunButton = document.getElementById("ic-run-button");
       if (icRunButton) {{
         icRunButton.addEventListener("click", runIndexCompare);
@@ -1011,6 +995,7 @@ def test_mode_page() -> str:
       border-radius: 8px;
       padding: 14px 18px;
       margin-top: 20px;
+      margin-bottom: 20px;
     }}
     details.tm-section summary {{
       cursor: pointer;
@@ -1039,16 +1024,6 @@ def test_mode_page() -> str:
     .tm-section-hint {{
       margin-top: 4px;
     }}
-    .ic-checkbox-row {{
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-weight: 500;
-      margin-top: 10px;
-    }}
-    .ic-checkbox-row input {{
-      margin: 0;
-    }}
     .ic-mapping-panel {{
       margin-top: 12px;
       padding: 10px 12px;
@@ -1076,14 +1051,6 @@ def test_mode_page() -> str:
     }}
     .ic-mapping-field-row select {{
       margin: 0;
-    }}
-    /* .row (static/app-shell.css) sets display:grid, which -- being an
-       author-stylesheet rule -- beats the browser's default [hidden]
-       {{display:none}} UA rule even though hidden is present, the same
-       footgun app-shell.css already works around for .path-manual-row /
-       .run-confirmation-settings / .settings-alert / .run-status. */
-    #ic-ai-fields[hidden] {{
-      display: none;
     }}
     /* Info-button popups, adapted from Prompt Builder's .pb-info-wrap/
        .pb-info-btn/.pb-info-panel (pages/prompt_builder.py) under Test
@@ -1303,7 +1270,7 @@ def test_mode_page() -> str:
   <details class="tm-section">
     <summary>
       <span>Compare Indexes (XLSX)</span>
-      {tm_info_button_html("tm-info-compare-indexes", "With a ground-truth file: each candidate is scored for accuracy against it. Without one: candidates are compared to each other, and fields where they disagree most are ranked first for manual review.")}
+      {tm_info_button_html("tm-info-compare-indexes", "Each candidate index is scored for statistical accuracy against the 100% Corrected index -- a downloadable DOCX report ranks them by character error rate, the same way the Compare Transcripts report above ranks transcripts. It does not list individual field differences; review a candidate's own spreadsheet against the corrected index by eye to find and fix specific entries.")}
     </summary>
     <div id="ic-candidate-files">
       <div class="extra-file-row">
@@ -1316,22 +1283,10 @@ def test_mode_page() -> str:
       </div>
     </div>
     <button id="ic-add-candidate-button" class="button-tiny" type="button">Add another</button>
-    <label>100% Corrected XLSX <span class="hint">(optional &mdash; leave blank to compare candidates only, against each other)</span></label>
+    <label>100% Corrected XLSX</label>
     <div class="extra-file-row">
       <input type="text" id="ic-ground-truth-label" placeholder="Label for this index">
       <input type="file" id="ic-ground-truth-file" accept=".xlsx">
-    </div>
-    <label class="ic-checkbox-row"><input type="checkbox" id="ic-use-ai-checkbox"> Use AI to classify ambiguous differences</label>
-    <p class="hint">Most differences (matching names, obvious misreads, Latin-form spelling) are sorted automatically with no AI call. Only the handful the automatic pass can't confidently bucket are optionally sent to a model for a suggested category &mdash; never a per-row cost.</p>
-    <div id="ic-ai-fields" class="row" hidden>
-      <label>API key
-        <input type="password" id="ic-api-key" autocomplete="off" placeholder="Paste the key matching the model below">
-      </label>
-      <label>Model
-        <select id="ic-model">
-          {model_options_for("")}
-        </select>
-      </label>
     </div>
     <p id="ic-status" class="hint"></p>
     <div class="actions">
@@ -1339,7 +1294,7 @@ def test_mode_page() -> str:
     </div>
     <div id="ic-mapping-area" hidden></div>
     <div class="actions" id="ic-report-actions" hidden>
-      <button id="ic-download-report-button" class="button-secondary" type="button" disabled>Download Index Comparison Report (.xlsx)</button>
+      <button id="ic-download-report-button" class="button-secondary" type="button" disabled>Download Index Comparison Report (.docx)</button>
     </div>
   </details>
   <section class="panel">

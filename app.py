@@ -54,7 +54,7 @@ from test_mode.comparison import score_transcription
 from test_mode.report_docx import build_compare_report_docx
 from docx_package import content_types_xml, root_rels_xml, strip_xml_illegal_chars
 from index_compare.reader import NeedsMapping, resolve_index_file, suggest_mapping
-from index_compare.report_xlsx import build_index_compare_report
+from index_compare.report_docx import build_index_compare_report
 from index_compare.scoring import compare_indexes
 from xls_conversion.ai_parser import RECORD_TYPES
 from prompt_builder_content import (
@@ -2803,16 +2803,17 @@ class Handler(BaseHTTPRequestHandler):
             config = None
             ground_truth = None
             gt_entry = files.get("ground_truth_file")
-            if gt_entry and gt_entry[1]:
-                gt_bytes = self._index_compare_file_bytes(files, "ground_truth_file", required=False)
-                resolved = self._resolve_index_file_or_record_mapping_need(
-                    gt_bytes, fields.get("ground_truth_mapping", ""), "ground_truth", needs_mapping
-                )
-                if resolved:
-                    gt_config, gt_rows, _sheet = resolved
-                    gt_label = fields.get("ground_truth_label", "").strip() or "Ground truth"
-                    ground_truth = (gt_label, gt_rows)
-                    config = gt_config
+            if not gt_entry or not gt_entry[1]:
+                raise RuntimeError("Upload a 100% Corrected index (ground truth) file to compare against.")
+            gt_bytes = self._index_compare_file_bytes(files, "ground_truth_file")
+            resolved = self._resolve_index_file_or_record_mapping_need(
+                gt_bytes, fields.get("ground_truth_mapping", ""), "ground_truth", needs_mapping
+            )
+            if resolved:
+                gt_config, gt_rows, _sheet = resolved
+                gt_label = fields.get("ground_truth_label", "").strip() or "Ground truth"
+                ground_truth = (gt_label, gt_rows)
+                config = gt_config
 
             candidate_indexes = sorted(
                 (name.removeprefix("candidate_file_") for name in files if name.startswith("candidate_file_")),
@@ -2851,17 +2852,7 @@ class Handler(BaseHTTPRequestHandler):
             if config is None:
                 raise RuntimeError("Could not determine a record type from the uploaded files.")
 
-            use_ai = fields.get("use_ai") == "true"
-            api_key_value = fields.get("api_key", "").strip()
-            model = fields.get("model", "").strip()
-            if use_ai:
-                if not api_key_value or not model:
-                    raise RuntimeError("Paste an API key and pick a model to use AI-assisted classification.")
-                validate_api_key(PROJECT_DIR, model, api_key_value)
-
-            result = compare_indexes(
-                config, ground_truth, candidates, use_ai=use_ai, api_key=api_key_value, model=model
-            )
+            result = compare_indexes(config, ground_truth, candidates)
             self.respond_json(
                 {
                     "result": result,
@@ -2887,9 +2878,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header(
                 "Content-Type",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
-            self.send_header("Content-Disposition", 'attachment; filename="index-comparison-report.xlsx"')
+            self.send_header("Content-Disposition", 'attachment; filename="index-comparison-report.docx"')
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

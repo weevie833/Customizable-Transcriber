@@ -155,7 +155,11 @@ def test_analyze_end_to_end_accuracy_mode(live_server):
     assert result["candidates"][0]["category_counts"] == {"spelling_variant": 1, "differs": 1}
 
 
-def test_analyze_end_to_end_agreement_mode_when_no_ground_truth(live_server):
+def test_analyze_requires_a_ground_truth_file(live_server):
+    # Agreement mode (candidates compared only to each other, no ground
+    # truth) was dropped when the downloadable report was rebuilt as a
+    # DOCX distilling accuracy against a corrected index -- see
+    # index_compare/scoring.py's compare_indexes() docstring.
     host, port = live_server
     jar = CookieJar()
     _get(host, port, "/", jar)
@@ -171,7 +175,8 @@ def test_analyze_end_to_end_agreement_mode_when_no_ground_truth(live_server):
         {"candidate_file_0": ("a.xlsx", candidate_a), "candidate_file_1": ("b.xlsx", candidate_b)},
     )
     data = json.loads(response.read())
-    assert data["result"]["mode"] == "agreement"
+    assert "error" in data
+    assert "100% Corrected" in data["error"]
 
 
 def test_analyze_reports_needs_mapping_instead_of_a_generic_error(live_server):
@@ -235,7 +240,7 @@ def test_analyze_with_an_explicit_mapping_for_a_custom_ground_truth(live_server)
     assert data["result"]["candidates"][0]["category_counts"] == {}
 
 
-def test_report_endpoint_streams_an_xlsx(live_server):
+def test_report_endpoint_streams_a_docx(live_server):
     host, port = live_server
     jar = CookieJar()
     _get(host, port, "/", jar)
@@ -249,9 +254,12 @@ def test_report_endpoint_streams_an_xlsx(live_server):
         host, port, jar, "/api/index-compare/report", {"result": result, "ground_truth_label": "ORIG"}
     )
     assert response.status == 200
-    assert response.headers.get("Content-Type") == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert (
+        response.headers.get("Content-Type")
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
     body = response.read()
-    assert body[:2] == b"PK"  # a real ZIP/XLSX container
+    assert body[:2] == b"PK"  # a real ZIP/DOCX container
 
 
 def test_report_endpoint_requires_a_result(live_server):

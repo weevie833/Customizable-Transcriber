@@ -12,8 +12,8 @@ from index_compare.text_utils import is_blank_or_illegible, normalize_for_compar
 # 60.0. Those two overlap, so no single threshold can cleanly separate
 # "spelling variant" from "different person" purely from edit distance --
 # both ended up landing in the `unclassified` band on purpose: this
-# heuristic would rather defer an ambiguous case (to the optional AI pass,
-# or a human) than confidently mislabel it either way.
+# heuristic would rather defer an ambiguous case to a human's own by-eye
+# review than confidently mislabel it either way.
 _SPELLING_VARIANT_THRESHOLD = 88.0
 _DIFFERS_THRESHOLD = 45.0
 

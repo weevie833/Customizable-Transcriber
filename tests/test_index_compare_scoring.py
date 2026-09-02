@@ -1,14 +1,19 @@
 """Regression tests for index_compare/scoring.py -- the orchestration layer
 tying align.py + heuristics.py + test_mode/comparison.py's Levenshtein
-primitive together into Accuracy mode (a ground-truth file present) and
-Agreement mode (candidates only, no ground truth)."""
+primitive together into Accuracy mode. A ground-truth file is required
+(compare_indexes() raises without one) -- this module used to also offer an
+Agreement mode (candidates compared only to each other, no ground truth)
+plus an optional AI-assisted pass to reclassify ambiguous diffs; both were
+dropped when the downloadable report was rebuilt as a DOCX distilling
+statistical accuracy rather than per-row detail. See compare_indexes()'s
+own docstring."""
 
 from __future__ import annotations
 
+import pytest
 from xls_conversion.ai_parser import RECORD_TYPES
 
-import index_compare.scoring as scoring
-from index_compare.scoring import compare_indexes, fields_with_ground_truth_data, score_agreement, score_candidate
+from index_compare.scoring import compare_indexes, fields_with_ground_truth_data, score_candidate
 
 MATRIMONI = RECORD_TYPES["matrimoni"]
 
@@ -37,9 +42,9 @@ def test_score_candidate_reports_real_diffs_and_skips_both_blank_fields():
 
 def test_score_candidate_falls_back_to_name_as_locator_when_page_number_is_blank():
     # Real case: a ground truth tracked by name and date, Page # never
-    # filled in (see align.py's identity-matching fallback) -- the diff
-    # table's Locator column must still identify the row, not be blank for
-    # every single one of them.
+    # filled in (see align.py's identity-matching fallback) -- each diff's
+    # Locator value must still identify the row, not be blank for every
+    # single one of them.
     truth = [_row(groom_given_name="Giuseppe", groom_last_name="Rossi", bride_last_name="Bianchi")]
     candidate = [_row(groom_given_name="Giuseppe", groom_last_name="Rossi", bride_last_name="Verdi")]
     result = score_candidate(truth, candidate, MATRIMONI)
@@ -121,78 +126,16 @@ def test_compare_indexes_accuracy_mode_end_to_end():
     assert result["candidates"][0]["category_counts"] == {"differs": 1}
 
 
-def test_compare_indexes_agreement_mode_when_no_ground_truth():
+def test_compare_indexes_requires_a_ground_truth_file():
     candidate_a = [_row(page_number="34", groom_given_name="Giuseppe")]
-    candidate_b = [_row(page_number="34", groom_given_name="Giuseppe")]
-    result = compare_indexes(MATRIMONI, None, [("Gemini", candidate_a), ("Claude", candidate_b)])
-    assert result["mode"] == "agreement"
-    entry = next(e for e in result["field_reliability"] if e["field"] == "groom_given_name")
-    assert entry == {"field": "groom_given_name", "with_data": 1, "agree": 1, "disagree": 0, "agree_pct": 1.0}
+    with pytest.raises(RuntimeError, match="corrected/ground-truth"):
+        compare_indexes(MATRIMONI, None, [("Gemini", candidate_a)])
 
 
-def test_agreement_mode_requires_at_least_two_candidates():
-    candidate_a = [_row(page_number="34", groom_given_name="Giuseppe")]
-    try:
-        score_agreement(MATRIMONI, [("Gemini", candidate_a)])
-    except RuntimeError as exc:
-        assert "at least 2" in str(exc)
-    else:
-        raise AssertionError("expected a RuntimeError")
-
-
-def test_agreement_mode_ranks_worst_agreement_first():
-    candidate_a = [_row(page_number="34", groom_given_name="Giuseppe", bride_last_name="Rossi")]
-    candidate_b = [_row(page_number="34", groom_given_name="Marco", bride_last_name="Rossi")]
-    result = compare_indexes(MATRIMONI, None, [("Gemini", candidate_a), ("Claude", candidate_b)])
-    fields = [entry["field"] for entry in result["field_reliability"]]
-    assert fields.index("groom_given_name") < fields.index("bride_last_name")
-
-
-def test_apply_ai_classification_reclassifies_only_unclassified_diffs(monkeypatch):
-    truth = [_row(page_number="34", groom_mother_last_name="Ianni")]
-    candidate = [_row(page_number="34", groom_mother_last_name="Janne")]
-    result = score_candidate(truth, candidate, MATRIMONI)
-    assert result["category_counts"] == {"unclassified": 1}
-
-    def fake_call_ai(api_key, model, system_prompt, user_message):
-        assert api_key == "key"
-        assert model == "model"
-        return [{"index": 0, "category": "spelling_variant", "rationale": "Scribal spelling."}]
-
-    monkeypatch.setattr(scoring, "call_ai", fake_call_ai)
-    scoring.apply_ai_classification(result, "key", "model")
-    assert result["category_counts"] == {"spelling_variant": 1}
-    assert result["diffs"][0]["ai_assisted"] is True
-    assert result["diffs"][0]["ai_rationale"] == "Scribal spelling."
-
-
-def test_apply_ai_classification_leaves_diffs_unclassified_when_the_call_fails(monkeypatch):
-    truth = [_row(page_number="34", groom_mother_last_name="Ianni")]
-    candidate = [_row(page_number="34", groom_mother_last_name="Janne")]
-    result = score_candidate(truth, candidate, MATRIMONI)
-
-    def failing_call_ai(api_key, model, system_prompt, user_message):
-        raise RuntimeError("provider unavailable")
-
-    monkeypatch.setattr(scoring, "call_ai", failing_call_ai)
-    scoring.apply_ai_classification(result, "key", "model")
-    assert result["category_counts"] == {"unclassified": 1}
-    assert "ai_assisted" not in result["diffs"][0]
-
-
-def test_apply_ai_classification_ignores_an_unrecognized_category(monkeypatch):
-    truth = [_row(page_number="34", groom_mother_last_name="Ianni")]
-    candidate = [_row(page_number="34", groom_mother_last_name="Janne")]
-    result = score_candidate(truth, candidate, MATRIMONI)
-
-    def fake_call_ai(api_key, model, system_prompt, user_message):
-        # "match"/"unclassified" are not valid AI-assist answers -- see
-        # _AI_ASSIST_CATEGORIES.
-        return [{"index": 0, "category": "match", "rationale": "nope"}]
-
-    monkeypatch.setattr(scoring, "call_ai", fake_call_ai)
-    scoring.apply_ai_classification(result, "key", "model")
-    assert result["category_counts"] == {"unclassified": 1}
+def test_compare_indexes_requires_at_least_one_candidate():
+    truth = [_row(page_number="34", groom_given_name="Giuseppe")]
+    with pytest.raises(RuntimeError, match="at least one candidate"):
+        compare_indexes(MATRIMONI, ("ORIG", truth), [])
 
 
 # ---- Field scoping: "only compare what the ground truth actually

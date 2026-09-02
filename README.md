@@ -1,6 +1,6 @@
 # Customizable Transcription Interface
 
-Local Gemini transcription app for archival records. It replaces the Colab/Google Drive workflow with local folder input, saved prompt profiles, selected JPEG/PNG/PDF source processing, timestamped Markdown output, and timestamped Word document output.
+Local AI transcription app for archival records, using Google Gemini or Anthropic Claude (your choice per run). It replaces the Colab/Google Drive workflow with local folder input, saved prompt profiles, selected JPEG/PNG/PDF source processing, timestamped Markdown output, and timestamped Word document output.
 
 ## Setup
 
@@ -73,11 +73,14 @@ commands differ:
   `python` and `pip` on most Windows Python installs — use whichever one
   step 1 confirmed works for you.
 
-**5. Set up your Gemini API key.** Pick one of these — you don't need both:
+**5. Set up your API key.** The app supports both Google Gemini and
+Anthropic Claude models — pick whichever provider's model you plan to run,
+and one of these two ways to supply its key (you don't need both):
 
 - **Paste it into the browser each run (simplest).** Skip this step. The web
-  app has a `Gemini API key` field you paste into before each run; it's never
-  written to a file.
+  app has an `API key` field you paste into before each run, matching
+  whichever model you selected (a Gemini key for a Gemini model, a Claude
+  key for a Claude model); it's never written to a file.
 - **Save it once** so you don't have to paste it every time:
 
   ```bash
@@ -85,10 +88,12 @@ commands differ:
   ```
 
   Then open `.env` in any text editor (TextEdit works fine) and replace
-  `your_api_key_here` with your real key:
+  `your_api_key_here` with your real key(s) — set whichever provider(s) you
+  actually plan to use, leaving the other blank or removed is fine:
 
   ```bash
   GEMINI_API_KEY=your_api_key_here
+  ANTHROPIC_API_KEY=your_api_key_here
   ```
 
 ## Run The Local Web App
@@ -157,9 +162,9 @@ Current web app behavior:
 - Runs a preflight check before transcription to confirm the selected file type exists in the source folder.
 - Sorts date folders chronologically.
 - Lets you choose `Oldest-to-newest` or `Newest-to-oldest`; `Oldest-to-newest` is the default.
-- Provides Gemini Flash, Flash-Lite, and Pro model options.
-- Requires the user to paste a Gemini API key and choose a saved prompt profile before a run can start. The dropdown starts at `Select a Profile` to prevent accidental runs with the wrong profile.
-- Shows a centered audible alert if `Preflight Check` is clicked before a Gemini API key is pasted or before a prompt profile is selected.
+- Provides both Gemini (Flash and Pro tiers) and Claude (Opus, Sonnet, and Haiku) model options.
+- Requires the user to paste an API key matching the selected model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model) and choose a saved prompt profile before a run can start. The dropdown starts at `Select a Profile` to prevent accidental runs with the wrong profile.
+- Shows a centered audible alert if `Preflight Check` is clicked before a matching API key is pasted or before a prompt profile is selected.
 - Keeps a visible `Confirm settings` box beside the run controls. Clicking `Preflight Check` fills it with process order, file type, and prompt profile, disables `Preflight Check`, and enables `Confirm and run`.
 - Selecting a prompt profile loads its saved role/local context, reference material, and output format into plain-text editable boxes for inspection before running.
 - The app saves profile edits as JSON automatically, so quotes, brackets, and commas typed into the editor boxes do not break profile-file syntax.
@@ -167,12 +172,12 @@ Current web app behavior:
 - The `Save Profile` button stays active when the app is not running. It saves a new named profile, or lets you replace the selected profile or save a new version when the name field is blank.
 - The `Reset` button beside the Source folder restores default settings, clears the profile editor, and returns the prompt dropdown to `Select a Profile`.
 - The profile-editing area below the preflight/run controls is visually separated with a divider and pale grey background, keeping run configuration decisions grouped above it.
-- The app validates the pasted Gemini API key with a small preflight request before starting the image batch.
+- The app validates the pasted API key with a small preflight request before starting the image batch.
 - Writes each processed image to a timestamped `.md` file as soon as the response is received.
 - Creates a timestamped `.docx` Word document when the run finishes or is stopped, saved to the same per-user data location as saved profiles (see "Saved profiles" below) — not inside the app folder.
 - Updates run status automatically while processing.
 - Lets `Refresh Status` update only the Progress Console without reloading or resetting the rest of the app.
-- Supports a `Stop` button that stops before the next image. If Gemini is already processing an image, stop takes effect after that request finishes.
+- Supports a `Stop` button that stops before the next image. If the model is already processing an image, stop takes effect after that request finishes.
 
 Saved profiles:
 
@@ -206,7 +211,7 @@ Saved profiles:
 Prompt behavior:
 
 - The app adds the source-relative `START OF RECORD` header automatically.
-- Prompts tell Gemini not to add duplicate record headers or filenames.
+- Prompts tell the model not to add duplicate record headers or filenames.
 - Source line breaks are collapsed into continuous paragraph text.
 - Italian transcriptions preserve source abbreviations such as `Ant:o`.
 - English translations expand clear abbreviations, for example `Ant:o` as `Antonio`.

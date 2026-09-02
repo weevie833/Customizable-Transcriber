@@ -4,9 +4,9 @@ app.py-modularization pass -- see CLAUDE.md."""
 from __future__ import annotations
 
 import html
-import json
 
 from customizable_transcription.core import MODELS
+from pages import json_for_inline_script
 from profiles_store import profile_options_html, profiles_for_browser
 from app_state import load_source_folder, test_lock, test_state
 
@@ -47,9 +47,9 @@ def test_mode_page() -> str:
     png_checked = "checked" if file_type == "png" else ""
     pdf_checked = "checked" if file_type == "pdf" else ""
     profile_options = profile_options_html(profile_id)
-    profile_data_json = json.dumps(profiles_for_browser()).replace("</", "<\\/")
-    model_labels_json = json.dumps(MODELS).replace("</", "<\\/")
-    initial_runs_json = json.dumps(runs).replace("</", "<\\/")
+    profile_data_json = json_for_inline_script(profiles_for_browser())
+    model_labels_json = json_for_inline_script(MODELS)
+    initial_runs_json = json_for_inline_script(runs)
 
     queue_list_html = "\n".join(
         f'''<li class="queue-item">

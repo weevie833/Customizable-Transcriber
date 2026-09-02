@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # requirements.txt / requirements-dev.txt (root of the repo -- this app
+  # is run in place, never packaged, so pyproject.toml carries no pinned
+  # versions for Dependabot to act on; requirements*.txt is the real
+  # dependency manifest -- see pyproject.toml's own comment).
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+
+  # profiles/worksheets/build.js's own dependencies (the Prompt Builder
+  # worksheet DOCX generator) -- a separate, unrelated dependency tree from
+  # the Python app, not something requirements.txt covers.
+  - package-ecosystem: "npm"
+    directory: "/profiles/worksheets"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # The GitHub Actions used by .github/workflows/tests.yml itself
+  # (actions/checkout, actions/setup-python, actions/setup-node) --
+  # Dependabot treats these as a dependency too.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"

@@ -699,12 +699,35 @@ def migrate_legacy_outputs_and_settings() -> None:
     orphan a user's already-generated transcriptions or their remembered
     source folder the first time they update into this version."""
     legacy_outputs_dir = PROJECT_DIR / "outputs"
-    if legacy_outputs_dir.is_dir() and not USER_OUTPUTS_DIR.exists():
-        try:
-            USER_OUTPUTS_DIR.parent.mkdir(parents=True, exist_ok=True)
-            legacy_outputs_dir.rename(USER_OUTPUTS_DIR)
-        except OSError:
-            pass
+    if legacy_outputs_dir.is_dir():
+        if not USER_OUTPUTS_DIR.exists():
+            try:
+                USER_OUTPUTS_DIR.parent.mkdir(parents=True, exist_ok=True)
+                legacy_outputs_dir.rename(USER_OUTPUTS_DIR)
+            except OSError:
+                pass
+        else:
+            # Both exist -- this used to skip the migration outright here,
+            # silently orphaning every legacy output (the common case: the
+            # app has already been run at least once since updating, which
+            # is exactly when USER_OUTPUTS_DIR gets auto-created below, so
+            # "both exist" isn't a rare edge case, it's what a normal
+            # gradual update looks like). Merge file-by-file instead.
+            # Never overwrites: a real name collision leaves the legacy copy
+            # in place rather than risking the newer file. Best-effort per
+            # file, same as the whole-directory rename above.
+            for item in legacy_outputs_dir.iterdir():
+                target = USER_OUTPUTS_DIR / item.name
+                if target.exists():
+                    continue
+                try:
+                    item.rename(target)
+                except OSError:
+                    pass
+            try:
+                legacy_outputs_dir.rmdir()
+            except OSError:
+                pass  # not empty (a collision left something behind) or otherwise in use -- harmless to leave
     USER_OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
     legacy_settings_file = PROJECT_DIR / "app_settings.json"

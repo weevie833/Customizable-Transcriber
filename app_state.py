@@ -26,7 +26,7 @@ import threading
 from pathlib import Path
 
 from customizable_transcription.core import DEFAULT_MODEL
-from profiles_store import USER_DATA_DIR
+from profiles_store import USER_DATA_DIR, atomic_write_text
 
 # Generated DOCX/Markdown output lives outside PROJECT_DIR for the same
 # reason USER_PROFILES_DIR does (see profiles_store.py's module docstring):
@@ -128,7 +128,7 @@ def save_source_folder(path: Path) -> None:
         except (OSError, json.JSONDecodeError):
             data = {}
     data["source_folder"] = str(path)
-    APP_SETTINGS_FILE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(APP_SETTINGS_FILE, json.dumps(data, indent=2) + "\n")
 
 
 def clear_source_folder() -> None:
@@ -144,7 +144,7 @@ def clear_source_folder() -> None:
         return
     data.pop("source_folder", None)
     if data:
-        APP_SETTINGS_FILE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(APP_SETTINGS_FILE, json.dumps(data, indent=2) + "\n")
     else:
         APP_SETTINGS_FILE.unlink(missing_ok=True)
 

@@ -29,6 +29,7 @@ import json
 import os
 import platform
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -37,6 +38,31 @@ def safe_filename(value: str) -> str:
     clean = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
     clean = clean.strip(".-")
     return clean or "transcription-output.md"
+
+
+def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    """Write text to `path` via write-temp-then-replace, instead of
+    Path.write_text()'s write-in-place with no atomicity guarantee at all --
+    a crash, a full disk, or (this app runs on ThreadingHTTPServer, so it's
+    a real possibility, not just theoretical) two near-simultaneous saves of
+    the same profile from two request threads could otherwise leave a
+    truncated or interleaved, unparseable JSON file on disk. Path.replace()
+    (unlike os.rename(), which refuses to overwrite an existing file on
+    Windows) is documented as atomic on both POSIX and Windows, as long as
+    source and destination are on the same filesystem -- guaranteed here
+    since the temp file is always a sibling of the real one. Shared by
+    every profile/settings writer in this app (profiles_store.py and
+    app_state.py); the uuid4 suffix (not just the pid) means two threads in
+    this same process writing the same path at once still get distinct temp
+    files, so neither one's write can stomp the other's temp file, even
+    though only one write ultimately wins the final rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}")
+    try:
+        tmp_path.write_text(text, encoding=encoding)
+        tmp_path.replace(path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 # A real profile_id is always produced by profile_id_from_name() (below),
@@ -198,10 +224,7 @@ def normalize_profile_sections(profile: dict[str, str]) -> dict[str, str]:
 
 def write_profile(profile: dict[str, str]) -> None:
     USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-    user_profile_path(profile["id"]).write_text(
-        json.dumps(profile, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    atomic_write_text(user_profile_path(profile["id"]), json.dumps(profile, indent=2) + "\n")
 
 
 def load_custom_profiles() -> list[dict[str, str]]:
@@ -340,7 +363,7 @@ def save_custom_profile(
         # for why this is kept separate from the three prose fields above.
         profile["pb_answers"] = pb_answers
     USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-    user_profile_path(profile_id).write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(user_profile_path(profile_id), json.dumps(profile, indent=2) + "\n")
     return profile
 
 

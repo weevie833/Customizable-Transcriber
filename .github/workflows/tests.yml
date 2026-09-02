@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  # Also run weekly on main even with no code changes -- a dependency
+  # already pinned and unchanged can still get a new CVE disclosed against
+  # it (this is exactly how the pytest==8.3.4 / PYSEC-2026-1845 finding
+  # happened: nothing in this repo changed, the advisory was just
+  # published later). A push/PR-only trigger would never catch that.
+  schedule:
+    - cron: "17 6 * * 1"
 
 jobs:
   test:
@@ -40,3 +47,36 @@ jobs:
 
       - name: Run offline parser regression suite (xls_conversion/tests/)
         run: python xls_conversion/tests/run_parser_test.py
+
+  # Automates the two manual checks the 2026-09 follow-up code review did
+  # by hand ("Runtime Python dependency audit", "Worksheet npm dependency
+  # audit" -- see CLAUDE.md). One run is enough (unlike the `test` job
+  # above, this doesn't depend on OS or Python version), and it runs on the
+  # weekly schedule too, not just push/PR -- see the top-level comment on
+  # `schedule:`.
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Audit Python dependencies (requirements.txt + requirements-dev.txt)
+        run: |
+          python -m pip install pip-audit
+          python -m pip install -r requirements-dev.txt
+          python -m pip_audit -r requirements.txt -r requirements-dev.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Audit worksheet-builder npm dependencies (profiles/worksheets/)
+        working-directory: profiles/worksheets
+        run: |
+          npm ci
+          npm audit --audit-level=high

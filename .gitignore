@@ -8,5 +8,16 @@ uploads/
 app_settings.json
 .claude/
 
+# Internal working-memory files (development history, session handoff
+# notes) -- kept locally, not published. See CLAUDE.md's own "Follow-up
+# code review" section for why: no secrets in either file, but both carry
+# far more internal narrative/process detail than a published repo needs,
+# and HANDOFF.md in particular goes stale between sessions. Untracked here
+# rather than deleted -- git rm --cached, not rm -- so they stay on disk
+# for local/session use; existing git history still has prior committed
+# versions (this doesn't retroactively scrub that).
+CLAUDE.md
+HANDOFF.md
+
 # Prompt Builder worksheet build tooling
 profiles/worksheets/node_modules/

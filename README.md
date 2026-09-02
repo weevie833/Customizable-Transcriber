@@ -182,8 +182,11 @@ Current web app behavior:
 Saved profiles:
 
 - The app's own `profiles/` folder is reserved for shipped, read-only example
-  profiles, but doesn't currently include any — every profile you see in the
-  app is one you (or the Prompt Builder questionnaire) created yourself.
+  profiles. It currently ships one — **Chiusa Sclafani Battesimi V4**, a
+  fully-formed baptism-register profile — so you have a real, complete
+  reference to explore in Prompt Builder (Load an existing profile to edit)
+  or select directly on the Transcribe page, even before creating a profile
+  of your own.
 - **Every profile you create or edit yourself — through `Save Profile`,
   Prompt Builder, or the profile-editor boxes — is saved outside the app
   folder entirely**, in a per-user data location:

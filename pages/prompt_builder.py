@@ -5,9 +5,9 @@ app.py-modularization pass -- see CLAUDE.md."""
 from __future__ import annotations
 
 import html
-import json
 
 from customizable_transcription.core import DEFAULT_MODEL, MODELS
+from pages import json_for_inline_script
 from profiles_store import load_custom_profiles, profiles_with_display_labels
 from prompt_builder_content import (
     PROMPT_BUILDER_COMMON_ABBREVIATIONS,
@@ -241,7 +241,7 @@ def prompt_builder_page(
         banner_class = "pb-banner-success" if message_kind == "success" else "pb-banner-error"
         banner_html = f'<div class="pb-banner {banner_class}" role="status">{html.escape(message)}</div>'
 
-    core_rules_json = json.dumps(PROMPT_BUILDER_CORE_RULES).replace("</", "<\\/")
+    core_rules_json = json_for_inline_script(PROMPT_BUILDER_CORE_RULES)
 
     # Profiles loadable back into the questionnaire -- only those saved from
     # Prompt Builder itself carry the structured pb_answers a reload needs.
@@ -255,9 +255,9 @@ def prompt_builder_page(
         f'<option value="{html.escape(profile["id"])}">{html.escape(profile["label"])}</option>'
         for profile in loadable_profiles
     )
-    saved_profiles_json = json.dumps(
+    saved_profiles_json = json_for_inline_script(
         {profile["id"]: {"label": profile["label"], "answers": profile["pb_answers"]} for profile in loadable_profiles}
-    ).replace("</", "<\\/")
+    )
     # Import/Export Profiles -- unlike the "load to edit" list above, export
     # offers every saved profile (shipped examples included), since sharing a
     # profile with someone else has nothing to do with whether it also
@@ -266,9 +266,16 @@ def prompt_builder_page(
         f'<option value="{html.escape(profile["id"])}">{html.escape(profile["display_label"])}</option>'
         for profile in profiles_with_display_labels()
     )
-    restore_answers_json = json.dumps(restore_answers).replace("</", "<\\/") if restore_answers else "null"
-    restore_edit_id_json = json.dumps(restore_edit_id)
-    restore_edit_label_json = json.dumps(restore_edit_label)
+    restore_answers_json = json_for_inline_script(restore_answers) if restore_answers else "null"
+    restore_edit_id_json = json_for_inline_script(restore_edit_id)
+    # restore_edit_label carries a profile's free-text label back into the
+    # page verbatim (e.g. after a failed save, or loading a profile to
+    # edit) -- a label is user-settable and reachable via an imported
+    # profile's own "label" field (see profiles_store.import_custom_profile,
+    # which places no restriction on it), so it must go through the same
+    # </script>-safe treatment as every other embedded value here. This one
+    # used bare json.dumps() until a review caught it.
+    restore_edit_label_json = json_for_inline_script(restore_edit_label)
 
     record_type_options = pb_record_type_options_html()
     # Prompt Builder may be the very first page a brand-new user opens, before

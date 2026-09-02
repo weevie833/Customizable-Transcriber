@@ -5,9 +5,9 @@ CLAUDE.md."""
 from __future__ import annotations
 
 import html
-import json
 
 from customizable_transcription.core import MODELS
+from pages import json_for_inline_script
 from profiles_store import load_profile, profile_options_html, profiles_for_browser
 from app_state import load_source_folder, lock, state
 
@@ -71,7 +71,7 @@ def page() -> str:
     png_checked = "checked" if file_type == "png" else ""
     pdf_checked = "checked" if file_type == "pdf" else ""
     profile_options = profile_options_html(profile_id)
-    profile_data_json = json.dumps(profiles_for_browser()).replace("</", "<\\/")
+    profile_data_json = json_for_inline_script(profiles_for_browser())
     download_disabled_class = "" if download else " disabled-link"
     download_aria_disabled = "false" if download else "true"
 

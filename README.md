@@ -4,8 +4,10 @@ Local Gemini transcription app for archival records. It replaces the Colab/Googl
 
 ## Setup
 
-This is a one-time setup, requiring **Python 3.9 or newer** (developed and
-tested on 3.11–3.12). The steps below are written for macOS; a Windows-
+This is a one-time setup, requiring **Python 3.10 or newer** (developed and
+tested on 3.11–3.12; 3.10 is the actual floor — google-genai, anthropic, and
+rapidfuzz, three of this app's own dependencies, all require it). The steps
+below are written for macOS; a Windows-
 specific callout with the two commands that differ follows step 4.
 
 You'll need Terminal — it's already on your Mac, in Applications → Utilities
@@ -18,7 +20,7 @@ Return:
 python3 --version
 ```
 
-If you see `Python 3.9` or newer, you're set — skip to step 2. If you get an
+If you see `Python 3.10` or newer, you're set — skip to step 2. If you get an
 error, or a prompt asking to install Command Line Tools, install Python from
 [python.org/downloads](https://www.python.org/downloads/) first, then run
 `python3 --version` again to confirm.

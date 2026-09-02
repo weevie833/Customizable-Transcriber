@@ -20,7 +20,7 @@ from datetime import datetime
 from xml.etree import ElementTree
 
 from customizable_transcription.core import MODELS
-from docx_package import content_types_xml, root_rels_xml
+from docx_package import content_types_xml, root_rels_xml, strip_xml_illegal_chars
 
 _REPORT_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -32,7 +32,10 @@ def _report_run(text: str, bold: bool = False) -> ElementTree.Element:
         ElementTree.SubElement(r_pr, f"{{{_REPORT_NS}}}b")
     t = ElementTree.SubElement(r, f"{{{_REPORT_NS}}}t")
     t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-    t.text = text
+    # See docx_package.strip_xml_illegal_chars(): ElementTree's serializer
+    # escapes "<"/">"/"&" but not a raw control character, which isn't
+    # well-formed XML no matter how it's escaped.
+    t.text = strip_xml_illegal_chars(text)
     return r
 
 

@@ -39,6 +39,25 @@ def safe_filename(value: str) -> str:
     return clean or "transcription-output.md"
 
 
+# A real profile_id is always produced by profile_id_from_name() (below),
+# which runs safe_filename() and lowercases it -- so it can only ever
+# contain these characters, and can never contain "/" or start with ".".
+# Path traversal fix: user_profile_path()/shipped_profile_path() used to
+# build a Path directly from whatever string was handed in, with no check
+# at all -- delete_profile("../app_settings") resolved straight to the real
+# app_settings.json one directory above USER_PROFILES_DIR and unlinked it.
+# Rejecting anything that doesn't match this pattern closes that off at the
+# one place every profile-path lookup in this module goes through, rather
+# than patching each caller individually.
+_VALID_PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+
+
+def _validated_profile_id(profile_id: str) -> str:
+    if not _VALID_PROFILE_ID.match(profile_id or ""):
+        raise ValueError(f"Not a valid profile id: {profile_id!r}")
+    return profile_id
+
+
 PROJECT_DIR = Path(__file__).resolve().parent
 PROFILES_DIR = PROJECT_DIR / "profiles"
 
@@ -89,22 +108,27 @@ def shipped_profile_path(profile_id: str) -> Path:
     profiles/ folder. Read-only at runtime -- nothing the app does while
     running ever writes here; only build_prompt.py and hand-authored commits
     do."""
-    return PROFILES_DIR / f"{profile_id}.json"
+    return PROFILES_DIR / f"{_validated_profile_id(profile_id)}.json"
 
 
 def user_profile_path(profile_id: str) -> Path:
     """Path a profile is written to whenever the running app saves or edits
     one -- always USER_PROFILES_DIR (see _user_data_dir()), never the
     git-tracked profiles/ folder."""
-    return USER_PROFILES_DIR / f"{profile_id}.json"
+    return USER_PROFILES_DIR / f"{_validated_profile_id(profile_id)}.json"
 
 
 def find_profile_path(profile_id: str) -> Path | None:
     """Where a profile's JSON actually lives, or None if it doesn't exist in
-    either location. Checks USER_PROFILES_DIR first so a user's own edited
-    copy of a shipped profile shadows the original -- overriding it for this
-    user without ever modifying the tracked file underneath."""
-    user_path = user_profile_path(profile_id)
+    either location (including if profile_id isn't even a structurally valid
+    id -- see _validated_profile_id()). Checks USER_PROFILES_DIR first so a
+    user's own edited copy of a shipped profile shadows the original --
+    overriding it for this user without ever modifying the tracked file
+    underneath."""
+    try:
+        user_path = user_profile_path(profile_id)
+    except ValueError:
+        return None
     if user_path.exists():
         return user_path
     shipped_path = shipped_profile_path(profile_id)
@@ -364,6 +388,12 @@ def update_full_profile(
 
 def update_profile(profile_id: str, role_context: str, reference_context: str, output_format: str) -> dict[str, str]:
     profile = load_profile(profile_id)
+    if profile["id"] != profile_id:
+        # Same guard as update_full_profile() above, for the same reason:
+        # load_profile() silently falls back to some other real profile
+        # when profile_id isn't found, so without this check a stale/bogus
+        # id would overwrite the wrong file instead of failing loudly.
+        raise RuntimeError(f'Profile "{profile_id}" no longer exists.')
     profile["role_context"] = role_context
     profile["reference_context"] = reference_context
     profile["output_format"] = output_format
@@ -453,10 +483,33 @@ def import_custom_profile(file_text: str) -> dict[str, str]:
 
 
 def delete_profile(profile_id: str) -> dict[str, str]:
-    profile = load_profile(profile_id)
+    # Path-traversal + destructive-fallback fix. This used to call
+    # load_profile(profile_id) first -- which, by design, silently falls
+    # back to some *other* real profile when profile_id doesn't match one
+    # (see load_profile()'s own comment; that's the right behavior for a
+    # read/display path with no good hardcoded default). Combined with
+    # find_profile_path()/user_profile_path() building a Path with no
+    # validation at all, that meant delete_profile("../app_settings")
+    # reported a misleading "Deleted profile: <unrelated label>" while
+    # actually unlinking the real app_settings.json one directory above
+    # USER_PROFILES_DIR. No fallback for a destructive operation: an id that
+    # isn't in the real listing is an error, full stop.
+    matches = [profile for profile in load_custom_profiles() if profile["id"] == profile_id]
+    if not matches:
+        raise RuntimeError("Select a valid prompt profile before deleting.")
+    profile = matches[0]
+
     path = find_profile_path(profile_id)
     if path is None:
         raise RuntimeError("Select a valid prompt profile before deleting.")
+
+    # Never delete a shipped example, even by a valid id that happens to
+    # collide with one -- only a file actually inside USER_PROFILES_DIR is
+    # eligible. Resolved (not string-compared) so a symlink can't escape
+    # this check either.
+    if not path.resolve().is_relative_to(USER_PROFILES_DIR.resolve()):
+        raise RuntimeError("Shipped example profiles can't be deleted.")
+
     path.unlink()
     return profile
 

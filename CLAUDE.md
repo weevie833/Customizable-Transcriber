@@ -1635,6 +1635,107 @@ Net result, all six items: `app.py` 8,865 → 2,767 lines (69% smaller), with
 other extracted files from items 1-5 now holding what used to be one
 undifferentiated file.
 
+## Follow-up code review (2026-09) — fixes
+
+A second-pass review (post-modularization) found 6 more findings (4 high,
+2 medium), independently reproduced/verified before fixing each:
+
+- **Profile deletion permitted path traversal (high).** `profiles_store.py`'s
+  `user_profile_path()`/`shipped_profile_path()` built a `Path` straight from
+  whatever `profile_id` string was handed in, with zero validation --
+  `delete_profile("../app_settings")` resolved one directory above
+  `USER_PROFILES_DIR` and unlinked the real `app_settings.json`. Made worse
+  by `load_profile()`'s (deliberate, documented, correct-for-reads) fallback
+  to some other real profile when the id doesn't match one: `delete_profile`
+  used to call `load_profile()` first, so the success message named an
+  unrelated profile while a different file was actually deleted. Reproduced
+  in a temp directory, then fixed with `_validated_profile_id()` (a real
+  profile id can only ever be `^[a-z0-9][a-z0-9._-]*$` -- that's exactly
+  what `profile_id_from_name()`/`safe_filename()` can produce, so this
+  rejects anything else, including any `/` at all) wired into both path
+  builders; `delete_profile()` no longer calls `load_profile()` for its
+  destructive check (exact match against `load_custom_profiles()`, no
+  fallback), and separately confirms the resolved path is actually inside
+  `USER_PROFILES_DIR` before unlinking, rejecting shipped-example deletion
+  even if an id somehow collided with one. **Also found and fixed the same
+  bug's non-destructive sibling**: `update_profile()` (used by the
+  Transcribe page's free-text editor) had the identical missing-guard
+  problem `update_full_profile()` already protects against a few lines away
+  -- a stale/bogus id would silently overwrite the wrong profile's content.
+  Given the same guard `update_full_profile()` already uses.
+- **Stored/reflected script injection via `restore_edit_label` (high).**
+  `pages/prompt_builder.py` embedded one JSON value (`restore_edit_label`,
+  a profile's free-text label, reachable via an imported profile's own
+  `label` field) with bare `json.dumps()` instead of the `</script`-safe
+  treatment every other embedded value on the same page already used. A
+  label containing `</script><script>...` would break out of the inline
+  `<script>` block. Consolidated the repeated `json.dumps(x).replace("</",
+  "<\\/")` pattern (previously hand-duplicated 6 times across
+  `pages/prompt_builder.py`/`test_mode.py`/`transcribe.py`, which is
+  exactly how one copy got missed) into a single `json_for_inline_script()`
+  helper in `pages/__init__.py`, and switched every call site to it.
+  Verified the fix: fed a `</script><script>alert(1)</script>` payload
+  through `prompt_builder_page()` directly and confirmed it comes out as
+  `<\/script>`, not a real closing tag.
+- **Invalid `gemini-3.5-pro` model identifier (high).** Three uncommitted
+  local edits (`core.py`'s `MODELS`, a Test Mode placeholder string, an
+  `i18n.js` translation entry) had replaced the real `gemini-3.7-flash`/
+  `gemini-3.6-flash` entries with `gemini-3.5-pro`, which Google doesn't
+  document -- selecting it would fail at the provider request. Reverted all
+  three files to their last-committed state via `git checkout`.
+- **Python 3.9 floor was wrong (high).** `google-genai`, `anthropic`, and
+  `rapidfuzz` (all pinned in `requirements.txt`) each declare
+  `Requires-Python: >=3.10` in their installed metadata -- confirmed by
+  inspection, not assumption. `pyproject.toml` and README claimed `>=3.9`
+  (a claim this file itself previously attributed to `str.removeprefix()`'s
+  floor, which is real but not the *actual*, stricter floor once the real
+  dependencies are checked). Raised to `>=3.10` in both places, and the CI
+  matrix (`.github/workflows/tests.yml`) now runs Python 3.10 *and* 3.12
+  across all three OSes, rather than only ever testing 3.11 and never the
+  documented floor itself.
+- **Control characters could corrupt generated XLSX/DOCX (medium).**
+  `xml.sax.saxutils.escape()` (used by the XLSX writer) and
+  `ElementTree`'s own serializer (used by both DOCX writers) both escape
+  `<`/`>`/`&` but do nothing about a raw control character like `\x00` --
+  not well-formed XML at all, no matter how it's escaped. Reproduced:
+  openpyxl couldn't reopen a workbook containing one. Added
+  `strip_xml_illegal_chars()` to `docx_package.py` (already the shared leaf
+  dependency of both DOCX writers, and importable by the XLSX writer too
+  with no cycle risk) -- a regex matching XML 1.0's `Char` production, so
+  it's provably complete rather than a patch for the one reproduced
+  character. Wired into `spreadsheet_export.py`'s `_inline_string_cell()`
+  and `sanitize_sheet_name()`, `app.py`'s `paragraph()` and
+  `header_box_element()`'s line loop, and `test_mode/report_docx.py`'s
+  `_report_run()` -- the four places the review named. Verified each
+  independently: a `\x00`-containing XLSX cell now opens in openpyxl with
+  the null stripped; a DOCX (both the main body and the header-box table)
+  and the comparison report both parse as well-formed XML via
+  `ElementTree.fromstring()` afterward, with the control characters gone
+  and everything else (including non-Latin/emoji text) intact.
+- **`pytest==8.3.4` affected by PYSEC-2026-1845 / CVE-2025-71176
+  (medium).** Confirmed against the OSV advisory directly (not just the
+  review's say-so): insecure `/tmp/pytest-of-{user}` tmpdir handling on
+  UNIX, fixed in 9.0.3. Upgraded to 9.1.1 (current latest) in
+  `requirements-dev.txt`; the full 56-test suite passes unchanged under it,
+  no code needed to change for the 8.x → 9.x major bump.
+
+All fixes re-verified together afterward: full `tests/` suite (56 tests),
+the offline `xls_conversion/tests/` Node suite, `py_compile` across every
+module, and a live throwaway probe server (never the user's own running
+instance) hitting all 7 pages with zero errors.
+
+**Not yet acted on** -- the same review's "Additional worthwhile work" list
+(none of these are fixes for a reproduced defect, unlike the six above):
+merging legacy output folders when both old and new destinations exist,
+atomic temp-file-plus-replace writes for profiles/settings, provider-neutral
+README wording (still says "Gemini API key" in places despite Claude
+support), a `SECURITY.md`/Dependabot/automated-audit setup, and removing or
+redacting `CLAUDE.md`/`HANDOFF.md` before any public release (they contain
+internal development history, usernames, and machine-specific detail). That
+last one in particular is a real, separate decision -- this file is also
+this project's working memory across sessions, so redacting it isn't a
+small edit.
+
 ## Open items
 
 - **Review post-process tool — dropped, not just deprioritized.** A design for

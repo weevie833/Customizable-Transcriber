@@ -8,6 +8,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from xml.sax.saxutils import escape
 
+from docx_package import strip_xml_illegal_chars
+
 
 # Battesimi's own numeric columns / zero-padded Image# column / hand-tuned
 # widths -- kept as explicit defaults so its existing call site (and output
@@ -41,7 +43,8 @@ def sanitize_sheet_name(name: str, used: Iterable[str] = ()) -> str:
     de-duplicated case-insensitively against `used` -- matching Excel's own
     case-insensitive sheet-name comparison -- by appending a numeric suffix
     that itself respects the 31-character limit."""
-    cleaned = _SHEET_NAME_FORBIDDEN.sub("", str(name or "")).strip().strip("'")
+    cleaned = strip_xml_illegal_chars(str(name or ""))
+    cleaned = _SHEET_NAME_FORBIDDEN.sub("", cleaned).strip().strip("'")
     cleaned = cleaned[:_SHEET_NAME_MAX_LENGTH] or "Sheet"
 
     used_lower = {existing.lower() for existing in used}
@@ -290,7 +293,11 @@ def _numeric_cell(reference: str, value: object, style: int) -> str:
 
 
 def _inline_string_cell(reference: str, value: object, style: int) -> str:
-    text = str(value or "")
+    # strip_xml_illegal_chars() first: escape() below handles "<"/">"/"&"/
+    # quotes, but does nothing about a raw control character (e.g. "\x00"),
+    # which isn't well-formed XML at all no matter how it's escaped --
+    # reproduced: openpyxl can't reopen a workbook containing one.
+    text = strip_xml_illegal_chars(str(value or ""))
     preserve = ' xml:space="preserve"' if text != text.strip() else ""
     return (
         f'<c r="{reference}" t="inlineStr" s="{style}">'

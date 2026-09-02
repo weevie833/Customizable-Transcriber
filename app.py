@@ -52,7 +52,7 @@ from xls_conversion.ai_parser import (
 )
 from test_mode.comparison import score_transcription
 from test_mode.report_docx import build_compare_report_docx
-from docx_package import content_types_xml, root_rels_xml
+from docx_package import content_types_xml, root_rels_xml, strip_xml_illegal_chars
 from prompt_builder_content import (
     PROMPT_BUILDER_COMMON_ABBREVIATIONS,
     PROMPT_BUILDER_CORE_RULES,
@@ -1113,7 +1113,11 @@ def paragraph(text: str) -> ElementTree.Element:
     r = ElementTree.SubElement(p, f"{{{ns}}}r")
     t = ElementTree.SubElement(r, f"{{{ns}}}t")
     t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-    t.text = text
+    # ElementTree's own serializer escapes "<"/">"/"&" but does nothing about
+    # a raw control character in .text -- it isn't well-formed XML at all no
+    # matter how it's escaped, and a stray one (from OCR/AI output) produces
+    # a .docx Word can't open. See docx_package.strip_xml_illegal_chars().
+    t.text = strip_xml_illegal_chars(text)
     return p
 
 
@@ -1225,7 +1229,7 @@ def header_box_element(
             ElementTree.SubElement(r_pr, f"{{{ns}}}b")
         t = ElementTree.SubElement(r, f"{{{ns}}}t")
         t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-        t.text = line_text
+        t.text = strip_xml_illegal_chars(line_text)
     return tbl
 
 

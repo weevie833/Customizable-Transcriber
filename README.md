@@ -162,7 +162,7 @@ Current web app behavior:
 - Runs a preflight check before transcription to confirm the selected file type exists in the source folder.
 - Sorts date folders chronologically.
 - Lets you choose `Oldest-to-newest` or `Newest-to-oldest`; `Oldest-to-newest` is the default.
-- Provides both Gemini (Flash and Pro tiers) and Claude (Opus, Sonnet, and Haiku) model options.
+- Provides both Gemini (Pro tier) and Claude (Opus, Sonnet, and Haiku) model options.
 - Requires the user to paste an API key matching the selected model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model) and choose a saved prompt profile before a run can start. The dropdown starts at `Select a Profile` to prevent accidental runs with the wrong profile.
 - Shows a centered audible alert if `Preflight Check` is clicked before a matching API key is pasted or before a prompt profile is selected.
 - Keeps a visible `Confirm settings` box beside the run controls. Clicking `Preflight Check` fills it with process order, file type, and prompt profile, disables `Preflight Check`, and enables `Confirm and run`.

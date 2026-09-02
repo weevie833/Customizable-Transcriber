@@ -1311,6 +1311,12 @@ def normalize_rows(
         # (the 3 civil types) whose template has no Image # column. Stripped
         # back out before rows are returned to the caller.
         row["_image_number"] = row.get("image_number") or image_number
+        # Every image that contributed content to this row, in the order
+        # contributed. Starts as just this row's own image; a continuation
+        # merge (see parse_generic) appends the image(s) the row absorbs so a
+        # replaced row still counts as "found" for every image it came from,
+        # not just the image number of whichever extraction happened to win.
+        row["_source_images"] = [row["_image_number"]] if row["_image_number"] else []
         rows.append(row)
     return rows
 
@@ -1351,6 +1357,27 @@ def exports_for(config: RecordTypeConfig, rows: list[dict[str, str]]) -> dict[st
         "csv": csv_text,
         "xlsx_base64": base64.b64encode(xlsx_bytes).decode("ascii"),
     }
+
+
+def _confirms_continuation_merge(row: dict[str, str]) -> bool:
+    """True when a row's own `notes` field says it continues a prior
+    record -- matching the exact wording continuation_context_for()'s
+    worked example instructs the model to use ("continued from previous
+    image"), and the wording the transcription prompt itself asks for
+    ("Entry appears to continue from the previous image.").
+
+    Used two ways in parse_generic(): (1) to detect a backward-flagged
+    continuation, where this block's own first extracted row independently
+    says it continues a prior one with no forward flag ever having fired,
+    and (2) -- more importantly -- as a confirmation gate before a
+    continuation-flagged or -retried result is trusted enough to
+    destructively replace the previous row. A row is only trusted as "the
+    merge" when it says so itself; a continuation flag that fired
+    (correctly or falsely) but whose resulting first row does not confirm
+    a merge is treated as unconfirmed, so the previous row is kept intact
+    instead of being silently discarded."""
+    notes = str(row.get("notes") or "").lower()
+    return "continu" in notes and "previous image" in notes
 
 
 def parse_generic(
@@ -1402,6 +1429,27 @@ def parse_generic(
             "e.g. \"continued from previous image.\"\n"
         )
 
+    def try_apply_merge(
+        candidate_rows: list[dict[str, str]], image_number: str
+    ) -> tuple[list[dict[str, str]], bool]:
+        # Shared by both merge paths below (forward-flagged and the
+        # backward-flag retry). Only destroys the previous row (`rows[-1]`)
+        # when candidate_rows[0] itself confirms it IS the requested merge
+        # (see _confirms_continuation_merge) -- a continuation flag that
+        # fired (correctly or falsely) but whose resulting first row
+        # doesn't back that up is left alone, so the caller falls back to
+        # keeping both the previous row and this block's own extraction
+        # intact instead of silently discarding real data on an unconfirmed
+        # merge.
+        if not candidate_rows or not _confirms_continuation_merge(candidate_rows[0]):
+            return candidate_rows, False
+        previous_row = rows.pop()
+        merged_row = candidate_rows[0]
+        merged_row["_source_images"] = (
+            previous_row.get("_source_images") or [previous_row.get("_image_number", "")]
+        ) + [image_number]
+        return [merged_row] + candidate_rows[1:], True
+
     for index, block in enumerate(blocks):
         image_number = block["image_number"]
         previous_context = ""
@@ -1448,6 +1496,25 @@ def parse_generic(
             continue
         normalized = normalize_rows(config, records, image_number)
 
+        # Forward-flagged merge: the model was told (via previous_context,
+        # above) to fold this block's first entry into the previous row
+        # rather than extract it as a new one. Extending `rows` with the
+        # full `normalized` list unconditionally (the pre-fix behavior)
+        # left both the original partial row AND the merged row in the
+        # output, i.e. one historical record became two spreadsheet rows --
+        # fixed by replacing instead of appending, but only once
+        # try_apply_merge confirms normalized[0] actually is the merge
+        # (never assumed from the flag alone: the model doesn't always
+        # comply, and the flag's own text match can itself false-positive).
+        if forward_flagged and normalized:
+            normalized, merged = try_apply_merge(normalized, image_number)
+            if not merged:
+                exceptions.append(
+                    f"Image {image_number or 'unknown'}: previous record was flagged as "
+                    "continuing here, but the AI's response did not confirm a merge; "
+                    "keeping both rows unmerged."
+                )
+
         # Backward-flag hardening: the model sometimes flags only the arrival
         # side of a split entry ("...continues from the previous image")
         # without the departure side ever having flagged forward -- confirmed
@@ -1458,25 +1525,69 @@ def parse_generic(
         # says it continues a prior one, re-extract this block with the same
         # full-previous-row context the forward path uses, so the model
         # performs the merge instead of leaving two rows for one record.
-        if not forward_flagged and rows and normalized:
-            first_notes = str(normalized[0].get("notes") or "").lower()
-            if "continu" in first_notes and "previous image" in first_notes:
-                retry_context = continuation_context_for(rows[-1])
-                retry_message = build_user_message(image_number, retry_context, block["text"])
-                try:
-                    retry_records = call_ai(api_key, model, system_prompt, retry_message)
-                    normalized = normalize_rows(config, retry_records, image_number)
-                except Exception:
-                    pass  # keep the original extraction rather than losing this block's data
+        if not forward_flagged and rows and normalized and _confirms_continuation_merge(normalized[0]):
+            retry_context = continuation_context_for(rows[-1])
+            retry_message = build_user_message(image_number, retry_context, block["text"])
+            try:
+                retry_records = call_ai(api_key, model, system_prompt, retry_message)
+                retry_normalized = normalize_rows(config, retry_records, image_number)
+            except Exception:
+                retry_normalized = None  # signal: retry itself failed
+
+            if retry_normalized:
+                retry_normalized, merged = try_apply_merge(retry_normalized, image_number)
+                if merged:
+                    # Merge confirmed: replace the previous partial row with
+                    # the retry's merged first row (same replace-not-append
+                    # fix as the forward-flagged path above), keep any
+                    # further entries the retry also extracted from this
+                    # block.
+                    normalized = retry_normalized
+                else:
+                    # The retry ran but its own first row didn't confirm a
+                    # merge either -- keep the original (unmerged, pre-retry)
+                    # extraction rather than trusting an unconfirmed result.
+                    exceptions.append(
+                        f"Image {image_number or 'unknown'}: continuation merge retry did not "
+                        "confirm a merge; keeping unmerged extraction."
+                    )
+            elif retry_normalized is None:
+                # The retry call itself raised -- keep the original
+                # (unmerged) extraction rather than losing this block's
+                # data, but log it so a silent quality loss is visible.
+                exceptions.append(
+                    f"Image {image_number or 'unknown'}: continuation merge retry failed; "
+                    "keeping unmerged extraction."
+                )
+            else:
+                # The retry call succeeded but returned zero records --
+                # do NOT let an empty retry result discard the original,
+                # already-valid extraction for this block.
+                exceptions.append(
+                    f"Image {image_number or 'unknown'}: continuation merge retry returned no "
+                    "records; keeping unmerged extraction."
+                )
 
         rows.extend(normalized)
         if not normalized:
             exceptions.append(f"Image {image_number or 'unknown'}: AI returned no records.")
 
-    found_images = list(dict.fromkeys(row["_image_number"] for row in rows if row.get("_image_number")))
+    # Flatten over _source_images (not just _image_number) so a row that
+    # replaced a continuation merge still counts both the departure image and
+    # the arrival image as "found" -- otherwise the departure image would
+    # wrongly show up in missing_images once its own row was replaced.
+    found_images = list(
+        dict.fromkeys(
+            image
+            for row in rows
+            for image in (row.get("_source_images") or ([row["_image_number"]] if row.get("_image_number") else []))
+        )
+    )
     expected_images = all_image_numbers(text) if process_all else parse_image_range(image_range)
     missing_images = [image for image in expected_images if image not in set(found_images)]
-    clean_rows = [{key: value for key, value in row.items() if key != "_image_number"} for row in rows]
+    clean_rows = [
+        {key: value for key, value in row.items() if not key.startswith("_")} for row in rows
+    ]
     return {
         "model": model,
         "target_language": target_language,

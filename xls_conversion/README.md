@@ -22,9 +22,10 @@ the templates). The API key is required, validated before extraction, supplied
 only as an in-memory override for the conversion request, and is not saved.
 
 For the fuller picture — how each record type's config differs, which fields
-get AI-driven normalization, the shared extraction rules all 5 non-Battesimi
-types use, and the two deliberately-orphaned regex parsers
-(`baptism-parser.js`, `matrimony-parser.js`, `morti-parser.js` — offline
-regression-test fixtures only, not loaded by this page) — see the project
-root's `CLAUDE.md`, which is the actively-maintained source of truth. This
-file is a short pointer, not a duplicate of it.
+get AI-driven normalization, and the shared extraction rules all 5
+non-Battesimi types use — see `RECORD_TYPES` and `GENERAL_EXTRACTION_RULES`
+in `xls_conversion/ai_parser.py`, the source of truth for extraction
+behavior. Three regex parsers (`baptism-parser.js`, `matrimony-parser.js`,
+`morti-parser.js`) also exist under `xls_conversion/`; they are not loaded
+by this page and are exercised only by the offline regression tests under
+`xls_conversion/tests/`.

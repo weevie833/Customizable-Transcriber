@@ -134,3 +134,44 @@ h1 {
 @media (max-width: 520px) {
   .site-header { flex-direction: column; }
 }
+
+/* Not extracted duplication like the rest of this file -- a new universal
+   rule: every checkbox on every page stays hollow (background never
+   filled) whether checked or not, only a checkmark glyph drawn via ::after.
+   A bare input[type="checkbox"] selector (not scoped to a wrapper class)
+   so any checkbox picks this up automatically, present or future, without
+   needing a page to opt in. Matches the values Prompt Builder's own
+   .pb-checkbox rule already used (now redundant there and removed) and
+   xls_conversion/styles.css's separate copy (that page has its own
+   stylesheet, not this one). */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  margin: 0;
+  border: 1.5px solid #8a8377;
+  border-radius: 3px;
+  background: #fff;
+  position: relative;
+  cursor: pointer;
+}
+input[type="checkbox"]:checked {
+  border-color: #255c99;
+}
+input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0px;
+  width: 4px;
+  height: 8px;
+  border: solid #255c99;
+  border-width: 0 2px 2px 0;
+  transform: rotate(40deg);
+}
+input[type="checkbox"]:focus-visible {
+  outline: 3px solid rgba(37, 92, 153, 0.32);
+  outline-offset: 2px;
+}

@@ -596,41 +596,14 @@ def prompt_builder_page(
     .pb-inline-row .pb-checkbox {{
       flex: 0 0 auto;
     }}
-    .pb-checkbox input[type="checkbox"],
-    .pb-suggestion-row input[type="checkbox"] {{
-      appearance: none;
-      -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
-      min-width: 16px;
-      margin: 0;
-      border: 1.5px solid #8a8377;
-      border-radius: 3px;
-      background: #fff;
-      position: relative;
-      cursor: pointer;
-    }}
-    .pb-checkbox input[type="checkbox"]:checked,
-    .pb-suggestion-row input[type="checkbox"]:checked {{
-      border-color: #255c99;
-    }}
-    .pb-checkbox input[type="checkbox"]:checked::after,
-    .pb-suggestion-row input[type="checkbox"]:checked::after {{
-      content: "";
-      position: absolute;
-      left: 4px;
-      top: 0px;
-      width: 4px;
-      height: 8px;
-      border: solid #255c99;
-      border-width: 0 2px 2px 0;
-      transform: rotate(40deg);
-    }}
-    .pb-checkbox input[type="checkbox"]:focus-visible,
-    .pb-suggestion-row input[type="checkbox"]:focus-visible {{
-      outline: 3px solid rgba(37, 92, 153, 0.32);
-      outline-offset: 2px;
-    }}
+    /* The hollow-box/checkmark appearance itself (appearance:none, white
+       background always, border-only checkmark via ::after) moved to
+       static/base.css as a bare input[type="checkbox"] rule -- every
+       checkbox on every page gets it now, not just ones wrapped in
+       .pb-checkbox/.pb-suggestion-row, so the copy that used to live here
+       would just be redundant with it. .pb-suggestion-row's own
+       input[type="checkbox"] rule below (margin-top/flex) is layout, not
+       appearance, and is unrelated to this -- it stays. */
     .pb-info-wrap {{
       position: relative;
       display: inline-block;

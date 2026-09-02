@@ -31,9 +31,9 @@ within a couple of weeks, a follow-up comment on the advisory is welcome.
 
 This app runs entirely on `127.0.0.1`/`localhost` for one local user — it's
 not deployed as a multi-tenant or internet-facing service, and its threat
-model (documented in `CLAUDE.md`'s security-review notes) is built around
-that: defenses against cross-site requests reaching the local server (CSRF/
-Host/Origin checks), malicious input files (a crafted `.docx`/image), and
+model is built around that: defenses against cross-site requests reaching
+the local server (CSRF/Host/Origin checks), malicious input files (a
+crafted `.docx`/image), and
 supply-chain issues in its own dependencies. Reports along those lines are
 very much in scope. Reports assuming a different deployment model (e.g.
 "this would be exploitable if exposed to the internet without a reverse

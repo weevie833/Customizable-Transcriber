@@ -11,6 +11,22 @@ from profiles_store import profile_options_html, profiles_for_browser
 from app_state import load_source_folder, test_lock, test_state
 
 
+def tm_info_button_html(panel_id: str, text: str) -> str:
+    # Small "i" popup button, mirroring Prompt Builder's own
+    # pb_info_button_html (pages/prompt_builder.py) under Test Mode's own
+    # class names -- Test Mode's JS is inline rather than loaded from
+    # static/prompt-builder.js, so this is a deliberate parallel copy, not a
+    # shared import, matching how this codebase already tolerates per-page
+    # duplication for styling only two pages need (see CLAUDE.md's
+    # base.css/app-shell.css tiering notes).
+    return (
+        f'<span class="tm-info-wrap">'
+        f'<button type="button" class="tm-info-btn" aria-expanded="false" aria-controls="{panel_id}" aria-label="More information">i</button>'
+        f'<span class="tm-info-panel" id="{panel_id}" role="note" hidden>{html.escape(text)}</span>'
+        f"</span>"
+    )
+
+
 def test_mode_page() -> str:
     with test_lock:
         running = bool(test_state["running"])
@@ -84,6 +100,7 @@ def test_mode_page() -> str:
     let preflightComplete = false;
     let completionAlertShown = false;
     let extraFileCount = 0;
+    let icCandidateCount = 0;
 
     function modelLabelFor(modelId) {{
       return MODEL_LABELS[modelId] || modelId || "";
@@ -369,6 +386,291 @@ def test_mode_page() -> str:
       container.appendChild(row);
     }}
 
+    function addIndexCandidateRow() {{
+      const container = document.getElementById("ic-candidate-files");
+      if (!container) return;
+      icCandidateCount++;
+      const row = document.createElement("div");
+      row.className = "extra-file-row";
+      row.innerHTML =
+        '<input type="text" placeholder="Label for this model" data-ic-label>' +
+        '<input type="file" accept=".xlsx" data-ic-file>' +
+        '<button type="button" class="danger extra-file-remove">Remove</button>';
+      row.querySelector(".extra-file-remove").addEventListener("click", () => row.remove());
+      container.appendChild(row);
+    }}
+
+    function updateIndexCompareAiFields() {{
+      const checkbox = document.getElementById("ic-use-ai-checkbox");
+      const fields = document.getElementById("ic-ai-fields");
+      if (!checkbox || !fields) return;
+      fields.hidden = !checkbox.checked;
+    }}
+
+    // ---- Index Compare: run / mapping / results (see index_compare/ and
+    // app.py's /api/index-compare/* handlers) ----
+
+    let lastIndexCompareResult = null;
+    let lastIndexCompareGroundTruthLabel = "";
+    let lastIndexCompareRecordType = "";
+
+    function icCandidateEntries() {{
+      const entries = [];
+      document.querySelectorAll("#ic-candidate-files .extra-file-row").forEach((row) => {{
+        const fileInput = row.querySelector("[data-ic-file]");
+        const file = fileInput && fileInput.files[0];
+        if (!file) return;
+        const labelInput = row.querySelector("[data-ic-label]");
+        const label = (labelInput && labelInput.value.trim()) || ("Candidate " + (entries.length + 1));
+        entries.push({{ file: file, label: label, slot: "candidate_" + entries.length }});
+      }});
+      return entries;
+    }}
+
+    function setIndexCompareReportButtonAvailable(available) {{
+      const wrap = document.getElementById("ic-report-actions");
+      const button = document.getElementById("ic-download-report-button");
+      if (wrap) wrap.hidden = !available;
+      if (button) button.disabled = !available;
+    }}
+
+    function renderIndexCompareMapping(needsMapping, recordTypes) {{
+      const area = document.getElementById("ic-mapping-area");
+      if (!area) return;
+      area.innerHTML = "";
+      area.hidden = false;
+      needsMapping.forEach((entry) => {{
+        const worksheet = entry.worksheets[0];
+        const panel = document.createElement("div");
+        panel.className = "ic-mapping-panel";
+        panel.dataset.slot = entry.slot;
+        panel.dataset.sheetName = worksheet.name;
+
+        const title = document.createElement("p");
+        title.className = "hint";
+        title.textContent = '"' + worksheet.name + '" doesn\\'t match a known layout -- pick its record type to map columns, then run again.';
+        panel.appendChild(title);
+
+        const select = document.createElement("select");
+        select.innerHTML =
+          '<option value="">Select a record type\\u2026</option>' +
+          recordTypes.map((rt) => '<option value="' + rt.value + '">' + escapeHtml(rt.label) + "</option>").join("");
+        panel.appendChild(select);
+
+        const fieldsContainer = document.createElement("div");
+        fieldsContainer.className = "ic-mapping-fields";
+        panel.appendChild(fieldsContainer);
+
+        select.addEventListener("change", async () => {{
+          fieldsContainer.innerHTML = "";
+          if (!select.value) return;
+          const response = await fetch("/api/index-compare/suggest-mapping", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{
+              record_type: select.value,
+              header_row1: worksheet.header_row1,
+              header_row2: worksheet.header_row2,
+            }}),
+          }});
+          const data = await response.json();
+          if (!response.ok || data.error) return;
+          const columnOptions = worksheet.header_row2
+            .map((columnLabel, index) => {{
+              const groupLabel = worksheet.header_row1[index] || "";
+              const text = (groupLabel ? groupLabel + " / " : "") + (columnLabel || "(blank)");
+              return '<option value="' + index + '">' + escapeHtml(text) + "</option>";
+            }})
+            .join("");
+          data.fields.forEach((field, index) => {{
+            const row = document.createElement("div");
+            row.className = "ic-mapping-field-row";
+            const groupLabel = data.field_group_labels[index];
+            const fieldLabel = (groupLabel ? groupLabel + " / " : "") + data.field_column_labels[index];
+            const label = document.createElement("label");
+            label.textContent = fieldLabel;
+            row.appendChild(label);
+            const fieldSelect = document.createElement("select");
+            fieldSelect.dataset.field = field;
+            fieldSelect.innerHTML = '<option value="">(not mapped)</option>' + columnOptions;
+            const suggested = data.mapping[field];
+            if (suggested !== null && suggested !== undefined) fieldSelect.value = String(suggested);
+            row.appendChild(fieldSelect);
+            fieldsContainer.appendChild(row);
+          }});
+        }});
+
+        area.appendChild(panel);
+      }});
+    }}
+
+    function collectIndexCompareMappings() {{
+      const mappings = {{}};
+      document.querySelectorAll(".ic-mapping-panel").forEach((panel) => {{
+        const recordType = panel.querySelector("select").value;
+        if (!recordType) return;
+        const mapping = {{}};
+        panel.querySelectorAll("[data-field]").forEach((fieldSelect) => {{
+          mapping[fieldSelect.dataset.field] = fieldSelect.value === "" ? null : Number(fieldSelect.value);
+        }});
+        mappings[panel.dataset.slot] = {{
+          record_type: recordType,
+          sheet_name: panel.dataset.sheetName,
+          mapping: mapping,
+        }};
+      }});
+      return mappings;
+    }}
+
+    let lastIndexCompareReportBlob = null;
+
+    async function buildIndexCompareReportBlob(result, groundTruthLabel, recordType) {{
+      const response = await fetch("/api/index-compare/report", {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{ result: result, ground_truth_label: groundTruthLabel, record_type: recordType }}),
+      }});
+      if (!response.ok) {{
+        const data = await response.json().catch(() => ({{}}));
+        throw new Error(data.error || "Report generation failed.");
+      }}
+      return response.blob();
+    }}
+
+    async function runIndexCompare() {{
+      const button = document.getElementById("ic-run-button");
+      const status = document.getElementById("ic-status");
+      const mappingArea = document.getElementById("ic-mapping-area");
+
+      const groundTruthFile = document.getElementById("ic-ground-truth-file").files[0];
+      const groundTruthLabel = (document.getElementById("ic-ground-truth-label").value || "").trim() || "Ground truth";
+      const candidateEntries = icCandidateEntries();
+      if (!candidateEntries.length) {{
+        if (status) status.textContent = "Add at least one candidate index to compare.";
+        return;
+      }}
+
+      const body = new FormData();
+      if (groundTruthFile) {{
+        body.append("ground_truth_file", groundTruthFile);
+        body.append("ground_truth_label", groundTruthLabel);
+      }}
+      candidateEntries.forEach((entry, index) => {{
+        body.append("candidate_file_" + index, entry.file);
+        body.append("candidate_label_" + index, entry.label);
+      }});
+
+      const mappings = collectIndexCompareMappings();
+      Object.keys(mappings).forEach((slot) => {{
+        body.append(slot + "_mapping", JSON.stringify(mappings[slot]));
+      }});
+
+      const useAi = document.getElementById("ic-use-ai-checkbox").checked;
+      body.append("use_ai", useAi ? "true" : "false");
+      if (useAi) {{
+        body.append("api_key", document.getElementById("ic-api-key").value || "");
+        body.append("model", document.getElementById("ic-model").value || "");
+      }}
+
+      button.disabled = true;
+      if (status) status.textContent = "Comparing...";
+      lastIndexCompareReportBlob = null;
+      setIndexCompareReportButtonAvailable(false);
+      try {{
+        const response = await fetch("/api/index-compare/analyze", {{ method: "POST", body: body }});
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || "Comparison failed.");
+        if (data.needs_mapping) {{
+          renderIndexCompareMapping(data.needs_mapping, data.record_types);
+          if (status) status.textContent = "Some files need a column mapping before comparing -- fill them in above and run again.";
+          return;
+        }}
+        if (mappingArea) {{
+          mappingArea.hidden = true;
+          mappingArea.innerHTML = "";
+        }}
+        // The comparison itself isn't shown on screen -- Run Comparison
+        // goes straight to a downloadable report instead of an on-page
+        // results view (a deliberate choice: see the "Compare Indexes"
+        // section this replaced its inline results table for).
+        lastIndexCompareResult = data.result;
+        lastIndexCompareGroundTruthLabel = data.ground_truth_label || "";
+        lastIndexCompareRecordType = data.record_type || "";
+        if (status) status.textContent = "Building report...";
+        lastIndexCompareReportBlob = await buildIndexCompareReportBlob(
+          lastIndexCompareResult,
+          lastIndexCompareGroundTruthLabel,
+          lastIndexCompareRecordType
+        );
+        setIndexCompareReportButtonAvailable(true);
+        if (status) status.textContent = "Report ready -- click Download to save it.";
+      }} catch (error) {{
+        if (status) status.textContent = escapeHtml(error.message || "Comparison failed.");
+      }} finally {{
+        button.disabled = false;
+      }}
+    }}
+
+    async function downloadIndexCompareReport() {{
+      const status = document.getElementById("ic-status");
+      const button = document.getElementById("ic-download-report-button");
+      if (!lastIndexCompareReportBlob) return;
+      button.disabled = true;
+      try {{
+        const url = URL.createObjectURL(lastIndexCompareReportBlob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "index-comparison-report.xlsx";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }} catch (error) {{
+        if (status) status.textContent = error.message || "Download failed.";
+      }} finally {{
+        button.disabled = false;
+      }}
+    }}
+
+    // ---- Info-button popups (see tm_info_button_html() in test_mode.py) ----
+    // Mirrors Prompt Builder's own wireInfoButtons()/closeAllInfoPanels()
+    // (static/prompt-builder.js) under Test Mode's own class names.
+
+    function closeAllTmInfoPanels(except) {{
+      document.querySelectorAll(".tm-info-panel").forEach((panel) => {{
+        if (panel === except) return;
+        panel.hidden = true;
+        const btn = document.querySelector('.tm-info-btn[aria-controls="' + panel.id + '"]');
+        if (btn) btn.setAttribute("aria-expanded", "false");
+      }});
+    }}
+
+    function wireTmInfoButtons() {{
+      document.addEventListener("click", (event) => {{
+        const btn = event.target.closest(".tm-info-btn");
+        if (btn) {{
+          // preventDefault() here also stops the click from being treated
+          // as a click on the enclosing <summary> -- these buttons sit
+          // inside a collapsible section's <summary> (next to its title),
+          // and without this, opening the info popup would also toggle the
+          // section open/closed.
+          event.preventDefault();
+          const panel = document.getElementById(btn.getAttribute("aria-controls"));
+          const wasOpen = panel && !panel.hidden;
+          closeAllTmInfoPanels();
+          if (panel && !wasOpen) {{
+            panel.hidden = false;
+            btn.setAttribute("aria-expanded", "true");
+          }}
+          return;
+        }}
+        if (!event.target.closest(".tm-info-panel")) closeAllTmInfoPanels();
+      }});
+      document.addEventListener("keydown", (event) => {{
+        if (event.key === "Escape") closeAllTmInfoPanels();
+      }});
+    }}
+
     let lastCompareResults = null;
     let lastCorrectedLabel = "";
 
@@ -548,6 +850,23 @@ def test_mode_page() -> str:
       if (downloadReportButton) {{
         downloadReportButton.addEventListener("click", downloadCompareReport);
       }}
+      const addIcCandidateButton = document.getElementById("ic-add-candidate-button");
+      if (addIcCandidateButton) {{
+        addIcCandidateButton.addEventListener("click", addIndexCandidateRow);
+      }}
+      const icUseAiCheckbox = document.getElementById("ic-use-ai-checkbox");
+      if (icUseAiCheckbox) {{
+        icUseAiCheckbox.addEventListener("change", updateIndexCompareAiFields);
+      }}
+      const icRunButton = document.getElementById("ic-run-button");
+      if (icRunButton) {{
+        icRunButton.addEventListener("click", runIndexCompare);
+      }}
+      const icDownloadReportButton = document.getElementById("ic-download-report-button");
+      if (icDownloadReportButton) {{
+        icDownloadReportButton.addEventListener("click", downloadIndexCompareReport);
+      }}
+      wireTmInfoButtons();
       const runForm = document.querySelector('form[action="/test-mode/run"]');
       if (runForm) {{
         runForm.addEventListener("submit", handleProfileEditsBeforeSubmit);
@@ -679,11 +998,143 @@ def test_mode_page() -> str:
       background: #eef7ef;
       font-weight: 650;
     }}
+    /* Collapsible section shell, adapted from Prompt Builder's
+       details.pb-section (pages/prompt_builder.py) -- Test Mode had no
+       collapsible-section pattern of its own before Index Compare needed
+       one. Kept as a local copy rather than shared CSS since exactly these
+       two pages need it, not the same Transcribe+Test Mode pair
+       static/app-shell.css already covers -- see CLAUDE.md's modularization
+       notes on why this codebase tolerates that kind of duplication. */
+    details.tm-section {{
+      background: #ffffff;
+      border: 1px solid #d9d4c8;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-top: 20px;
+    }}
+    details.tm-section summary {{
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      justify-content: flex-start;
+      align-items: baseline;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      padding: 2px 0;
+    }}
+    details.tm-section summary::-webkit-details-marker {{
+      display: none;
+    }}
+    details.tm-section summary::before {{
+      content: "\\25B8";
+      margin-right: 8px;
+      color: #255c99;
+      display: inline-block;
+      transition: transform 0.12s ease;
+    }}
+    details.tm-section[open] summary::before {{
+      transform: rotate(90deg);
+    }}
+    .tm-section-hint {{
+      margin-top: 4px;
+    }}
+    .ic-checkbox-row {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+      margin-top: 10px;
+    }}
+    .ic-checkbox-row input {{
+      margin: 0;
+    }}
+    .ic-mapping-panel {{
+      margin-top: 12px;
+      padding: 10px 12px;
+      border: 1px solid #d9d4c8;
+      border-radius: 6px;
+      background: #fbfaf7;
+    }}
+    .ic-mapping-panel select {{
+      margin-top: 6px;
+    }}
+    .ic-mapping-fields {{
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+    }}
+    .ic-mapping-field-row {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+    }}
+    .ic-mapping-field-row label {{
+      margin: 0;
+      font-size: 13px;
+    }}
+    .ic-mapping-field-row select {{
+      margin: 0;
+    }}
+    /* .row (static/app-shell.css) sets display:grid, which -- being an
+       author-stylesheet rule -- beats the browser's default [hidden]
+       {{display:none}} UA rule even though hidden is present, the same
+       footgun app-shell.css already works around for .path-manual-row /
+       .run-confirmation-settings / .settings-alert / .run-status. */
+    #ic-ai-fields[hidden] {{
+      display: none;
+    }}
+    /* Info-button popups, adapted from Prompt Builder's .pb-info-wrap/
+       .pb-info-btn/.pb-info-panel (pages/prompt_builder.py) under Test
+       Mode's own class names -- see tm_info_button_html()'s own comment. */
+    .tm-info-wrap {{
+      position: relative;
+      display: inline-block;
+      vertical-align: middle;
+    }}
+    .tm-info-btn {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border-radius: 50%;
+      background: #5f6b76;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 400;
+      font-style: italic;
+      font-family: Georgia, "Times New Roman", serif;
+      line-height: 1;
+      vertical-align: middle;
+    }}
+    .tm-info-btn:hover {{
+      background: #45505a;
+    }}
+    .tm-info-panel {{
+      position: absolute;
+      z-index: 20;
+      top: 30px;
+      left: 0;
+      width: max-content;
+      max-width: 320px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #1f2933;
+      color: #eef2f6;
+      font-size: 12.5px;
+      font-weight: 400;
+      line-height: 1.45;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    }}
     @media (max-width: 720px) {{
       main {{
         width: min(100% - 28px, 980px);
         padding-top: 20px;
       }}
+      .tm-info-panel {{ max-width: calc(100vw - 60px); }}
       .row, .run-options, .profile-select-row, .profile-save-row, .run-row, .extra-file-row {{ grid-template-columns: 1fr; }}
       .path-control-row, .path-manual-row {{ grid-template-columns: 1fr; }}
       .run-actions {{ grid-template-columns: 1fr; }}
@@ -818,9 +1269,12 @@ def test_mode_page() -> str:
       </span>
     </div>
   </form>
-  <section class="panel">
-    <h2 class="panel-title">Compare Results</h2>
-    <p class="hint">Upload uncorrected DOCX transcripts to compare to a corrected DOCX.</p>
+  <details class="tm-section">
+    <summary>
+      <span>Compare transcripts (DOCX)</span>
+      {tm_info_button_html("tm-info-compare-transcripts", "Compare each transcript against a fully corrected version of the same content. Results show different types of error rates.")}
+    </summary>
+    <p class="hint tm-section-hint">Upload uncorrected DOCX transcripts to compare to a corrected DOCX.</p>
     <div id="extra-model-files">
       <div class="extra-file-row">
         <input type="text" placeholder="Label for this model" data-extra-label>
@@ -837,18 +1291,57 @@ def test_mode_page() -> str:
       <input type="text" id="corrected-label-input" placeholder="Label for this model">
       <input type="file" id="corrected-file-input" accept=".docx">
     </div>
-    <p class="hint">This label doesn't appear in the results table (the corrected file is the yardstick every row is measured against, not a row itself) &mdash; it's carried into the downloadable report so the ground truth used is easy to identify later.</p>
     <p id="compare-file-status" class="hint"></p>
     <div class="actions">
       <button id="run-compare-button" class="button-secondary" type="button">Run Comparison</button>
-      <span class="hint">Compare each transcript against a fully corrected version of the same content. Results show different types of error rates.</span>
     </div>
     <div id="compare-results"></div>
     <div class="actions" id="compare-report-actions" hidden>
       <button id="download-report-button" class="button-secondary" type="button" disabled>Download Comparison Report (.docx)</button>
-      <span class="hint">Explains CER/WER/WER-BoW in plain language and estimates the correction effort each score implies.</span>
     </div>
-  </section>
+  </details>
+  <details class="tm-section">
+    <summary>
+      <span>Compare Indexes (XLSX)</span>
+      {tm_info_button_html("tm-info-compare-indexes", "With a ground-truth file: each candidate is scored for accuracy against it. Without one: candidates are compared to each other, and fields where they disagree most are ranked first for manual review.")}
+    </summary>
+    <div id="ic-candidate-files">
+      <div class="extra-file-row">
+        <input type="text" placeholder="Label for this model" data-ic-label>
+        <input type="file" accept=".xlsx" data-ic-file>
+      </div>
+      <div class="extra-file-row">
+        <input type="text" placeholder="Label for this model" data-ic-label>
+        <input type="file" accept=".xlsx" data-ic-file>
+      </div>
+    </div>
+    <button id="ic-add-candidate-button" class="button-tiny" type="button">Add another</button>
+    <label>100% Corrected XLSX <span class="hint">(optional &mdash; leave blank to compare candidates only, against each other)</span></label>
+    <div class="extra-file-row">
+      <input type="text" id="ic-ground-truth-label" placeholder="Label for this index">
+      <input type="file" id="ic-ground-truth-file" accept=".xlsx">
+    </div>
+    <label class="ic-checkbox-row"><input type="checkbox" id="ic-use-ai-checkbox"> Use AI to classify ambiguous differences</label>
+    <p class="hint">Most differences (matching names, obvious misreads, Latin-form spelling) are sorted automatically with no AI call. Only the handful the automatic pass can't confidently bucket are optionally sent to a model for a suggested category &mdash; never a per-row cost.</p>
+    <div id="ic-ai-fields" class="row" hidden>
+      <label>API key
+        <input type="password" id="ic-api-key" autocomplete="off" placeholder="Paste the key matching the model below">
+      </label>
+      <label>Model
+        <select id="ic-model">
+          {model_options_for("")}
+        </select>
+      </label>
+    </div>
+    <p id="ic-status" class="hint"></p>
+    <div class="actions">
+      <button id="ic-run-button" class="button-secondary" type="button">Run Comparison</button>
+    </div>
+    <div id="ic-mapping-area" hidden></div>
+    <div class="actions" id="ic-report-actions" hidden>
+      <button id="ic-download-report-button" class="button-secondary" type="button" disabled>Download Index Comparison Report (.xlsx)</button>
+    </div>
+  </details>
   <section class="panel">
     <h2 class="panel-title">Progress Console</h2>
     <div id="summary" class="summary" role="status" aria-live="polite">{escaped_summary}</div>

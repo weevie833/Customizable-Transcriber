@@ -759,7 +759,7 @@ def test_mode_page() -> str:
     <p class="hint">Each key must match its model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model). Used for every run in the queue. Not saved to the project files. Submitting a run sends each key and the selected source content directly to that provider's API — see PRIVACY.md.</p>
     <div class="row">
       <label>Batch label (optional)
-        <input type="text" name="batch_label" placeholder="Example: Flash-Lite vs 3.6 Flash">
+        <input type="text" name="batch_label" placeholder="Example: Gemini 3.1 Pro Preview vs Claude Opus 5">
       </label>
       <label>&nbsp;<br>
         <button id="add-to-batch-button" type="submit" formaction="/test-mode/queue/add" formmethod="post" {disabled}>Add to Batch</button>

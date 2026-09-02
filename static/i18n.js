@@ -143,7 +143,7 @@
     "Model A": "Modello A",
     "Model B": "Modello B",
     "Batch label (optional)": "Etichetta del batch (opzionale)",
-    "Example: Flash-Lite vs 3.6 Flash": "Esempio: Flash-Lite vs 3.6 Flash",
+    "Example: Gemini 3.1 Pro Preview vs Claude Opus 5": "Esempio: Gemini 3.1 Pro Preview vs Claude Opus 5",
     "Add to Batch": "Aggiungi al batch",
     "Batch queue": "Coda dei batch",
     "No batches queued yet. Click \"Add to Batch\" to queue the Model A/B pair above, or leave the queue empty and just run this one pair directly.":
@@ -420,8 +420,6 @@
       "Alcuni registri civili di nascita stampano un vero e proprio modulo a due colonne: l'atto di nascita a sinistra e, a destra, una colonna con intestazione propria che registra quando la chiesa ha amministrato il battesimo, con lo stesso numero di atto. Se il tuo registro fa questo, seleziona la casella. L'IA trascriverà quella colonna come un blocco \"Baptism Record\" a sé stante, separato dall'atto principale — anziché trattarla come una nota inserita nel corpo o scritta a margine, che è il modo in cui le informazioni sul battesimo vengono gestite quando questa casella resta deselezionata.",
 
     // XLS Conversion page
-    "Gemini 3.7 Flash - latest balanced speed / intelligence": "Gemini 3.7 Flash - ultimo modello, velocità/intelligenza bilanciate",
-    "Gemini 3.6 Flash - previous balanced speed / intelligence": "Gemini 3.6 Flash - modello precedente, velocità/intelligenza bilanciate",
     "Gemini 3.1 Pro Preview - higher accuracy": "Gemini 3.1 Pro Preview - maggiore precisione",
     "Gemini 2.5 Pro - stable, high-accuracy baseline": "Gemini 2.5 Pro - base stabile ad alta precisione",
     "Claude Opus 5 - highest accuracy": "Claude Opus 5 - massima precisione",

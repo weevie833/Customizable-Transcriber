@@ -60,8 +60,6 @@ def sniff_file_type(data: bytes) -> str | None:
 # test_mode/report_docx.py only needs this one dict, not anything else from
 # app.py.
 MODELS = {
-    "gemini-3.7-flash": "Gemini 3.7 Flash - latest balanced speed / intelligence",
-    "gemini-3.6-flash": "Gemini 3.6 Flash - previous balanced speed / intelligence",
     "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - higher accuracy",
     "gemini-2.5-pro": "Gemini 2.5 Pro - stable, high-accuracy baseline",
     "claude-opus-5": "Claude Opus 5 - highest accuracy",

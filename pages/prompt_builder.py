@@ -81,6 +81,33 @@ PB_FORMULA_INFO_TEXT = (
     "match your own register's actual wording."
 )
 
+# These three were previously inlined as literal strings inside prompt_builder_page()'s
+# own f-string -- each contained a backslash (an escaped quote or apostrophe) inside a
+# `{...}` expression part, which Python <3.12 rejects outright ("f-string expression
+# part cannot include a backslash"). This app's documented floor is 3.10 (pyproject.toml),
+# so those three lines were a real SyntaxError under the CI matrix's 3.10 jobs the whole
+# time -- invisible locally on a 3.12+ interpreter, since PEP 701 lifted the restriction
+# there. Pulled out to plain module-level constants (same pattern as PB_FORMULA_INFO_TEXT
+# above) so the f-string only ever sees a bare identifier inside `{}`; the backslashes
+# themselves are unchanged and perfectly legal in an ordinary string literal.
+PB_SCRIBAL_INFO_TEXT = (
+    "Paleographic quirks are common habits of a scribe's handwriting that can look like errors but are not -- "
+    "things like a long ſ that resembles an f, or a macron over a vowel marking a dropped letter. Checking these "
+    "tells the AI what to expect from this hand, so it does not misread a normal scribal habit as an unfamiliar "
+    "name or a typo."
+)
+PB_ADDITIONAL_RULES_INFO_TEXT = (
+    "A catch-all for a register-specific judgment call that doesn't fit any question above -- for example, "
+    "\"never copy a surname from one parent to the other\" or a rule about when two blocks disagreeing counts as "
+    "an error versus expected grammar. Most profiles won't need this; it exists for the occasional rule that's "
+    "specific to your source and not covered by a preset elsewhere on this page."
+)
+PB_HONORIFICS_INFO_TEXT = (
+    "This is about how a person's title gets written in a translation when they're named in a role -- a "
+    "godparent, a witness, an informant. A \"role clause\" is the little phrase that introduces that person "
+    "(e.g. \"The godfather was Don Carolus Calsi\")."
+)
+
 
 def pb_formula_fields_html(type_key: str, config: dict) -> str:
     # placeholder here is live, pre-filled textarea content (not a `placeholder`
@@ -1078,7 +1105,7 @@ def prompt_builder_page(
       <div id="pb-abbrev-rows"></div>
       <button type="button" id="pb-add-abbrev" class="button-tiny">Add an abbreviation</button>
 
-      <p class="hint">Scribal / paleographic quirks{pb_info_button_html("pb-info-scribal", 'Paleographic quirks are common habits of a scribe\'s handwriting that can look like errors but are not -- things like a long ſ that resembles an f, or a macron over a vowel marking a dropped letter. Checking these tells the AI what to expect from this hand, so it does not misread a normal scribal habit as an unfamiliar name or a typo.')}</p>
+      <p class="hint">Scribal / paleographic quirks{pb_info_button_html("pb-info-scribal", PB_SCRIBAL_INFO_TEXT)}</p>
       <div class="pb-checklist pb-checklist-2col" id="pb-latin-scribal-checklist">
         {scribal_checklist}
       </div>
@@ -1099,7 +1126,7 @@ def prompt_builder_page(
         <textarea name="nameLexiconFullNames" rows="4" placeholder="Paste full names, one per line -- e.g. Giuseppe de Natale  or  de Natale, Giuseppe"></textarea>
       </label>
 
-      <label><span>Additional editorial rules (optional){pb_info_button_html("pb-info-additional-rules", "A catch-all for a register-specific judgment call that doesn't fit any question above -- for example, \"never copy a surname from one parent to the other\" or a rule about when two blocks disagreeing counts as an error versus expected grammar. Most profiles won't need this; it exists for the occasional rule that's specific to your source and not covered by a preset elsewhere on this page.")}</span>
+      <label><span>Additional editorial rules (optional){pb_info_button_html("pb-info-additional-rules", PB_ADDITIONAL_RULES_INFO_TEXT)}</span>
         <textarea name="additionalRules" rows="4" placeholder="e.g. Never copy a surname from one parent to the other, even when only one is stated."></textarea>
       </label>
     </details>
@@ -1175,7 +1202,7 @@ def prompt_builder_page(
       </div>
 
       <div id="pb-honorifics-section">
-        <p class="hint">Honorifics kept inside a role clause — everything else moves to Notes{pb_info_button_html("pb-info-honorifics", 'This is about how a person\'s title gets written in a translation when they\'re named in a role -- a godparent, a witness, an informant. A "role clause" is the little phrase that introduces that person (e.g. "The godfather was Don Carolus Calsi").')}</p>
+        <p class="hint">Honorifics kept inside a role clause — everything else moves to Notes{pb_info_button_html("pb-info-honorifics", PB_HONORIFICS_INFO_TEXT)}</p>
         <div class="pb-checklist pb-checklist-tight">
           <label class="pb-checkbox"><input type="checkbox" name="honorifics" value="Don" checked>Don</label>
           <label class="pb-checkbox"><input type="checkbox" name="honorifics" value="Master" checked>Master</label>

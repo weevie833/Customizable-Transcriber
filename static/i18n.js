@@ -151,7 +151,13 @@
     "Batches:": "Batch:",
     "Test Mode runs the profile as saved — edit or create profiles from the Transcribe page.":
       "La Modalità di test esegue il profilo così com'è salvato — modifica o crea profili dalla pagina Trascrivi.",
-    "Compare Results": "Confronta risultati",
+    // Test Mode — Compare transcripts (DOCX) collapsible section. Key was
+    // "Compare Results" until the heading text itself changed to
+    // "Compare transcripts (DOCX)" when Index Compare was added below it
+    // (to distinguish the two sections) -- the dictionary key was never
+    // updated to match, so the heading silently stopped translating. Found
+    // auditing i18n coverage for the Index Compare DOCX-report rework.
+    "Compare transcripts (DOCX)": "Confronta trascrizioni (DOCX)",
     "Upload uncorrected DOCX transcripts to compare to a corrected DOCX.":
       "Carica le trascrizioni DOCX non corrette da confrontare con un DOCX corretto.",
     "Label for this model": "Etichetta per questo modello",
@@ -165,6 +171,14 @@
     "Download Comparison Report (.docx)": "Scarica il report di confronto (.docx)",
     "Explains CER/WER/WER-BoW in plain language and estimates the correction effort each score implies.":
       "Spiega CER/WER/WER-BoW in linguaggio semplice e stima lo sforzo di correzione implicato da ciascun punteggio.",
+
+    // Test Mode — Compare Indexes (XLSX) collapsible section (index_compare/)
+    "Compare Indexes (XLSX)": "Confronta indici (XLSX)",
+    "Each candidate index is scored for statistical accuracy against the 100% Corrected index -- a downloadable DOCX report ranks them by character error rate, the same way the Compare Transcripts report above ranks transcripts. It does not list individual field differences; review a candidate's own spreadsheet against the corrected index by eye to find and fix specific entries.":
+      "Ogni indice candidato viene valutato per accuratezza statistica rispetto all'indice corretto al 100% — un report DOCX scaricabile li classifica in base al tasso di errore sui caratteri, allo stesso modo in cui il report di confronto trascrizioni qui sopra classifica le trascrizioni. Non elenca le differenze dei singoli campi; confronta a occhio il foglio di calcolo di ciascun candidato con l'indice corretto per trovare e correggere le singole voci.",
+    "100% Corrected XLSX": "XLSX corretto al 100%",
+    "Label for this index": "Etichetta per questo indice",
+    "Download Index Comparison Report (.docx)": "Scarica il report di confronto indici (.docx)",
 
     // Prompt Builder page
     "Pick from presets below to describe your register. The app assembles a complete transcription profile from your answers. It becomes available on the Transcribe and Test Mode pages, but you must reload those pages first before they will appear.":

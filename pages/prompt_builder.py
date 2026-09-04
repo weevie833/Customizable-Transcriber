@@ -7,7 +7,7 @@ from __future__ import annotations
 import html
 
 from customizable_transcription.core import DEFAULT_MODEL, MODELS
-from pages import json_for_inline_script
+from pages import FOOTER_HTML, json_for_inline_script
 from profiles_store import load_custom_profiles, profiles_with_display_labels
 from prompt_builder_content import (
     PROMPT_BUILDER_COMMON_ABBREVIATIONS,
@@ -1259,7 +1259,7 @@ def prompt_builder_page(
     </div>
   </details>
 
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
+  {FOOTER_HTML}
 </main>
 </body>
 </html>"""

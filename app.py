@@ -110,6 +110,7 @@ from app_state import (
     xls_preflight_cache,
     xls_preflight_lock,
 )
+from pages import FOOTER_HTML
 from pages.privacy import privacy_page
 from pages.home import home_page
 from pages.transcribe import page
@@ -1116,11 +1117,15 @@ def getting_started_page() -> str:
   <div data-lang-block="it" hidden>
 %%GETTING_STARTED_IT%%  </div>
 
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
+  %%FOOTER%%
 </main>
 </body>
 </html>"""
-    return page.replace("%%GETTING_STARTED_EN%%", content_en).replace("%%GETTING_STARTED_IT%%", content_it)
+    return (
+        page.replace("%%GETTING_STARTED_EN%%", content_en)
+        .replace("%%GETTING_STARTED_IT%%", content_it)
+        .replace("%%FOOTER%%", FOOTER_HTML)
+    )
 
 
 

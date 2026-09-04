@@ -5,6 +5,18 @@ from __future__ import annotations
 
 import json
 
+FOOTER_HTML = (
+    '<footer class="license">&copy; 2026 Steve Covello. All rights reserved '
+    "— free to download and run for personal use; redistribution, "
+    "hosting, and derivative works require permission. &middot; "
+    '<a href="/privacy">Privacy</a> <span id="app-version"></span></footer>'
+)
+"""The single footer every page (app.py's own getting_started_page()
+included) embeds verbatim. Kept here, not duplicated per page, so a wording
+or license change is one edit instead of six -- see CLAUDE.md's license
+section for why this text reads "all rights reserved" rather than an open
+license."""
+
 
 def json_for_inline_script(value: object) -> str:
     """json.dumps(value), safe to embed directly inside an inline <script>

@@ -5,6 +5,8 @@ repeats."""
 
 from __future__ import annotations
 
+from pages import FOOTER_HTML
+
 
 def home_page() -> str:
     """The app's default landing page ("/"). Same header/nav/CSS shell as every
@@ -332,7 +334,7 @@ def home_page() -> str:
       </ol>
     </div>
   </section>
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
+  %%FOOTER%%
 </main>
 </body>
-</html>"""
+</html>""".replace("%%FOOTER%%", FOOTER_HTML)

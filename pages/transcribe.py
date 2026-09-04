@@ -7,7 +7,7 @@ from __future__ import annotations
 import html
 
 from customizable_transcription.core import MODELS
-from pages import json_for_inline_script
+from pages import FOOTER_HTML, json_for_inline_script
 from profiles_store import load_profile, profile_options_html, profiles_for_browser
 from app_state import load_source_folder, lock, state
 
@@ -704,7 +704,7 @@ def page() -> str:
     <button id="refresh-status-button" class="button-secondary" type="button">Refresh Status</button>
     <pre id="log">{escaped_log}</pre>
   </section>
-  <footer class="license">Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
+  {FOOTER_HTML}
 </main>
 </body>
 </html>"""

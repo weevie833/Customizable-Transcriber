@@ -168,15 +168,25 @@ def _cookie_token(cookie_header: str | None) -> str | None:
         return None
     morsel = jar.get(CSRF_COOKIE_NAME)
     return morsel.value if morsel else None
-# Per-call cap for Prompt Builder's Preflight Test only (see make_client()'s
-# timeout_seconds param and critique_prompt_gap()) -- matches
-# xls_conversion/ai_parser.py's own AI_REQUEST_TIMEOUT_SECONDS. Two AI calls
-# happen per preflight run (transcribe, then critique), so a slow provider can
-# still take up to ~2x this before the request as a whole gives up; each call
-# fails cleanly with a clear error at this bound rather than hanging
-# indefinitely, which is what a genai.Client with no http_options timeout
-# does. The real Transcribe page's batch run deliberately keeps no such cap --
-# see make_client()'s own comment.
+# Per-call cap for every foreground, single-request handler that makes a
+# real AI call: Prompt Builder's Preflight Test (see make_client()'s
+# timeout_seconds param and critique_prompt_gap()) and XLS Conversion's
+# preflight_xls_source()/detect_xls_languages()/parse_xls_source(), each of
+# which passes this to its own validate_api_key_with_retry() cheap-key-check
+# call as well as (for Prompt Builder) the real test call -- matches
+# xls_conversion/ai_parser.py's own AI_REQUEST_TIMEOUT_SECONDS, which bounds
+# those handlers' real extraction calls the same way via a separately
+# constructed client, so every AI call these four handlers make is bounded
+# by the same value even though each call builds its own client. A given
+# handler can make more than one such call (Prompt Builder's Preflight Test
+# makes three: the key check, transcribe, then critique), so the request as
+# a whole can take a multiple of this before giving up -- each individual
+# call still fails cleanly with a clear error at this bound rather than
+# hanging indefinitely, which is what a client with no timeout set does. The
+# real Transcribe/Test Mode page's batch runs deliberately keep no such cap
+# on their own key check or per-image calls -- see make_client()'s own
+# comment; those run in a background job thread with a progress log and Stop
+# support, not a single blocking foreground request.
 PREFLIGHT_TIMEOUT_SECONDS = 90
 MAX_FORM_BYTES = 5_000_000
 MAX_DOCX_BYTES = 50_000_000
@@ -1934,7 +1944,7 @@ class Handler(BaseHTTPRequestHandler):
                 process_all=process_all,
                 ignore_failure=payload.get("ignore_preflight") is True,
             )
-            validate_api_key_with_retry(PROJECT_DIR, model, api_key_value)
+            validate_api_key_with_retry(PROJECT_DIR, model, api_key_value, timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS)
             result = parse_records_with_ai(
                 record_type=record_type,
                 text=text,
@@ -1967,7 +1977,7 @@ class Handler(BaseHTTPRequestHandler):
             target_role = str(payload.get("target_role", "") or "")
             process_all = payload.get("process_all") is True
             filename = str(payload.get("filename", "") or "")
-            validate_api_key_with_retry(PROJECT_DIR, model, api_key_value)
+            validate_api_key_with_retry(PROJECT_DIR, model, api_key_value, timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS)
             result = preflight_records_with_ai(
                 record_type=record_type,
                 text=text,
@@ -1997,7 +2007,7 @@ class Handler(BaseHTTPRequestHandler):
             text = str(payload.get("text", "") or "")
             image_range = str(payload.get("image_range", "") or "")
             process_all = payload.get("process_all") is True
-            validate_api_key_with_retry(PROJECT_DIR, model, api_key_value)
+            validate_api_key_with_retry(PROJECT_DIR, model, api_key_value, timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS)
             result = detect_languages(
                 text=text,
                 image_range=image_range,

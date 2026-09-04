@@ -58,16 +58,17 @@
     "Select your local language": "Seleziona la tua lingua",
     "Getting Started": "Per iniziare",
     "Primary navigation": "Navigazione principale",
-    // Both footer license strings below include a trailing "·" -- the text
+    // The footer license string below includes a trailing "·" -- the text
     // node in the DOM is the license sentence *plus* the &middot; separator
     // before the Privacy link, all in one node, so the dictionary key must
     // match that exact trimmed string or the whole sentence silently stops
     // translating (found while auditing Prompt Builder's i18n coverage --
-    // this one affects all 4 pages, predating that specific rework).
-    "Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). Free to use, modify, and share — derivative works, including hosted versions, must stay open source under the same license. ·":
-      "Distribuito sotto licenza GNU Affero General Public License v3.0 (AGPL-3.0). Libero da usare, modificare e condividere — le opere derivate, comprese le versioni ospitate su server, devono rimanere open source sotto la stessa licenza. ·",
-    "Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). ·":
-      "Distribuito sotto licenza GNU Affero General Public License v3.0 (AGPL-3.0). ·",
+    // this one affects all 7 pages, predating that specific rework). Same
+    // text everywhere now (see pages/__init__.py's FOOTER_HTML and
+    // xls_conversion/index.html's own copy of it), so one dictionary entry
+    // covers every page instead of one per distinct wording.
+    "© 2026 Steve Covello. All rights reserved — free to download and run for personal use; redistribution, hosting, and derivative works require permission. ·":
+      "© 2026 Steve Covello. Tutti i diritti riservati — libero da scaricare ed eseguire per uso personale; la ridistribuzione, l'hosting e le opere derivate richiedono un'autorizzazione. ·",
 
     // Source folder / run controls shared by Transcribe + Test Mode
     "Source folder": "Cartella di origine",

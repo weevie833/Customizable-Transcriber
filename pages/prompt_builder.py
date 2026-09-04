@@ -415,6 +415,15 @@ def prompt_builder_page(
       margin: 0 0 10px;
       font-size: 16px;
     }}
+    /* base.css's .site-header gives every page a 20px margin-bottom, sized
+       for the hint paragraph that used to sit directly under the header
+       here. That paragraph now lives inside .pb-top-create instead (see
+       CLAUDE.md), leaving 20px of empty space above {banner_html}/the form
+       with nothing in it -- tightened just on this page rather than
+       touching the shared rule every other page still relies on. */
+    .site-header {{
+      margin-bottom: 8px;
+    }}
     .pb-top-split {{
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -465,10 +474,16 @@ def prompt_builder_page(
       outline: 3px solid rgba(37, 92, 153, 0.32);
       outline-offset: 2px;
     }}
+    .pb-download-row {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }}
     .pb-download-caption {{
       font-size: 13px;
       color: #5f6b76;
-      margin: 10px 0 0;
+      margin: 0;
     }}
     .pb-banner {{
       padding: 12px 14px;
@@ -930,7 +945,6 @@ def prompt_builder_page(
       <a class="nav-link" href="/test-mode">Test Mode</a>
     </nav>
   </header>
-  <p class="hint">Pick from presets below to describe your register. The app assembles a complete transcription profile from your answers. It becomes available on the Transcribe and Test Mode pages, but you must reload those pages first before they will appear.</p>
   {banner_html}
   <form method="post" action="/prompt-builder/save-profile" id="pb-questionnaire-form">
     <input type="hidden" name="role_context">
@@ -945,8 +959,11 @@ def prompt_builder_page(
     <div class="pb-top-split">
       <div class="pb-top-panel pb-top-create">
         <h2 class="panel-title">Create a new profile</h2>
-        <a id="pb-download-worksheets" class="pb-download-btn" href="/static/prompt-builder-worksheets/prompt-builder-worksheets-en.zip" download="prompt-builder-worksheets-en.zip">Download DOCX (ENG)</a>
-        <p class="pb-download-caption" id="pb-download-caption">Download DOCX templates of the questionnaire to complete offline, then copy your selections into the app.</p>
+        <div class="pb-download-row">
+          <a id="pb-download-worksheets" class="pb-download-btn" href="/static/prompt-builder-worksheets/prompt-builder-worksheets-en.zip" download="prompt-builder-worksheets-en.zip">Download DOCX (ENG)</a>
+          <p class="pb-download-caption" id="pb-download-caption">Download DOCX templates of the questionnaire to complete offline, then copy your selections into the app.</p>
+        </div>
+        <p class="hint">Pick from presets below to describe your register. The app assembles a complete transcription profile from your answers. It becomes available on the Transcribe and Test Mode pages, but you must reload those pages first before they will appear.</p>
       </div>
 
       <div class="pb-top-panel" id="pb-load-bar">

@@ -1140,7 +1140,6 @@ def test_mode_page() -> str:
       <a class="nav-link" href="/test-mode" aria-current="page">Test Mode</a>
     </nav>
   </header>
-  <p class="hint">Runs the same source images and prompt profile through different models to compare performance.</p>
   <form method="post" action="/test-mode/run">
     <div class="path-control">
       <label>Source folder</label>
@@ -1155,6 +1154,7 @@ def test_mode_page() -> str:
       <button id="source-folder-manual-button" type="button" class="button-secondary">Use this path</button>
     </div>
     <p class="hint" hidden>Browse opens a native folder dialog.</p>
+    <p class="hint">Runs the same source images and prompt profile through different models to compare performance.</p>
     <div class="row">
       <label>Model A
         <select name="model_a">

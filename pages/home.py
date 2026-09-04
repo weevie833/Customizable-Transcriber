@@ -57,22 +57,6 @@ def home_page() -> str:
       font-size: 26px;
       font-weight: 700;
     }
-    .lang-picker {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex: 0 0 auto;
-    }
-    .lang-picker-label {
-      font-size: 13px;
-      font-weight: 650;
-      color: #5f6b76;
-      white-space: nowrap;
-    }
-    .lang-picker .lang-flag {
-      font-size: 20px;
-      padding: 3px 6px;
-    }
     .callout {
       background: #eef4fb;
       border: 1px solid #cddcee;
@@ -162,13 +146,6 @@ def home_page() -> str:
   <section class="panel">
     <div class="hero-top">
       <h1>Welcome to the Customizable Transcription application.</h1>
-      <div class="lang-picker">
-        <span class="lang-picker-label">Select your local language</span>
-        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
-          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
-          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
-        </div>
-      </div>
     </div>
     <div data-lang-block="en">
       <p>The Customizable Transcription app is designed to help you process large batches of archival images directly from your computer without uploading anything to the Internet. The app can output a transcript of your images into a formatted DOCX file, including translations to Italian and English. You can then convert the transcript into an XLSX index file using the Italian Parish Records standardized index templates.</p>

@@ -54,7 +54,6 @@
     "Prompt Builder": "Generatore di prompt",
     "Home": "Home",
     "Welcome to the Customizable Transcription application.": "Benvenuti nell'applicazione di Trascrizione Personalizzabile.",
-    "Select your local language": "Seleziona la tua lingua",
     "Getting Started": "Per iniziare",
     "Primary navigation": "Navigazione principale",
     // The footer license string below includes a trailing "·" -- the text

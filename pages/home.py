@@ -130,6 +130,10 @@ def home_page() -> str:
       margin-top: 10px;
     }
     @media (max-width: 720px) {
+      main {
+        width: min(100% - 28px, 980px);
+        padding-top: 20px;
+      }
       .site-header { align-items: stretch; }
     }
   </style>

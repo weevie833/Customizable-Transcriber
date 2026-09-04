@@ -121,6 +121,10 @@ def privacy_page() -> str:
       margin: 6px 0;
     }}
     @media (max-width: 720px) {{
+      main {{
+        width: min(100% - 28px, 980px);
+        padding-top: 20px;
+      }}
       .site-header {{ align-items: stretch; }}
     }}
   </style>

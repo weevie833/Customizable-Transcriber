@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import random
 import re
 import time
 from dataclasses import dataclass, field
@@ -12,6 +13,7 @@ from typing import Callable, Iterable
 
 import anthropic
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 
@@ -373,6 +375,92 @@ def validate_api_key(project_dir: Path, model: str, api_key_override: str | None
     )
 
 
+# --- Provider transient-failure handling ------------------------------------
+# A 429 (rate limit) or 5xx (provider-side overload/outage, e.g. Gemini's own
+# "This model is currently experiencing high demand... Please try again
+# later.") is a transient failure worth a short retry, not an immediate
+# abort -- both are common on the sequential per-image calls run_batch()
+# makes and usually clear up within seconds to a couple of minutes. Shared by
+# validate_api_key_with_retry()/transcribe_image_with_retry() below and by
+# xls_conversion/ai_parser.py's call_ai_json(), which imports these from here
+# rather than keeping its own duplicate copy.
+MAX_TRANSIENT_RETRIES = 3
+RETRY_BASE_DELAY_SECONDS = 1.0
+RETRY_MAX_DELAY_SECONDS = 20.0
+
+
+def _is_transient_provider_error(exc: Exception) -> bool:
+    if isinstance(exc, anthropic.APIConnectionError):
+        return True
+    if isinstance(exc, anthropic.APIStatusError):
+        return exc.status_code == 429 or exc.status_code >= 500
+    if isinstance(exc, genai_errors.APIError):
+        return exc.code == 429 or exc.code >= 500
+    return False
+
+
+def _provider_error_status(exc: Exception) -> int | None:
+    if isinstance(exc, anthropic.APIStatusError):
+        return exc.status_code
+    if isinstance(exc, genai_errors.APIError):
+        return exc.code
+    return None
+
+
+def _with_transient_retry(call: Callable[[], object], progress: Callable[[str], None] | None = None) -> object:
+    attempt = 0
+    while True:
+        try:
+            return call()
+        except Exception as exc:
+            if not _is_transient_provider_error(exc) or attempt >= MAX_TRANSIENT_RETRIES:
+                raise
+            delay = min(RETRY_BASE_DELAY_SECONDS * (2**attempt), RETRY_MAX_DELAY_SECONDS)
+            delay += random.uniform(0, delay * 0.25)
+            if progress:
+                progress(
+                    f"Provider reported a temporary error ({exc}); "
+                    f"retrying ({attempt + 1}/{MAX_TRANSIENT_RETRIES}) in {delay:.1f}s..."
+                )
+            time.sleep(delay)
+            attempt += 1
+
+
+def validate_api_key_with_retry(
+    project_dir: Path,
+    model: str,
+    api_key_override: str | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> None:
+    _with_transient_retry(lambda: validate_api_key(project_dir, model, api_key_override), progress=progress)
+
+
+def humanize_provider_error(exc: Exception, model: str) -> str:
+    """Rewrite a known transient-failure shape (429/5xx) into a message a
+    non-technical user can actually act on -- names the model, says plainly
+    that it's the provider's own service and not this app or the API key,
+    and suggests what to do next. Anything not recognized as this specific
+    shape passes through as str(exc) unchanged, so a real, unanticipated
+    error is never hidden behind a generic message."""
+    if not _is_transient_provider_error(exc):
+        return str(exc)
+    status = _provider_error_status(exc)
+    if status == 429:
+        return (
+            f'"{model}" is rate-limiting this API key right now (HTTP 429, too many requests). '
+            f"This already retried {MAX_TRANSIENT_RETRIES} times with a short delay and is still "
+            "being limited -- wait a bit and try again, or switch to a different model for now. "
+            f"(Original error: {exc})"
+        )
+    return (
+        f'"{model}" is temporarily unavailable on the provider\'s own servers (HTTP {status or "5xx"}) '
+        "-- this is not a problem with your API key or this app. It already retried "
+        f"{MAX_TRANSIENT_RETRIES} times with a short delay before giving up. This is usually "
+        "temporary: wait a few minutes and try again, or switch to a different model for now. "
+        f"(Original error: {exc})"
+    )
+
+
 # A response cut off mid-generation by the provider's own output-token cap is
 # worse than an honest [illegible] -- it drops content with no marker at all,
 # and (unlike a max_tokens error that aborts the image outright) a genuinely
@@ -497,6 +585,21 @@ def transcribe_image(
     )
 
 
+def transcribe_image_with_retry(
+    client: LLMClient,
+    image_path: Path,
+    system_prompt: str,
+    model: str,
+    include_thoughts: bool = False,
+    max_thinking_level: str | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> str:
+    return _with_transient_retry(
+        lambda: transcribe_image(client, image_path, system_prompt, model, include_thoughts, max_thinking_level),
+        progress=progress,
+    )
+
+
 def collapse_source_line_breaks(text: str) -> str:
     paragraphs: list[str] = []
     current: list[str] = []
@@ -567,23 +670,24 @@ def run_batch(
             name = display_name(image_path, config.image_folder)
             log(f"[{index}/{len(files)}] Processing {name}")
             try:
-                text = transcribe_image(
+                text = transcribe_image_with_retry(
                     client=client,
                     image_path=image_path,
                     system_prompt=prompt,
                     model=config.model,
                     include_thoughts=config.include_thoughts,
+                    progress=log,
                 )
                 output.write(render_entry(name, text))
                 output.flush()
                 results.append(ImageResult(name, True, text))
                 log(f"Saved {name}")
             except Exception as exc:
-                error = f"ERROR: {exc}"
+                error = f"ERROR: {humanize_provider_error(exc, config.model)}"
                 output.write(render_entry(name, error))
                 output.flush()
                 results.append(ImageResult(name, False, error))
-                log(f"Failed {name}: {exc}")
+                log(f"Failed {name}: {humanize_provider_error(exc, config.model)}")
 
             if config.delay_seconds > 0 and index < len(files):
                 remaining_delay = config.delay_seconds

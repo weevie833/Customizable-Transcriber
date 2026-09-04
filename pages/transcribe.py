@@ -95,9 +95,10 @@ def page() -> str:
       const response = await fetch("/status", {{ cache: "no-store" }});
       if (!response.ok) return;
       const status = await response.json();
-      document.getElementById("summary").textContent = status.summary || "";
+      const translateStatus = window.tbTranslateStatusText || function (text) {{ return text; }};
+      document.getElementById("summary").textContent = translateStatus(status.summary || "");
       document.getElementById("output").textContent = "Output: " + (status.output || "");
-      document.getElementById("log").textContent = status.log || "";
+      document.getElementById("log").textContent = translateStatus(status.log || "");
       updateRunButton(status.running);
       updateRunStatus(status.running);
       document.getElementById("stop-button").disabled = !status.running;
@@ -341,23 +342,35 @@ def page() -> str:
           resolveDuplicateProfileName(event, newName);
           return;
         }}
+        // Always overwrites the currently loaded profile in place -- no
+        // confirm dialog. This button is now specifically the destructive-
+        // update action; "Save as New Profile" (below) is the explicit way
+        // to keep the original instead. Previously this asked "Replace X?
+        // Choose Cancel to save a new version" and then, on Cancel, opened a
+        // second prompt() that silently created a duplicate profile if
+        // accepted -- easy to trigger by mistake, since Cancel reads as
+        // "cancel the save," not "keep both versions." Dropped per the
+        // profile-save-protocol review in CLAUDE.md: a user who clicks Save
+        // Profile does not need the prior version kept as a fallback.
+        action.value = "update";
+        return;
+      }}
+      if (event.submitter && event.submitter.id === "profile-save-new-button") {{
+        action.value = "create";
+        if (newName) {{
+          resolveDuplicateProfileName(event, newName);
+          return;
+        }}
         const profileId = document.querySelector('[name="profile_id"]').value;
         const profile = profiles[profileId];
-        if (!profile) {{
-          action.value = "update";
-          return;
-        }}
-        if (window.confirm(`Replace "${{profile.label}}" with the current profile fields? Choose Cancel to save a new version.`)) {{
-          action.value = "update";
-          return;
-        }}
-        const versionName = window.prompt("Name for the new profile version:", suggestedVersionName(profile.profile_label || profile.label));
+        const suggested = suggestedVersionName(profile ? (profile.profile_label || profile.label) : "Custom Profile");
+        const versionName = window.prompt("Name for the new profile:", suggested);
         if (!versionName || !versionName.trim()) {{
           event.preventDefault();
           return;
         }}
         document.querySelector('[name="new_profile_name"]').value = versionName.trim();
-        action.value = "create";
+        resolveDuplicateProfileName(event, versionName.trim());
         return;
       }}
       if (newName) {{
@@ -369,17 +382,14 @@ def page() -> str:
         action.value = "use";
         return;
       }}
-      if (window.confirm("Save these changes to the selected profile? Choose Cancel to save as a new version.")) {{
-        action.value = "update";
-        return;
-      }}
-      const versionName = window.prompt("Name for the new profile version:");
-      if (!versionName || !versionName.trim()) {{
-        event.preventDefault();
-        return;
-      }}
-      document.querySelector('[name="new_profile_name"]').value = versionName.trim();
-      action.value = "create";
+      // Reached by editing profile fields and then clicking Run (Confirm
+      // and run) without an explicit Save first -- always overwrites the
+      // loaded profile in place, same reasoning as "profile-save-button"
+      // above (this used to confirm()/prompt() here too, with the same
+      // silent-duplicate risk on Cancel). Type a name in the "Save new
+      // custom profile as" field and use "Save as New Profile" instead if
+      // you want to keep the original.
+      action.value = "update";
     }}
 
     window.addEventListener("DOMContentLoaded", () => {{
@@ -657,10 +667,11 @@ def page() -> str:
         <p><strong>Manual prompts can only be edited here - they cannot be edited in the Prompt Builder.</strong></p>
         <p class="hint">The profile sections below are plain text fields. The app handles JSON formatting automatically when it saves, so quotes, brackets, and commas typed here will not break the profile file.</p>
         <label>Save new custom profile as
-        <p class="hint">Leave blank to update the selected profile. Enter a new name to save the three boxes below as a reusable profile.</p>
+        <p class="hint">"Save Profile" always overwrites the profile selected above with the three boxes below -- there is no confirmation step, so only click it when you mean to replace the saved version. Type a name here and click "Save as New Profile" instead to keep the original and save these edits as a separate profile.</p>
         <div class="profile-save-row">
           <input type="text" name="new_profile_name" value="{escaped_new_profile_name}" placeholder="Example: Palermo baptisms">
           <button id="profile-save-button" type="submit" formaction="/save-profile" formmethod="post" {disabled}>Save Profile</button>
+          <button id="profile-save-new-button" type="submit" formaction="/save-profile" formmethod="post" {disabled}>Save as New Profile</button>
         </div>
         </label>
         <label>Role and local context

@@ -14,7 +14,13 @@ import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from customizable_transcription.core import provider_for_model
+from customizable_transcription.core import (
+    MAX_TRANSIENT_RETRIES,
+    RETRY_BASE_DELAY_SECONDS,
+    RETRY_MAX_DELAY_SECONDS,
+    _is_transient_provider_error,
+    provider_for_model,
+)
 from xls_conversion.spreadsheet_export import SheetSpec, rows_to_csv, rows_to_xlsx, rows_to_xlsx_multi
 
 
@@ -1060,19 +1066,11 @@ def call_claude_json(
 # MAX_TRANSIENT_RETRIES bounds that to a handful of attempts with capped
 # exponential backoff plus jitter (spreads retries out so a whole batch
 # retrying in lockstep doesn't itself look like a burst to the provider).
-MAX_TRANSIENT_RETRIES = 3
-RETRY_BASE_DELAY_SECONDS = 1.0
-RETRY_MAX_DELAY_SECONDS = 20.0
-
-
-def _is_transient_provider_error(exc: Exception) -> bool:
-    if isinstance(exc, anthropic.APIConnectionError):
-        return True
-    if isinstance(exc, anthropic.APIStatusError):
-        return exc.status_code == 429 or exc.status_code >= 500
-    if isinstance(exc, genai_errors.APIError):
-        return exc.code == 429 or exc.code >= 500
-    return False
+# MAX_TRANSIENT_RETRIES/RETRY_BASE_DELAY_SECONDS/RETRY_MAX_DELAY_SECONDS/
+# _is_transient_provider_error() are imported from customizable_transcription.core,
+# which now owns the one copy -- core.py's own transcribe_image_with_retry()/
+# validate_api_key_with_retry() need the identical logic, so it lives there
+# rather than being duplicated here.
 
 
 def call_ai_json(

@@ -480,6 +480,51 @@ legend {
   }
 }
 
+/* Same modal used for the "missing setting" warnings and the conversion-
+   complete alert -- see the completion-alert note in CLAUDE.md and the
+   matching rules on Transcribe/Test Mode (static/app-shell.css), which this
+   mirrors using this page's own color tokens instead of app-shell.css's
+   hardcoded ones (xls_conversion doesn't link that stylesheet). */
+.settings-alert {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(31, 41, 51, 0.34);
+}
+
+.settings-alert[hidden] {
+  display: none;
+}
+
+.settings-alert-box {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 18px 42px rgba(31, 41, 51, 0.24);
+  text-align: center;
+}
+
+.settings-alert-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 750;
+  color: var(--ink);
+}
+
+.settings-alert-message {
+  margin: 0;
+  color: var(--muted);
+}
+
+#settings-alert-close {
+  margin-top: 16px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .progress-spinner {
     animation: none;

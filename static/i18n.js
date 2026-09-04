@@ -5,7 +5,10 @@
  * placeholders, footers). It does NOT translate: user-entered profile
  * content, transcription/log/status output, or strings that other inline
  * <script> blocks write into the page at runtime (alerts, dynamic hints,
- * progress rows) -- those stay English by design for this pass.
+ * progress rows) -- those stay English by design for this pass. The one
+ * exception is window.tbTranslateStatusText() below, a narrow pattern-based
+ * translator for the #summary/#log status text on Transcribe/Test Mode --
+ * see its own comment for why that one case is handled differently.
  *
  * How it works: on load it reads the stored language preference and, if
  * Italian, walks the DOM once translating any text node or attribute whose
@@ -556,6 +559,107 @@
       el.hidden = el.getAttribute("data-lang-block") !== lang;
     });
   }
+
+  // Status/log text (the #summary and #log elements on Transcribe/Test Mode,
+  // populated from /status JSON polling -- see refreshStatus() in
+  // pages/transcribe.py and pages/test_mode.py) is otherwise explicitly out
+  // of scope for this file (see the module docstring at the top): it's
+  // generated server-side by a background job thread that has no per-request
+  // access to the viewing browser's language cookie, and it's free-form text
+  // (filenames, raw provider error bodies) that can't safely go through the
+  // exact-string DICTIONARY lookup applyLanguage() uses for static chrome.
+  //
+  // The one deliberate exception: humanize_provider_error()'s two fixed
+  // message shapes (customizable_transcription/core.py) and the transient-
+  // retry progress line it's paired with (_with_transient_retry() in the
+  // same file) -- these are common enough (any Gemini/Claude 429 or 5xx) and
+  // specific enough in shape to safely pattern-match and translate at
+  // display time, which is the only place a language choice is actually
+  // known for a string a background thread produced. Everything these
+  // patterns don't recognize (any other error, any other log line) is
+  // returned completely unchanged -- this never guesses at a translation.
+  //
+  // Each entry's `re` must match the *entire* trimmed line ($ anchored) so a
+  // partial coincidental match on an unrelated line can't misfire; `it`
+  // rebuilds the Italian line from the same captured groups, leaving the
+  // untranslatable parts (model id, HTTP status, the provider's own raw
+  // error body) exactly as captured.
+  var DYNAMIC_LINE_PATTERNS = [
+    {
+      re: /^"([^"]+)" is temporarily unavailable on the provider's own servers \(HTTP ([^)]+)\) -- this is not a problem with your API key or this app\. It already retried (\d+) times with a short delay before giving up\. This is usually temporary: wait a few minutes and try again, or switch to a different model for now\. \(Original error: ([\s\S]+)\)$/,
+      it: function (m) {
+        return (
+          '"' + m[1] + '" non è al momento disponibile sui server del provider (HTTP ' + m[2] + ") -- " +
+          "non è un problema della tua chiave API o di questa app. Ha già ritentato " + m[3] +
+          " volte con un breve ritardo prima di rinunciare. Di solito è temporaneo: attendi qualche " +
+          "minuto e riprova, oppure passa a un altro modello per ora. (Errore originale: " + m[4] + ")"
+        );
+      },
+    },
+    {
+      re: /^"([^"]+)" is rate-limiting this API key right now \(HTTP 429, too many requests\)\. This already retried (\d+) times with a short delay and is still being limited -- wait a bit and try again, or switch to a different model for now\. \(Original error: ([\s\S]+)\)$/,
+      it: function (m) {
+        return (
+          '"' + m[1] + '" sta limitando questa chiave API in questo momento (HTTP 429, troppe richieste). ' +
+          "Ha già ritentato " + m[2] + " volte con un breve ritardo ed è ancora limitata -- attendi " +
+          "un momento e riprova, oppure passa a un altro modello per ora. (Errore originale: " + m[3] + ")"
+        );
+      },
+    },
+    {
+      re: /^Provider reported a temporary error \(([\s\S]+)\); retrying \((\d+)\/(\d+)\) in ([\d.]+)s\.\.\.$/,
+      it: function (m) {
+        return (
+          "Il provider ha segnalato un errore temporaneo (" + m[1] + "); nuovo tentativo (" + m[2] + "/" +
+          m[3] + ") tra " + m[4] + "s..."
+        );
+      },
+    },
+  ];
+
+  // Wraps every pattern above so it also recognizes the two fixed English
+  // prefixes run_job()/run_batch() (app.py, core.py) put in front of it in
+  // the actual log -- "Fatal error: " and "Failed <image name>: ". The
+  // prefix is only translated when the text after it matches one of the
+  // known shapes; an unrelated "Fatal error: ..." (a bad API key, a missing
+  // folder, anything else) is left completely alone, in English, exactly as
+  // before this file existed.
+  var PREFIXED_PATTERNS = [
+    { prefixRe: /^Fatal error: /, prefixIt: "Errore fatale: " },
+    { prefixRe: /^Failed ([^:]+): /, prefixIt: null }, // null: rebuilt per-match below (carries a captured name)
+  ];
+
+  function translateDynamicLine(line) {
+    for (var i = 0; i < DYNAMIC_LINE_PATTERNS.length; i++) {
+      var entry = DYNAMIC_LINE_PATTERNS[i];
+      var match = line.match(entry.re);
+      if (match) return entry.it(match);
+    }
+    for (var j = 0; j < PREFIXED_PATTERNS.length; j++) {
+      var prefixed = PREFIXED_PATTERNS[j];
+      var prefixMatch = line.match(prefixed.prefixRe);
+      if (!prefixMatch) continue;
+      var rest = line.slice(prefixMatch[0].length);
+      var translatedRest = translateDynamicLine(rest);
+      if (translatedRest === rest) continue; // rest didn't match any known shape -- leave the whole line alone
+      var prefixIt = prefixed.prefixIt !== null ? prefixed.prefixIt : "Elaborazione non riuscita per " + prefixMatch[1] + ": ";
+      return prefixIt + translatedRest;
+    }
+    return line;
+  }
+
+  // Exposed for refreshStatus() on Transcribe/Test Mode to run #summary and
+  // #log text through before setting it, in place of a raw assignment from
+  // the /status JSON. Safe to call from English (returns text unchanged,
+  // same as every pattern-miss case) and safe on multi-line log text (each
+  // line -- one add_log()/add_test_log() call -- is matched independently).
+  window.tbTranslateStatusText = function (text) {
+    if ((getCookie(STORAGE_KEY) || "en") !== "it" || !text) return text;
+    return text
+      .split("\n")
+      .map(translateDynamicLine)
+      .join("\n");
+  };
 
   // Re-applies whatever language is currently active. Exposed for scripts on
   // other pages (e.g. Prompt Builder) that insert new DOM after page load --

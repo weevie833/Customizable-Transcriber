@@ -607,11 +607,11 @@
     }
 
     if (allLanguagesConverted()) {
+      // Already converted (Convert clicked again with nothing new to do) --
+      // just re-show the existing download buttons, no auto-download and no
+      // completion alert (nothing new actually finished just now).
       renderDownloadRows();
       outputPanel.hidden = false;
-      if (languages.length === 1 && selectedOutputMode() === "single") {
-        downloadOutput(languages[0], "xlsx");
-      }
       return;
     }
 
@@ -670,15 +670,13 @@
 
       outputPanel.hidden = false;
       renderDownloadRows();
-      if (languages.length === 1 && selectedOutputMode() === "single") {
-        downloadOutput(languages[0], "xlsx");
-      }
       const totalRecords = languages.reduce(
         (sum, lang) => sum + (languageRuns[lang].exportResult.rows || []).length,
         0
       );
       setMessage(`Conversion complete for ${languages.join(", ")}. ${totalRecords} record(s) extracted.`);
       outputPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+      showCompletionAlert();
     } catch (error) {
       setMessage(error.message || String(error), true);
     } finally {
@@ -874,6 +872,25 @@
   function setMessage(text, isError = false) {
     message.textContent = text;
     processStatus.classList.toggle("error", isError);
+  }
+
+  // On-screen + sonic alert when a conversion finishes, matching Transcribe/
+  // Test Mode's own showCompletionAlert() (pages/transcribe.py, pages/
+  // test_mode.py) -- see CLAUDE.md's note on why this exists: a user who
+  // stepped away while a long conversion ran (up to ~10 minutes for a large
+  // transcript, per GETTING_STARTED) has no way to notice the on-page status
+  // text change on its own. showSettingsAlert()/playAlertSound() are the
+  // same shared functions those two pages use, loaded here from static/
+  // app-common.js. Unlike those pages, there's no `completionAlertShown`
+  // guard here -- this only ever fires once per convertWithAi() call that
+  // actually just finished a real conversion (the "already converted, Convert
+  // clicked again" early-return path above doesn't call this), so there's
+  // nothing to dedupe against.
+  function showCompletionAlert() {
+    showSettingsAlert(
+      "Scroll down and review the Spreadsheet output panel, then click Download to save your file(s).",
+      "Conversion completed"
+    );
   }
 
   function clearSource() {

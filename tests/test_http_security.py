@@ -41,7 +41,11 @@ def test_response_headers_are_hardened(live_server):
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Frame-Options") == "DENY"
     assert "frame-ancestors 'none'" in response.headers.get("Content-Security-Policy", "")
-    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    # "same-origin", not "no-referrer" -- see the comment on end_headers()'s
+    # own Referrer-Policy header in app.py for why "no-referrer" broke every
+    # real form-POST save (Chrome nulls the Origin header on such requests
+    # when the referring page's Referrer-Policy is "no-referrer").
+    assert response.headers.get("Referrer-Policy") == "same-origin"
     assert "ct_token=" in response.headers.get("Set-Cookie", "")
     assert "SameSite=Strict" in response.headers.get("Set-Cookie", "")
 

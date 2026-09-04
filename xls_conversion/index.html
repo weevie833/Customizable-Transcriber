@@ -9,6 +9,13 @@
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to main content</a>
+    <div id="settings-alert" class="settings-alert" role="alertdialog" aria-modal="true" aria-labelledby="settings-alert-title" hidden>
+      <div class="settings-alert-box">
+        <p id="settings-alert-title" class="settings-alert-title">Run settings needed</p>
+        <p id="settings-alert-message" class="settings-alert-message"></p>
+        <button id="settings-alert-close" type="button">OK</button>
+      </div>
+    </div>
     <main id="main-content" tabindex="-1" class="app-shell">
       <header class="site-header">
         <div class="site-heading">
@@ -175,6 +182,17 @@
       <footer>Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
     </main>
 
+    <script src="/static/app-common.js"></script>
+    <script>
+      // playAlertSound()/showSettingsAlert()/hideSettingsAlert() (loaded
+      // above from static/app-common.js, shared with Transcribe/Test Mode --
+      // see that file's own comment) read/write this as a plain top-level
+      // `let`, not a window.* property -- declared here, in a real inline
+      // <script> tag, rather than inside app.js's own IIFE, so it's visible
+      // to app-common.js's functions the same way it is on those two pages.
+      let settingsAlertReturnFocus = null;
+      document.getElementById("settings-alert-close").addEventListener("click", hideSettingsAlert);
+    </script>
     <script src="/xls-conversion/app.js"></script>
   </body>
 </html>

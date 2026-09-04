@@ -35,13 +35,14 @@ from customizable_transcription.core import (
     count_source_files_by_type,
     default_output_file,
     extensions_for_file_type,
+    humanize_provider_error,
     key_matches_provider,
     make_client,
     provider_for_model,
     run_batch,
     sniff_file_type,
     transcribe_image,
-    validate_api_key,
+    validate_api_key_with_retry,
 )
 from xls_conversion.ai_parser import (
     call_ai_json,
@@ -1310,7 +1311,12 @@ def write_docx(
 
 
 def run_job(form: FormData, output_file: Path) -> None:
+    # Defaulted before the try so the except block below always has some
+    # value to name in a humanize_provider_error() message, even if the real
+    # selected_model(form) call below is itself what raised.
+    model = DEFAULT_MODEL
     try:
+        model = selected_model(form)
         image_folder = load_source_folder()
         file_type = selected_file_type(form)
         markdown_file = USER_OUTPUTS_DIR / f"{output_file.stem}.md"
@@ -1329,10 +1335,11 @@ def run_job(form: FormData, output_file: Path) -> None:
         add_log(f"Found {source_count} {file_type_display(file_type)} source file(s) for this run.")
 
         add_log("Checking API key...")
-        validate_api_key(
+        validate_api_key_with_retry(
             PROJECT_DIR,
-            selected_model(form),
+            model,
             pasted_value(form, "gemini_api_key") or None,
+            progress=add_log,
         )
         add_log("API key validated.")
 
@@ -1340,7 +1347,7 @@ def run_job(form: FormData, output_file: Path) -> None:
             image_folder=image_folder,
             output_file=markdown_file,
             prompt_file=PROFILES_DIR,
-            model=selected_model(form),
+            model=model,
             delay_seconds=delay,
             reverse_order=form.getfirst("order", "oldest") != "oldest",
             system_prompt=system_prompt,
@@ -1373,9 +1380,10 @@ def run_job(form: FormData, output_file: Path) -> None:
                 state["summary"] = f"Processed {len(results)} image(s), {failures} failure(s)."
             state["download"] = str(output_file) if output_file.exists() else ""
     except Exception as exc:
-        add_log(f"Fatal error: {exc}")
+        message = humanize_provider_error(exc, model)
+        add_log(f"Fatal error: {message}")
         with lock:
-            state["summary"] = f"Fatal error: {exc}"
+            state["summary"] = f"Fatal error: {message}"
     finally:
         with lock:
             state["running"] = False
@@ -1399,6 +1407,10 @@ def run_test_job(
     every run in the queue is unaffected by whatever the others produced, no
     matter how many pairs are queued.
     """
+    # Defaulted before the try/loop so the except block below always has some
+    # value to name in a humanize_provider_error() message, even if the
+    # failure happens before the loop ever assigns a real one.
+    model = DEFAULT_MODEL
     try:
         image_folder = load_source_folder()
         file_type = selected_file_type(form)
@@ -1424,7 +1436,9 @@ def run_test_job(
 
             tag = f"[{label}: {model}]"
             add_test_log(f"{tag} Checking API key before starting image processing...")
-            validate_api_key(PROJECT_DIR, model, api_key_value)
+            validate_api_key_with_retry(
+                PROJECT_DIR, model, api_key_value, progress=lambda msg: add_test_log(f"{tag} {msg}")
+            )
             add_test_log(f"{tag} API key validated. Starting run.")
 
             config = TranscriptionConfig(
@@ -1476,9 +1490,10 @@ def run_test_job(
                 total = len(test_state["runs"])
                 test_state["summary"] = f"{completed}/{total} run(s) complete."
     except Exception as exc:
-        add_test_log(f"Fatal error: {exc}")
+        message = humanize_provider_error(exc, model)
+        add_test_log(f"Fatal error: {message}")
         with test_lock:
-            test_state["summary"] = f"Fatal error: {exc}"
+            test_state["summary"] = f"Fatal error: {message}"
     finally:
         with test_lock:
             test_state["running"] = False
@@ -1503,7 +1518,18 @@ class Handler(BaseHTTPRequestHandler):
             "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
             "frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
         )
-        self.send_header("Referrer-Policy", "no-referrer")
+        # "same-origin", not "no-referrer": per the Fetch spec, a top-level
+        # form-POST navigation's Origin header is derived from the referring
+        # page's own Referrer-Policy -- "no-referrer" forces Origin to the
+        # literal string "null" on exactly this kind of request (confirmed
+        # live in Chrome), which then fails _security_check()'s Origin
+        # allowlist below and makes every real Save button 403 with
+        # "cross-origin request rejected", even though the request is
+        # genuinely same-origin. "same-origin" gives the same practical
+        # privacy guarantee (Referer never leaks to a different origin --
+        # this app never links out) without nulling Origin on same-origin
+        # requests, which is all this app ever makes.
+        self.send_header("Referrer-Policy", "same-origin")
         # Re-sent on every response, not just the first -- idempotent (the
         # browser just keeps the same value) and means the check below never
         # has to special-case "this is the first load."
@@ -1755,13 +1781,12 @@ class Handler(BaseHTTPRequestHandler):
             if not already_running:
                 state["running"] = True
         if already_running:
-            # page() acquires `lock` itself to read state -- must be called
-            # after releasing it above, never from inside the same `with
-            # lock:` block, or this deadlocks the thread handling this
-            # request (threading.Lock is not reentrant). Reproduced: two
-            # genuinely concurrent /run requests hung forever before this
-            # fix, confirmed via tests/test_run_concurrency.py.
-            self.respond(page())
+            # redirect_transcribe() (303 See Other) does not acquire `lock`,
+            # so it's safe to call after releasing it above regardless --
+            # but it also matters here for a second reason: see the
+            # POST/Redirect/GET comment on the final self.redirect_transcribe()
+            # call below, which every response in this handler now follows.
+            self.redirect_transcribe()
             return
 
         try:
@@ -1778,7 +1803,7 @@ class Handler(BaseHTTPRequestHandler):
                 state["summary"] = f"Fatal error: {exc}"
                 state["log"] = [f"Fatal error: {exc}"]
                 state["download"] = ""
-            self.respond(page())
+            self.redirect_transcribe()
             return
 
         order = form.getfirst("order", "oldest")
@@ -1823,7 +1848,7 @@ class Handler(BaseHTTPRequestHandler):
                 state["summary"] = f"Fatal error: {exc}"
                 state["log"] = [f"Fatal error: {exc}"]
                 state["download"] = ""
-            self.respond(page())
+            self.redirect_transcribe()
             return
         output_file = destination_output_file(profile_id)
         if order not in {"newest", "oldest"}:
@@ -1846,7 +1871,22 @@ class Handler(BaseHTTPRequestHandler):
 
         thread = threading.Thread(target=run_job, args=(form, output_file), daemon=True)
         thread.start()
-        self.respond(page())
+        # POST/Redirect/GET: the job is now started and its state committed
+        # above, so redirect (303 See Other) to a plain GET of the same page
+        # instead of rendering page() directly in this POST response. This is
+        # the actual fix for a real reported bug -- responding to a POST with
+        # 200 HTML makes the browser's history entry for this navigation a
+        # POST, and a reload of it (a plain Cmd+R/F5, which prompts to
+        # resubmit, or a hard reload -- Cmd+Shift+R/Ctrl+Shift+R -- which was
+        # observed to resubmit silently, no prompt) resends this exact POST
+        # body, restarting a whole transcription batch with no user intent to
+        # run anything. A 303 redirect makes the final entry in browser
+        # history a GET, which any kind of reload just re-fetches harmlessly.
+        # Applied to every response in this handler (not just this one) and
+        # to every other POST handler in this file that was doing the same
+        # direct-render-after-POST thing -- see redirect_transcribe()'s and
+        # redirect_test_mode()'s other call sites.
+        self.redirect_transcribe()
 
     def upload_xls_source(self) -> None:
         try:
@@ -1863,6 +1903,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond_json({"error": str(exc)}, status=400)
 
     def parse_xls_source(self) -> None:
+        model = ""  # only meaningful once parsed below; humanize_provider_error() is
+        # a no-op passthrough for any exception raised before then, so "" is never shown.
         try:
             payload = parse_json_body(self)
             model = str(payload.get("model", "") or "")
@@ -1887,7 +1929,7 @@ class Handler(BaseHTTPRequestHandler):
                 process_all=process_all,
                 ignore_failure=payload.get("ignore_preflight") is True,
             )
-            validate_api_key(PROJECT_DIR, model, api_key_value)
+            validate_api_key_with_retry(PROJECT_DIR, model, api_key_value)
             result = parse_records_with_ai(
                 record_type=record_type,
                 text=text,
@@ -1901,9 +1943,10 @@ class Handler(BaseHTTPRequestHandler):
             )
             self.respond_json(result)
         except Exception as exc:
-            self.respond_json({"error": str(exc)}, status=400)
+            self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
 
     def preflight_xls_source(self) -> None:
+        model = ""  # see the matching comment in parse_xls_source() above
         try:
             payload = parse_json_body(self)
             model = str(payload.get("model", "") or "")
@@ -1919,7 +1962,7 @@ class Handler(BaseHTTPRequestHandler):
             target_role = str(payload.get("target_role", "") or "")
             process_all = payload.get("process_all") is True
             filename = str(payload.get("filename", "") or "")
-            validate_api_key(PROJECT_DIR, model, api_key_value)
+            validate_api_key_with_retry(PROJECT_DIR, model, api_key_value)
             result = preflight_records_with_ai(
                 record_type=record_type,
                 text=text,
@@ -1936,9 +1979,10 @@ class Handler(BaseHTTPRequestHandler):
             result["source_hash"] = source_hash(text)
             self.respond_json(result)
         except Exception as exc:
-            self.respond_json({"error": str(exc)}, status=400)
+            self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
 
     def detect_xls_languages(self) -> None:
+        model = ""  # see the matching comment in parse_xls_source() above
         try:
             payload = parse_json_body(self)
             model = str(payload.get("model", "") or "")
@@ -1948,7 +1992,7 @@ class Handler(BaseHTTPRequestHandler):
             text = str(payload.get("text", "") or "")
             image_range = str(payload.get("image_range", "") or "")
             process_all = payload.get("process_all") is True
-            validate_api_key(PROJECT_DIR, model, api_key_value)
+            validate_api_key_with_retry(PROJECT_DIR, model, api_key_value)
             result = detect_languages(
                 text=text,
                 image_range=image_range,
@@ -1958,7 +2002,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             self.respond_json(result)
         except Exception as exc:
-            self.respond_json({"error": str(exc)}, status=400)
+            self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
 
     def combine_xls_languages(self) -> None:
         try:
@@ -2098,10 +2142,13 @@ class Handler(BaseHTTPRequestHandler):
                 state["summary"] = f"Fatal error: {exc}"
                 state["log"] = [f"Fatal error: {exc}"]
                 state["download"] = ""
-        self.respond(page())
+        # POST/Redirect/GET -- see the comment on /run's final
+        # self.redirect_transcribe() call for why this matters.
+        self.redirect_transcribe()
 
     def preflight_test_prompt_builder(self) -> None:
         tmp_path: Path | None = None
+        model = ""  # see the matching comment in parse_xls_source() above
         try:
             files, fields = parse_multipart_form(self)
 
@@ -2172,7 +2219,7 @@ class Handler(BaseHTTPRequestHandler):
                 status=400,
             )
         except Exception as exc:
-            self.respond_json({"error": str(exc)}, status=400)
+            self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
         finally:
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
@@ -2356,10 +2403,12 @@ class Handler(BaseHTTPRequestHandler):
         with lock:
             already_running = state["running"]
         if already_running:
-            # page() acquires `lock` itself -- must run after releasing it
-            # above, not from inside the same `with lock:` block (deadlock,
-            # threading.Lock is not reentrant).
-            self.respond(page())
+            # redirect_transcribe() doesn't acquire `lock`, so it's safe to
+            # call after releasing it above regardless -- see the
+            # POST/Redirect/GET comment on /run's final redirect_transcribe()
+            # call for why every response in this file's POST handlers now
+            # redirects instead of rendering page()/test_mode_page() directly.
+            self.redirect_transcribe()
             return
         try:
             form = parse_post_form(self)
@@ -2380,7 +2429,7 @@ class Handler(BaseHTTPRequestHandler):
                 state["summary"] = f"Fatal error: {exc}"
                 state["log"] = [f"Fatal error: {exc}"]
                 state["download"] = ""
-        self.respond(page())
+        self.redirect_transcribe()
 
     def stop_job(self) -> None:
         with lock:
@@ -2391,7 +2440,7 @@ class Handler(BaseHTTPRequestHandler):
                 state["log"] = state["log"][-300:]
             else:
                 state["summary"] = "No transcription is running."
-        self.respond(page())
+        self.redirect_transcribe()
 
     def reset(self) -> None:
         with lock:
@@ -2406,10 +2455,12 @@ class Handler(BaseHTTPRequestHandler):
         with test_lock:
             already_running = test_state["running"]
         if already_running:
-            # test_mode_page() acquires test_lock itself -- must run after
-            # releasing it above, not from inside the same `with test_lock:`
-            # block (deadlock, threading.Lock is not reentrant).
-            self.respond(test_mode_page())
+            # redirect_test_mode() doesn't acquire test_lock, so it's safe
+            # to call after releasing it above regardless -- see the
+            # POST/Redirect/GET comment on /run's final redirect_transcribe()
+            # call for why every POST handler in this file redirects instead
+            # of rendering page()/test_mode_page() directly.
+            self.redirect_test_mode()
             return
         try:
             form = parse_post_form(self)
@@ -2430,16 +2481,18 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             with test_lock:
                 test_state["summary"] = f"Fatal error: {exc}"
-        self.respond(test_mode_page())
+        self.redirect_test_mode()
 
     def remove_from_queue(self) -> None:
         with test_lock:
             already_running = test_state["running"]
         if already_running:
-            # test_mode_page() acquires test_lock itself -- must run after
-            # releasing it above, not from inside the same `with test_lock:`
-            # block (deadlock, threading.Lock is not reentrant).
-            self.respond(test_mode_page())
+            # redirect_test_mode() doesn't acquire test_lock, so it's safe
+            # to call after releasing it above regardless -- see the
+            # POST/Redirect/GET comment on /run's final redirect_transcribe()
+            # call for why every POST handler in this file redirects instead
+            # of rendering page()/test_mode_page() directly.
+            self.redirect_test_mode()
             return
         try:
             form = parse_post_form(self)
@@ -2451,7 +2504,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             with test_lock:
                 test_state["summary"] = f"Fatal error: {exc}"
-        self.respond(test_mode_page())
+        self.redirect_test_mode()
 
     def run_test(self) -> None:
         with test_lock:
@@ -2465,11 +2518,12 @@ class Handler(BaseHTTPRequestHandler):
             if not already_running:
                 test_state["running"] = True
         if already_running:
-            # test_mode_page() acquires test_lock itself -- must be called
-            # after releasing it above, never from inside the same `with
-            # test_lock:` block, or this deadlocks the thread handling this
-            # request (threading.Lock is not reentrant).
-            self.respond(test_mode_page())
+            # redirect_test_mode() doesn't acquire test_lock, so it's safe
+            # to call after releasing it above regardless -- see the
+            # POST/Redirect/GET comment on /run's final redirect_transcribe()
+            # call for why every POST handler in this file redirects instead
+            # of rendering page()/test_mode_page() directly.
+            self.redirect_test_mode()
             return
 
         try:
@@ -2499,7 +2553,7 @@ class Handler(BaseHTTPRequestHandler):
                 test_state["running"] = False
                 test_state["summary"] = f"Fatal error: {exc}"
                 test_state["log"] = [f"Fatal error: {exc}"]
-            self.respond(test_mode_page())
+            self.redirect_test_mode()
             return
 
         order = form.getfirst("order", "oldest")
@@ -2544,16 +2598,26 @@ class Handler(BaseHTTPRequestHandler):
 
         thread = threading.Thread(target=run_test_job, args=(form, run_specs), daemon=True)
         thread.start()
-        self.respond(test_mode_page())
+        # POST/Redirect/GET -- see the comment on /run's final
+        # self.redirect_transcribe() call for why every response in this
+        # handler (and every other POST handler in this file) redirects
+        # instead of rendering test_mode_page()/page() directly: without it,
+        # a reload of this response's history entry -- including a hard
+        # reload (Cmd+Shift+R/Ctrl+Shift+R), observed to resubmit silently
+        # with no confirmation prompt -- resends this exact POST and starts
+        # a whole second batch of test runs with no user intent to do so.
+        self.redirect_test_mode()
 
     def delete_test_profile(self) -> None:
         with test_lock:
             already_running = test_state["running"]
         if already_running:
-            # test_mode_page() acquires test_lock itself -- must run after
-            # releasing it above, not from inside the same `with test_lock:`
-            # block (deadlock, threading.Lock is not reentrant).
-            self.respond(test_mode_page())
+            # redirect_test_mode() doesn't acquire test_lock, so it's safe
+            # to call after releasing it above regardless -- see the
+            # POST/Redirect/GET comment on /run's final redirect_transcribe()
+            # call for why every POST handler in this file redirects instead
+            # of rendering page()/test_mode_page() directly.
+            self.redirect_test_mode()
             return
         try:
             form = parse_post_form(self)
@@ -2568,7 +2632,7 @@ class Handler(BaseHTTPRequestHandler):
             with test_lock:
                 test_state["summary"] = f"Fatal error: {exc}"
                 test_state["log"] = [f"Fatal error: {exc}"]
-        self.respond(test_mode_page())
+        self.redirect_test_mode()
 
     def stop_test_job(self) -> None:
         with test_lock:
@@ -2579,7 +2643,7 @@ class Handler(BaseHTTPRequestHandler):
                 test_state["log"] = test_state["log"][-300:]
             else:
                 test_state["summary"] = "No test run is running."
-        self.respond(test_mode_page())
+        self.redirect_test_mode()
 
     def reset_test(self) -> None:
         with test_lock:

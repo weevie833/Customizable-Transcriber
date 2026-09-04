@@ -123,9 +123,18 @@ textarea {
   gap: 12px;
   margin-top: 8px;
 }
-.profile-save-row, .profile-select-row {
+.profile-select-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+/* One more column than .profile-select-row: the name field plus two save
+   buttons ("Save Profile" overwrites in place, "Save as New Profile" keeps
+   the original -- see the profile-save-protocol note in CLAUDE.md). */
+.profile-save-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: end;
 }

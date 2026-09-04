@@ -142,8 +142,9 @@ def test_mode_page() -> str:
       const response = await fetch("/test-mode/status", {{ cache: "no-store" }});
       if (!response.ok) return;
       const status = await response.json();
-      document.getElementById("summary").textContent = status.summary || "";
-      document.getElementById("log").textContent = status.log || "";
+      const translateStatus = window.tbTranslateStatusText || function (text) {{ return text; }};
+      document.getElementById("summary").textContent = translateStatus(status.summary || "");
+      document.getElementById("log").textContent = translateStatus(status.log || "");
       updateRunButton(status.running);
       updateRunStatus(status.running);
       document.getElementById("stop-button").disabled = !status.running;

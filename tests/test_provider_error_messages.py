@@ -58,6 +58,30 @@ def _claude_500():
     )
 
 
+def _claude_401():
+    return anthropic.AuthenticationError(
+        "invalid x-api-key",
+        response=mock.Mock(status_code=401, headers={}),
+        body={"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}},
+    )
+
+
+def _claude_403():
+    return anthropic.PermissionDeniedError(
+        "permission denied",
+        response=mock.Mock(status_code=403, headers={}),
+        body={"type": "error", "error": {"type": "permission_error", "message": "permission denied"}},
+    )
+
+
+def _gemini_invalid_key():
+    return genai_errors.ClientError(
+        400,
+        {"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.", "status": "INVALID_ARGUMENT"}},
+        None,
+    )
+
+
 def test_humanize_provider_error_503_names_model_and_explains():
     message = core.humanize_provider_error(_gemini_503(), "gemini-3.1-pro-preview")
     assert "gemini-3.1-pro-preview" in message
@@ -69,6 +93,41 @@ def test_humanize_provider_error_429_says_rate_limited():
     message = core.humanize_provider_error(_gemini_429(), "gemini-3.1-pro-preview")
     assert "rate-limiting" in message
     assert "gemini-3.1-pro-preview" in message
+
+
+def test_humanize_provider_error_401_names_provider_and_console():
+    message = core.humanize_provider_error(_claude_401(), "claude-opus-5")
+    assert "Anthropic rejected the API key" in message
+    assert "claude-opus-5" in message
+    assert "console.anthropic.com" in message
+    assert "invalid x-api-key" in message  # original error text preserved, not hidden
+    assert "not a bug in this app" in message
+
+
+def test_humanize_provider_error_403_explains_permission_denied():
+    message = core.humanize_provider_error(_claude_403(), "claude-opus-5")
+    assert "denied it access" in message
+    assert "claude-opus-5" in message
+    assert "billing" in message
+
+
+def test_humanize_provider_error_gemini_invalid_key_is_treated_as_auth_error():
+    message = core.humanize_provider_error(_gemini_invalid_key(), "gemini-3.1-pro-preview")
+    assert "Google AI rejected the API key" in message
+    assert "aistudio.google.com" in message
+
+
+def test_humanize_provider_error_401_is_not_retried(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_validate(project_dir, model, api_key_override=None):
+        calls["n"] += 1
+        raise _claude_401()
+
+    monkeypatch.setattr(core, "validate_api_key", fake_validate)
+    with pytest.raises(anthropic.AuthenticationError):
+        core.validate_api_key_with_retry(core.Path("."), "claude-opus-5")
+    assert calls["n"] == 1  # fails fast -- a bad key will never succeed on retry
 
 
 def test_humanize_provider_error_passes_through_unknown_exceptions_unchanged():

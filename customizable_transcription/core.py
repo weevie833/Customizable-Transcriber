@@ -435,16 +435,53 @@ def validate_api_key_with_retry(
     _with_transient_retry(lambda: validate_api_key(project_dir, model, api_key_override), progress=progress)
 
 
+def _is_auth_error(exc: Exception, status: int | None) -> bool:
+    """A key the provider flatly refuses to recognize -- Anthropic's own 401
+    ("invalid x-api-key"), and Gemini's equivalent, which Google reports as a
+    400 with an "API key not valid" message rather than a real 401 (Gemini's
+    API has no separate auth-error status code the way Anthropic's does)."""
+    if status == 401:
+        return True
+    if status == 400 and isinstance(exc, genai_errors.APIError):
+        return "api key not valid" in str(exc).lower()
+    return False
+
+
 def humanize_provider_error(exc: Exception, model: str) -> str:
-    """Rewrite a known transient-failure shape (429/5xx) into a message a
-    non-technical user can actually act on -- names the model, says plainly
-    that it's the provider's own service and not this app or the API key,
-    and suggests what to do next. Anything not recognized as this specific
-    shape passes through as str(exc) unchanged, so a real, unanticipated
+    """Rewrite a known failure shape (bad API key, no access to this model,
+    rate-limited, provider outage) into a message a non-technical user can
+    actually act on -- names the model and the provider account setting
+    responsible, and says plainly when it's the provider's own service or
+    key and not this app. Anything not recognized as one of these specific
+    shapes passes through as str(exc) unchanged, so a real, unanticipated
     error is never hidden behind a generic message."""
+    status = _provider_error_status(exc)
+    provider = provider_for_model(model)
+    provider_name = "Anthropic" if provider == "claude" else "Google AI"
+    console_hint = (
+        "console.anthropic.com -> Settings -> API Keys"
+        if provider == "claude"
+        else "aistudio.google.com/apikey"
+    )
+    if _is_auth_error(exc, status):
+        return (
+            f'{provider_name} rejected the API key used for "{model}" (HTTP {status}, invalid API '
+            "key) -- this is the provider's own server saying it doesn't recognize the key, not a "
+            "bug in this app. Double-check you copied the entire key with no extra spaces or line "
+            f"breaks, that it hasn't been regenerated or revoked since you copied it ({console_hint}), "
+            "and that it's actually a key for this provider (a Claude key won't work for a Gemini "
+            f"model, or the reverse). (Original error: {exc})"
+        )
+    if status == 403:
+        return (
+            f'{provider_name} accepted the API key but denied it access to "{model}" (HTTP 403, '
+            "permission denied). This usually means the key's account doesn't have this specific "
+            "model enabled, has no billing/payment method set up, or has hit an organization-level "
+            f"restriction -- check the key's account settings at {console_hint}, not this app. "
+            f"(Original error: {exc})"
+        )
     if not _is_transient_provider_error(exc):
         return str(exc)
-    status = _provider_error_status(exc)
     if status == 429:
         return (
             f'"{model}" is rate-limiting this API key right now (HTTP 429, too many requests). '

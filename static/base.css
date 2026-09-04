@@ -38,6 +38,12 @@ h1 {
   display: grid;
   gap: 4px;
 }
+.header-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .site-nav {
   display: flex;
   flex: 0 0 auto;
@@ -84,17 +90,6 @@ h1 {
 }
 .skip-link:focus {
   top: 0;
-}
-.byline {
-  margin: 0;
-  color: #5f6b76;
-  font-size: 13px;
-}
-.byline-row {
-  display: flex;
-  align-items: center;
-  gap: 0 8px;
-  flex-wrap: wrap;
 }
 .lang-toggle {
   display: inline-flex;

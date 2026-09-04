@@ -144,21 +144,20 @@ def home_page() -> str:
   <header class="site-header">
     <div class="site-heading">
       <p class="site-title">Home</p>
-      <div class="byline-row">
-        <p class="byline">Created by Steve Covello, 2026</p>
-        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
-          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
-          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
-        </div>
+    </div>
+    <div class="header-nav-row">
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a class="nav-link nav-home" href="/" aria-current="page" aria-label="Home" title="Home">🏠</a>
+        <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
+        <a class="nav-link" href="/transcribe">Transcribe</a>
+        <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
+        <a class="nav-link" href="/test-mode">Test Mode</a>
+      </nav>
+      <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+        <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+        <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
       </div>
     </div>
-    <nav class="site-nav" aria-label="Primary navigation">
-      <a class="nav-link nav-home" href="/" aria-current="page" aria-label="Home" title="Home">🏠</a>
-      <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
-      <a class="nav-link" href="/transcribe">Transcribe</a>
-      <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
-      <a class="nav-link" href="/test-mode">Test Mode</a>
-    </nav>
   </header>
   <section class="panel">
     <div class="hero-top">

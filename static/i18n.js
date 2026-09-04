@@ -44,11 +44,10 @@
   // English -> Italian. Keys must match the exact (trimmed) text as it
   // appears in the DOM/attribute; anything without a match is left as-is.
   var DICTIONARY = {
-    // Shared chrome: nav, byline, footer, alerts
+    // Shared chrome: nav, footer, alerts
     "Skip to main content": "Vai al contenuto principale",
     "Run settings needed": "Impostazioni di esecuzione mancanti",
     "OK": "OK",
-    "Created by Steve Covello, 2026": "Creato da Steve Covello, 2026",
     "Transcribe": "Trascrivi",
     "XLSX Conversion": "Conversione XLSX",
     "Test Mode": "Modalità di test",
@@ -117,7 +116,6 @@
     "Output:": "Output:",
 
     // Transcribe page
-    "Customizable Transcription": "Trascrizione personalizzabile",
     "Use the Prompt Builder page to create prompts, or bypass the Prompt Builder and place your prompt in the sections below. Manual prompts cannot be edited in the Prompt Builder.":
       "Usa la pagina Prompt Builder per creare i prompt, oppure aggira il Prompt Builder e inserisci il tuo prompt nelle sezioni qui sotto. I prompt inseriti manualmente non possono essere modificati nel Prompt Builder.",
     "Manual prompts can only be edited here - they cannot be edited in the Prompt Builder.":

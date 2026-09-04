@@ -359,8 +359,21 @@ def make_client(
     return LLMClient(provider="gemini", gemini=genai.Client(**gemini_kwargs))
 
 
-def validate_api_key(project_dir: Path, model: str, api_key_override: str | None = None) -> None:
-    client = make_client(project_dir, model, api_key_override)
+def validate_api_key(
+    project_dir: Path,
+    model: str,
+    api_key_override: str | None = None,
+    timeout_seconds: float | None = None,
+) -> None:
+    # timeout_seconds defaults to None (the SDK's own default) for every
+    # existing caller -- run_job()/run_test_job()'s "Checking API key..."
+    # step and xls_conversion's preflight/convert key checks all run inside
+    # a background job thread with its own progress log and Stop support,
+    # so an SDK-default timeout is fine there. Prompt Builder's Preflight
+    # Test is the one caller that passes a real value (PREFLIGHT_TIMEOUT_
+    # SECONDS): it's a single foreground HTTP request with no progress log
+    # to fall back on, same reasoning as make_client()'s own comment above.
+    client = make_client(project_dir, model, api_key_override, timeout_seconds=timeout_seconds)
     if client.provider == "claude":
         client.claude.messages.create(
             model=model,
@@ -431,8 +444,12 @@ def validate_api_key_with_retry(
     model: str,
     api_key_override: str | None = None,
     progress: Callable[[str], None] | None = None,
+    timeout_seconds: float | None = None,
 ) -> None:
-    _with_transient_retry(lambda: validate_api_key(project_dir, model, api_key_override), progress=progress)
+    _with_transient_retry(
+        lambda: validate_api_key(project_dir, model, api_key_override, timeout_seconds=timeout_seconds),
+        progress=progress,
+    )
 
 
 def _is_auth_error(exc: Exception, status: int | None) -> bool:

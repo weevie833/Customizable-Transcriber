@@ -120,7 +120,7 @@ def test_humanize_provider_error_gemini_invalid_key_is_treated_as_auth_error():
 def test_humanize_provider_error_401_is_not_retried(monkeypatch):
     calls = {"n": 0}
 
-    def fake_validate(project_dir, model, api_key_override=None):
+    def fake_validate(project_dir, model, api_key_override=None, timeout_seconds=None):
         calls["n"] += 1
         raise _claude_401()
 
@@ -184,7 +184,7 @@ def test_transcribe_image_with_retry_gives_up_after_max_retries(monkeypatch):
 def test_validate_api_key_with_retry_retries_transient_claude_error(monkeypatch):
     calls = {"n": 0}
 
-    def fake_validate(project_dir, model, api_key_override=None):
+    def fake_validate(project_dir, model, api_key_override=None, timeout_seconds=None):
         calls["n"] += 1
         if calls["n"] < 2:
             raise _claude_500()
@@ -198,7 +198,7 @@ def test_validate_api_key_with_retry_retries_transient_claude_error(monkeypatch)
 def test_validate_api_key_with_retry_does_not_retry_non_transient_error(monkeypatch):
     calls = {"n": 0}
 
-    def fake_validate(project_dir, model, api_key_override=None):
+    def fake_validate(project_dir, model, api_key_override=None, timeout_seconds=None):
         calls["n"] += 1
         raise RuntimeError("The GEMINI_API_KEY is still set to the placeholder value.")
 

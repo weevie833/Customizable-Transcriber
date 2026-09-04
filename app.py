@@ -2185,6 +2185,17 @@ class Handler(BaseHTTPRequestHandler):
                 raise RuntimeError("Select a valid model for the preflight test.")
             api_key_override = fields.get("api_key", "").strip() or None
 
+            # Cheap (max_tokens=4) auth check before the real, much more
+            # expensive test below (a full image plus the whole system
+            # prompt, at MEDIUM thinking) -- a bad/revoked key fails in
+            # under a second here instead of only surfacing after that
+            # costlier call has already run. Same humanize_provider_error()
+            # path handles the exception either way, so this doesn't need
+            # its own except block.
+            validate_api_key_with_retry(
+                PROJECT_DIR, model, api_key_override, timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS
+            )
+
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp.write(image_bytes)
                 tmp_path = Path(tmp.name)

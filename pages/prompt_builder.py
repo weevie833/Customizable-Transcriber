@@ -415,15 +415,6 @@ def prompt_builder_page(
       margin: 0 0 10px;
       font-size: 16px;
     }}
-    /* base.css's .site-header gives every page a 20px margin-bottom, sized
-       for the hint paragraph that used to sit directly under the header
-       here. That paragraph now lives inside .pb-top-create instead (see
-       CLAUDE.md), leaving 20px of empty space above {banner_html}/the form
-       with nothing in it -- tightened just on this page rather than
-       touching the shared rule every other page still relies on. */
-    .site-header {{
-      margin-bottom: 8px;
-    }}
     .pb-top-split {{
       display: grid;
       grid-template-columns: 1fr 1fr;

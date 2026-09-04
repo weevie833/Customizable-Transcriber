@@ -1106,12 +1106,15 @@ def getting_started_page() -> str:
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content" tabindex="-1">
   <header class="site-header">
-    <div class="site-heading">
-      <h1>Getting Started</h1>
-    </div>
+    <h1 class="sr-only">Getting Started</h1>
+    <a class="site-logo" href="/" aria-label="Customizable Transcription — Home">
+      <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <rect width="40" height="40" rx="8" fill="#255c99"/>
+        <text x="20" y="27" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">CT</text>
+      </svg>
+    </a>
     <div class="header-nav-row">
       <nav class="site-nav" aria-label="Primary navigation">
-        <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
         <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
         <a class="nav-link" href="/transcribe">Transcribe</a>
         <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>

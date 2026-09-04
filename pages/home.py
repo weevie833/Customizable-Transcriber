@@ -46,17 +46,12 @@ def home_page() -> str:
     .hero-top h1 {
       font-size: 24px;
     }
-    /* The header's "Home" text is not a heading -- the hero text below is
-       this page's one real <h1> (see WCAG review notes in CLAUDE.md: two
-       <h1>s gave screen-reader heading navigation two competing "page
-       title" landmarks). .site-title replicates base.css's generic h1
-       rule (margin:0; font-size:26px; UA-default bold) so the swap from
-       <h1> to <p> is visually a no-op. */
-    .site-title {
-      margin: 0;
-      font-size: 26px;
-      font-weight: 700;
-    }
+    /* The header's "Home" text is a <p>, not a heading, and is visually
+       hidden (.sr-only) besides -- the hero text below is this page's one
+       real, visible <h1> (see WCAG review notes in CLAUDE.md: two <h1>s
+       gave screen-reader heading navigation two competing "page title"
+       landmarks). No .site-title cosmetic rule needed anymore now that
+       the logo replaced every page's visible header title. */
     .callout {
       background: #eef4fb;
       border: 1px solid #cddcee;
@@ -126,12 +121,15 @@ def home_page() -> str:
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content" tabindex="-1">
   <header class="site-header">
-    <div class="site-heading">
-      <p class="site-title">Home</p>
-    </div>
+    <p class="sr-only">Home</p>
+    <a class="site-logo" href="/" aria-current="page" aria-label="Customizable Transcription — Home">
+      <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <rect width="40" height="40" rx="8" fill="#255c99"/>
+        <text x="20" y="27" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">CT</text>
+      </svg>
+    </a>
     <div class="header-nav-row">
       <nav class="site-nav" aria-label="Primary navigation">
-        <a class="nav-link nav-home" href="/" aria-current="page" aria-label="Home" title="Home">🏠</a>
         <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
         <a class="nav-link" href="/transcribe">Transcribe</a>
         <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>

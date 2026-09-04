@@ -53,6 +53,7 @@
     "Test Mode": "Modalità di test",
     "Prompt Builder": "Generatore di prompt",
     "Home": "Home",
+    "Customizable Transcription — Home": "Trascrizione Personalizzabile — Home",
     "Welcome to the Customizable Transcription application.": "Benvenuti nell'applicazione di Trascrizione Personalizzabile.",
     "Getting Started": "Per iniziare",
     "Primary navigation": "Navigazione principale",

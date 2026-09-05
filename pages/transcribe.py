@@ -244,11 +244,20 @@ def page() -> str:
       if (!document.querySelector('[name="profile_id"]').value) {{
         missing.push("select a prompt profile");
       }}
+      let message;
       if (!missing.length) return "";
-      if (missing.length === 1) return `Before running transcription, please ${{missing[0]}}.`;
-      const last = missing[missing.length - 1];
-      const rest = missing.slice(0, -1).join(", ");
-      return `Before running transcription, please ${{rest}} and ${{last}}.`;
+      if (missing.length === 1) {{
+        message = `Before running transcription, please ${{missing[0]}}.`;
+      }} else {{
+        const last = missing[missing.length - 1];
+        const rest = missing.slice(0, -1).join(", ");
+        message = `Before running transcription, please ${{rest}} and ${{last}}.`;
+      }}
+      // This sentence is assembled from variable parts, so it can't be a
+      // single i18n.js DICTIONARY key -- window.tbTranslateStatusText()
+      // (i18n.js) pattern-matches it instead (see DYNAMIC_LINE_PATTERNS)
+      // and is safe to call from English too (returns the text unchanged).
+      return typeof window.tbTranslateStatusText === "function" ? window.tbTranslateStatusText(message) : message;
     }}
 
     function updateRunButton(running) {{
@@ -272,6 +281,11 @@ def page() -> str:
       }} else {{
         runButton.title = "Check selected settings before transcription.";
       }}
+      // A raw .title assignment (above) bypasses i18n.js's DICTIONARY --
+      // see showSettingsAlert()'s own comment (static/app-common.js) for
+      // the same underlying bug. tbRefreshLanguage() re-applies whatever
+      // language is currently active.
+      if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
     }}
 
     function selectedRunSettings() {{
@@ -581,6 +595,7 @@ def page() -> str:
     </a>
     <div class="header-nav-row">
       <nav class="site-nav" aria-label="Primary navigation">
+        <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
         <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
         <a class="nav-link" href="/transcribe" aria-current="page">Transcribe</a>
         <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>

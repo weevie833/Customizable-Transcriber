@@ -39,3 +39,38 @@ def json_for_inline_script(value: object) -> str:
     the error-rendering path with it.
     """
     return json.dumps(value).replace("</", "<\\/")
+
+
+def file_picker_html(input_id: str = "", accept: str = "", extra_attrs: str = "") -> str:
+    """A <label class="file-picker"> wrapping a visually-hidden <input
+    type="file"> plus a translatable "Choose file" button stand-in and a
+    filename/placeholder span.
+
+    Exists because a bare <input type="file">'s own "Choose File" button
+    text is supplied by the browser itself from its own UI language --
+    never from this page's lang attribute or i18n.js's DICTIONARY -- so it
+    can't be localized in place no matter what this app does. See
+    static/base.css's own comment on .file-picker for the full rationale.
+
+    The filename span never needs its own reset-to-placeholder logic: the
+    initial "No file selected" text node is translated normally by i18n.js
+    (on load and on every language toggle) like any other static text, and
+    the one JS change-handler that touches this span only ever overwrites
+    it with the chosen file's real name -- which never matches a DICTIONARY
+    key, so it displays identically regardless of language, exactly as a
+    filename should. Nothing ever needs to restore the placeholder text
+    itself, so there's no hardcoded-English-overwrite risk to guard against.
+
+    `input_id` is omitted entirely (not emitted as `id=""`) when blank --
+    matters for the repeatable-row inputs (Test Mode's "Add another" rows),
+    which are found by a `data-*` attribute instead of an id. `extra_attrs`
+    is spliced verbatim into the <input> tag for exactly that kind of
+    attribute (e.g. `data-extra-file`).
+    """
+    id_attr = f' id="{input_id}"' if input_id else ""
+    attrs = f" {extra_attrs}" if extra_attrs else ""
+    return (
+        f'<label class="file-picker"><input type="file"{id_attr} accept="{accept}"{attrs}>'
+        '<span class="file-picker-btn">Choose file</span>'
+        '<span class="file-picker-name">No file selected</span></label>'
+    )

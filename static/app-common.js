@@ -47,6 +47,20 @@ function showSettingsAlert(message, title = "Run settings needed") {
   playAlertSound();
   const closeButton = document.getElementById("settings-alert-close");
   if (closeButton) closeButton.focus();
+  // Setting textContent directly (above) bypasses i18n.js's DICTIONARY
+  // entirely -- a plain assignment, not something it walks and translates
+  // on its own -- so every alert shown this way used to display in English
+  // regardless of the selected language, same bug as updateRunStatus()'s
+  // title label (see its own comment in this file). tbRefreshLanguage()
+  // (i18n.js) re-applies whatever language is currently active, including
+  // a no-op in English; it covers `title` and any `message` that exactly
+  // matches a DICTIONARY entry. A `message` built from several variable
+  // parts (e.g. missingRunSettingMessage()/apiKeyMismatchMessage() in
+  // pages/transcribe.py and pages/test_mode.py) can't be a single DICTIONARY
+  // key, so those are pre-translated at the point they're assembled instead
+  // -- see DYNAMIC_LINE_PATTERNS in i18n.js -- and arrive here already in
+  // the right language, same as any other message.
+  if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
 }
 
 function hideSettingsAlert() {
@@ -143,7 +157,20 @@ function updateRunStatus(running) {
   if (!status) return;
   status.hidden = !running;
   if (settings && running) settings.hidden = true;
-  if (title) title.textContent = running ? "Progress:" : "Confirm settings:";
+  if (title) {
+    // Setting textContent directly bypasses i18n.js's DICTIONARY entirely
+    // (a plain assignment, not something it walks and translates on its
+    // own) -- this used to leave this label stuck in English forever after
+    // the very first call, even with Italian selected, since this runs on
+    // every page load (from the DOMContentLoaded handler in
+    // transcribe.py/test_mode.py) *after* i18n.js's own initial pass
+    // already ran and correctly translated the server-rendered text.
+    // tbRefreshLanguage() (i18n.js) is exposed for exactly this "content
+    // added/changed after the initial pass" case and re-applies whatever
+    // language is currently active, including a no-op in English.
+    title.textContent = running ? "Progress:" : "Confirm settings:";
+    if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
+  }
 }
 
 function updateDeleteButton(running) {

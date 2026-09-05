@@ -142,6 +142,7 @@ def privacy_page() -> str:
     </a>
     <div class="header-nav-row">
       <nav class="site-nav" aria-label="Primary navigation">
+        <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
         <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
         <a class="nav-link" href="/transcribe">Transcribe</a>
         <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>

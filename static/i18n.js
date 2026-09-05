@@ -1,14 +1,25 @@
 /*
  * Client-side EN/IT toggle for the Customizable Transcription UI.
  *
- * Scope: static UI chrome only (headings, nav, labels, buttons, hints,
- * placeholders, footers). It does NOT translate: user-entered profile
- * content, transcription/log/status output, or strings that other inline
- * <script> blocks write into the page at runtime (alerts, dynamic hints,
- * progress rows) -- those stay English by design for this pass. The one
- * exception is window.tbTranslateStatusText() below, a narrow pattern-based
- * translator for the #summary/#log status text on Transcribe/Test Mode --
- * see its own comment for why that one case is handled differently.
+ * Scope: static UI chrome (headings, nav, labels, buttons, hints,
+ * placeholders, footers) plus the settings-alert modal (showSettingsAlert()
+ * in static/app-common.js) and the run-status/run-button labels JS rewrites
+ * at runtime (updateRunStatus()/updateRunButton() in this file's own
+ * callers) -- all three used to bypass DICTIONARY entirely (a raw
+ * `.textContent =`/`.title =` assignment isn't something this file walks
+ * and translates on its own) and stayed English regardless of the selected
+ * language; each now calls window.tbRefreshLanguage() (exposed below) right
+ * after setting its text, or -- for a message assembled from variable parts
+ * (missingRunSettingMessage()/apiKeyMismatchMessage()) -- runs it through
+ * window.tbTranslateStatusText()'s pattern matching first, since no single
+ * DICTIONARY key can cover every combination it can produce.
+ *
+ * Still NOT translated: user-entered profile content, and transcription/
+ * log output itself (the free-form text inside #log, as opposed to the
+ * fixed status labels around it) -- those stay English by design. The
+ * #summary/#log status text and the alert/label text above share the same
+ * pattern-based translator, window.tbTranslateStatusText() below -- see its
+ * own comment for the full set of callers.
  *
  * How it works: on load it reads the stored language preference and, if
  * Italian, walks the DOM once translating any text node or attribute whose
@@ -102,6 +113,40 @@
     "Preflight Check": "Controllo preliminare",
     "Confirm and run": "Conferma ed esegui",
     "Confirm settings:": "Conferma impostazioni:",
+    "Progress:": "Avanzamento:",
+    // Settings-alert modal (showSettingsAlert()) titles/messages and the
+    // Run button's tooltip (both set via a raw .textContent/.title
+    // assignment -- see this file's own top-of-file comment on why these
+    // need window.tbRefreshLanguage() rather than just a DICTIONARY entry).
+    // ("Run settings needed", the modal's default title, already has an
+    // entry near the top of this dictionary.)
+    "Batch completed": "Lotto completato",
+    "Scroll down and review the Progress Console and click the Download Document button.":
+      "Scorri verso il basso, controlla la Console di avanzamento e clicca sul pulsante Scarica documento.",
+    "Scroll down and review the Progress Console and download each model's document.":
+      "Scorri verso il basso, controlla la Console di avanzamento e scarica il documento di ciascun modello.",
+    "Please run the preflight check before starting transcription.":
+      "Esegui il controllo preliminare prima di avviare la trascrizione.",
+    "Please run the preflight check before starting.":
+      "Esegui il controllo preliminare prima di avviare l'esecuzione.",
+    "Paste a folder path first.": "Incolla prima un percorso di cartella.",
+    "Couldn't open the folder picker.": "Impossibile aprire il selettore di cartelle.",
+    "Couldn't open the outputs folder.": "Impossibile aprire la cartella di output.",
+    "Couldn't use that path.": "Impossibile usare quel percorso.",
+    "A transcription process is already running.": "Un processo di trascrizione è già in corso.",
+    "Choose a source folder before running transcription.":
+      "Scegli una cartella di origine prima di avviare la trascrizione.",
+    "Paste your Gemini API key before running transcription.":
+      "Incolla la tua chiave API di Gemini prima di avviare la trascrizione.",
+    "Select a prompt profile before running transcription.":
+      "Seleziona un profilo del prompt prima di avviare la trascrizione.",
+    "Check selected settings before transcription.":
+      "Controlla le impostazioni selezionate prima della trascrizione.",
+    "A test run is already in progress.": "Un'esecuzione di test è già in corso.",
+    "Paste an API key for both Model A and Model B before running.":
+      "Incolla una chiave API sia per il Modello A che per il Modello B prima di procedere.",
+    "Select a prompt profile before running.": "Seleziona un profilo del prompt prima di procedere.",
+    "Check selected settings before running.": "Controlla le impostazioni selezionate prima di procedere.",
     "Order:": "Ordine:",
     "File type:": "Tipo di file:",
     "Prompt Profile:": "Profilo del prompt:",
@@ -111,6 +156,7 @@
     "Stop": "Interrompi",
     "Download Document": "Scarica documento",
     "Refresh Status": "Aggiorna stato",
+    "Open Outputs Folder": "Apri cartella di output",
     "The DOCX file will be downloaded to wherever your browser saves downloaded files. Check your browser's Downloads button for download history.":
       "Il file DOCX verrà scaricato nella cartella in cui il tuo browser salva i file scaricati. Controlla il pulsante Download del tuo browser per la cronologia dei download.",
     "Output:": "Output:",
@@ -170,17 +216,16 @@
     "Run Comparison": "Esegui confronto",
     "Compare each transcript against a fully corrected version of the same content. Results show different types of error rates.":
       "Confronta ogni trascrizione con una versione completamente corretta dello stesso contenuto. I risultati mostrano diversi tipi di tassi di errore.",
-    "Download Comparison Report (.docx)": "Scarica il report di confronto (.docx)",
+    "Download Comparison Report": "Scarica il report di confronto",
     "Explains CER/WER/WER-BoW in plain language and estimates the correction effort each score implies.":
       "Spiega CER/WER/WER-BoW in linguaggio semplice e stima lo sforzo di correzione implicato da ciascun punteggio.",
 
     // Test Mode — Compare Indexes (XLSX) collapsible section (index_compare/)
     "Compare Indexes (XLSX)": "Confronta indici (XLSX)",
-    "Each candidate index is scored for statistical accuracy against the 100% Corrected index -- a downloadable DOCX report ranks them by character error rate, the same way the Compare Transcripts report above ranks transcripts. It does not list individual field differences; review a candidate's own spreadsheet against the corrected index by eye to find and fix specific entries.":
-      "Ogni indice candidato viene valutato per accuratezza statistica rispetto all'indice corretto al 100% — un report DOCX scaricabile li classifica in base al tasso di errore sui caratteri, allo stesso modo in cui il report di confronto trascrizioni qui sopra classifica le trascrizioni. Non elenca le differenze dei singoli campi; confronta a occhio il foglio di calcolo di ciascun candidato con l'indice corretto per trovare e correggere le singole voci.",
+    "Each candidate XLSX index is scored for statistical accuracy against the 100% Corrected XLSX index -- a downloadable report ranks them by character error rate, the same way the Compare Transcripts report above ranks transcripts. It does not list individual field differences; review a candidate's own spreadsheet against the corrected index by eye to find and fix specific entries.":
+      "Ogni indice XLSX candidato viene valutato per accuratezza statistica rispetto all'indice XLSX corretto al 100% — un report scaricabile li classifica in base al tasso di errore sui caratteri, allo stesso modo in cui il report di confronto trascrizioni qui sopra classifica le trascrizioni. Non elenca le differenze dei singoli campi; confronta a occhio il foglio di calcolo di ciascun candidato con l'indice corretto per trovare e correggere le singole voci.",
     "100% Corrected XLSX": "XLSX corretto al 100%",
     "Label for this index": "Etichetta per questo indice",
-    "Download Index Comparison Report (.docx)": "Scarica il report di confronto indici (.docx)",
 
     // Prompt Builder page
     "Pick from presets below to describe your register. The app assembles a complete transcription profile from your answers. It becomes available on the Transcribe and Test Mode pages, but you must reload those pages first before they will appear.":
@@ -456,6 +501,10 @@
     "Choose DOCX file": "Scegli file DOCX",
     "or drag and drop it here": "oppure trascinalo qui",
     "No file selected": "Nessun file selezionato",
+    // Shared .file-picker component (see static/base.css) -- the translatable
+    // stand-in button/placeholder used everywhere a bare <input type="file">
+    // used to show the browser's own, never-translatable "Choose File" text.
+    "Choose file": "Scegli file",
     "The XLSX Conversion system is designed to convert transcriptions and translations generated by the Transcribe tool in this app. Transcriptions created from other methods might not convert accurately.":
       "Il sistema di conversione XLSX è progettato per convertire trascrizioni e traduzioni generate dallo strumento Trascrivi di questa app. Le trascrizioni create con altri metodi potrebbero non essere convertite in modo accurato.",
     "Transcribed image range": "Intervallo di immagini trascritte",
@@ -491,7 +540,15 @@
     "Download the extracted records as an Excel workbook or standards-compliant CSV.":
       "Scarica i record estratti come cartella di lavoro Excel o come CSV conforme agli standard.",
     "Download XLSX": "Scarica XLSX",
-    "Download CSV": "Scarica CSV"
+    "Download CSV": "Scarica CSV",
+    // XLSX Conversion's own completion alert (showCompletionAlert() in
+    // xls_conversion/app.js) -- shares showSettingsAlert() with Transcribe/
+    // Test Mode's "Batch completed" alert, so it gets the same treatment
+    // now that alert text is in scope for this file (see the top-of-file
+    // comment).
+    "Conversion completed": "Conversione completata",
+    "Scroll down and review the Spreadsheet output panel, then click Download to save your file(s).":
+      "Scorri verso il basso, controlla il pannello Foglio di calcolo di output, poi clicca su Scarica per salvare i tuoi file."
   };
 
   var SKIP_TAGS = { SCRIPT: true, STYLE: true, TEXTAREA: true, PRE: true, CODE: true };
@@ -614,6 +671,58 @@
         );
       },
     },
+    // Below: missingRunSettingMessage()/apiKeyMismatchMessage() (pages/
+    // transcribe.py, pages/test_mode.py) -- settings-alert messages
+    // assembled from variable parts, not something a single DICTIONARY key
+    // can cover. These are the same kind of problem the three patterns
+    // above solve for #summary/#log text, so they're pattern-matched here
+    // too rather than inventing a second mechanism -- see this function's
+    // (and window.tbTranslateStatusText's) own comment for the fact that
+    // this file's use now extends past status/log text to alert messages.
+    {
+      // "Before running transcription, please X." / "...X and Y." /
+      // "...X, Y and Z." (up to 4 items on Test Mode) -- the clause is
+      // split back into its atomic phrases, each looked up individually,
+      // then rejoined in Italian list grammar ("X, Y e Z" instead of the
+      // Oxford-less English "X, Y and Z").
+      re: /^Before running transcription, please (.+)\.$/,
+      it: function (m) {
+        var PHRASES = {
+          "choose a source folder": "scegliere una cartella di origine",
+          "paste a Gemini API key": "incollare una chiave API di Gemini",
+          "paste an API key for Model A": "incollare una chiave API per il Modello A",
+          "paste an API key for Model B": "incollare una chiave API per il Modello B",
+          "select a prompt profile": "selezionare un profilo del prompt",
+        };
+        var clause = m[1];
+        var andIndex = clause.lastIndexOf(" and ");
+        var last = andIndex === -1 ? clause : clause.slice(andIndex + 5);
+        var rest = andIndex === -1 ? "" : clause.slice(0, andIndex);
+        var parts = (rest ? rest.split(", ") : []).concat([last]).map(function (p) {
+          return PHRASES[p] || p;
+        });
+        var clauseIt = parts.length === 1 ? parts[0] : parts.slice(0, -1).join(", ") + " e " + parts[parts.length - 1];
+        return "Prima di avviare la trascrizione, " + clauseIt + ".";
+      },
+    },
+    {
+      // apiKeyMismatchMessage() (Test Mode only): one or both sentences,
+      // space-joined (never both -- see the app-code comment on why a
+      // single regex with an optional second sentence covers this instead
+      // of two separate patterns).
+      re: /^The Model A API key doesn't look like a (Claude|Gemini) key\.(?: The Model B API key doesn't look like a (Claude|Gemini) key\.)?$/,
+      it: function (m) {
+        var out = "La chiave API del Modello A non sembra una chiave " + m[1] + ".";
+        if (m[2]) out += " La chiave API del Modello B non sembra una chiave " + m[2] + ".";
+        return out;
+      },
+    },
+    {
+      re: /^The Model B API key doesn't look like a (Claude|Gemini) key\.$/,
+      it: function (m) {
+        return "La chiave API del Modello B non sembra una chiave " + m[1] + ".";
+      },
+    },
   ];
 
   // Wraps every pattern above so it also recognizes the two fixed English
@@ -649,9 +758,14 @@
 
   // Exposed for refreshStatus() on Transcribe/Test Mode to run #summary and
   // #log text through before setting it, in place of a raw assignment from
-  // the /status JSON. Safe to call from English (returns text unchanged,
-  // same as every pattern-miss case) and safe on multi-line log text (each
-  // line -- one add_log()/add_test_log() call -- is matched independently).
+  // the /status JSON, and (later) for missingRunSettingMessage()/
+  // apiKeyMismatchMessage() to pre-translate a settings-alert message
+  // assembled from variable parts before it reaches showSettingsAlert() --
+  // see DYNAMIC_LINE_PATTERNS' own comment on why alert text ended up
+  // going through the same mechanism as status/log text. Safe to call from
+  // English (returns text unchanged, same as every pattern-miss case) and
+  // safe on multi-line log text (each line -- one add_log()/add_test_log()
+  // call -- is matched independently).
   window.tbTranslateStatusText = function (text) {
     if ((getCookie(STORAGE_KEY) || "en") !== "it" || !text) return text;
     return text

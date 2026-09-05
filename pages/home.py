@@ -122,7 +122,7 @@ def home_page() -> str:
 <main id="main-content" tabindex="-1">
   <header class="site-header">
     <p class="sr-only">Home</p>
-    <a class="site-logo" href="/" aria-current="page" aria-label="Customizable Transcription — Home">
+    <a class="site-logo" href="/" aria-label="Customizable Transcription — Home">
       <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
         <rect width="40" height="40" rx="8" fill="#255c99"/>
         <text x="20" y="27" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">CT</text>
@@ -130,6 +130,7 @@ def home_page() -> str:
     </a>
     <div class="header-nav-row">
       <nav class="site-nav" aria-label="Primary navigation">
+        <a class="nav-link nav-home" href="/" aria-current="page" aria-label="Home" title="Home">🏠</a>
         <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
         <a class="nav-link" href="/transcribe">Transcribe</a>
         <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
@@ -228,7 +229,7 @@ def home_page() -> str:
               <text x="32" y="55.5" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#ffffff" text-anchor="middle">XLSX</text>
             </svg>
           </div>
-          <div class="step-text"><p>When your transcript is completed, check it to make sure everything was processed. Then, go to the XLSX Conversion page. Select the AI Model and paste in your API key. Upload or drop your DOCX transcript into the panel, select the range of transcription you want, choose the output language, run the Preflight, then click Convert. Your conversion XLSX file will download automatically.</p></div>
+          <div class="step-text"><p>When your transcript is completed, check it to make sure everything was processed. Then, go to the XLSX Conversion page. Select the AI Model and paste in your API key. Upload or drop your DOCX transcript into the panel, select the range of transcription you want, choose the output language, run the Preflight, then click Convert. When it is completed, click the Download Document button.</p></div>
         </li>
       </ol>
     </div>
@@ -307,7 +308,7 @@ def home_page() -> str:
               <text x="32" y="55.5" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#ffffff" text-anchor="middle">XLSX</text>
             </svg>
           </div>
-          <div class="step-text"><p>Quando la trascrizione è completata, controllala per assicurarti che tutto sia stato elaborato. Poi, vai alla pagina Conversione XLSX. Seleziona il modello IA e incolla la tua chiave API. Carica o trascina il tuo documento DOCX trascritto nel pannello, seleziona l'intervallo di trascrizione che desideri, scegli la lingua di output, esegui il controllo preliminare, poi clicca su Converti. Il tuo file di conversione XLSX verrà scaricato automaticamente.</p></div>
+          <div class="step-text"><p>Quando la trascrizione è completata, controllala per assicurarti che tutto sia stato elaborato. Poi, vai alla pagina Conversione XLSX. Seleziona il modello IA e incolla la tua chiave API. Carica o trascina il tuo documento DOCX trascritto nel pannello, seleziona l'intervallo di trascrizione che desideri, scegli la lingua di output, esegui il controllo preliminare, poi clicca su Converti. Al termine, clicca sul pulsante Scarica documento.</p></div>
         </li>
       </ol>
     </div>

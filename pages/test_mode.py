@@ -6,7 +6,7 @@ from __future__ import annotations
 import html
 
 from customizable_transcription.core import MODELS
-from pages import FOOTER_HTML, json_for_inline_script
+from pages import FOOTER_HTML, file_picker_html, json_for_inline_script
 from profiles_store import profile_options_html, profiles_for_browser
 from app_state import load_source_folder, test_lock, test_state
 
@@ -196,11 +196,20 @@ def test_mode_page() -> str:
       if (!document.querySelector('[name="profile_id"]').value) {{
         missing.push("select a prompt profile");
       }}
+      let message;
       if (!missing.length) return "";
-      if (missing.length === 1) return `Before running transcription, please ${{missing[0]}}.`;
-      const last = missing[missing.length - 1];
-      const rest = missing.slice(0, -1).join(", ");
-      return `Before running transcription, please ${{rest}} and ${{last}}.`;
+      if (missing.length === 1) {{
+        message = `Before running transcription, please ${{missing[0]}}.`;
+      }} else {{
+        const last = missing[missing.length - 1];
+        const rest = missing.slice(0, -1).join(", ");
+        message = `Before running transcription, please ${{rest}} and ${{last}}.`;
+      }}
+      // This sentence is assembled from variable parts, so it can't be a
+      // single i18n.js DICTIONARY key -- window.tbTranslateStatusText()
+      // (i18n.js) pattern-matches it instead (see DYNAMIC_LINE_PATTERNS)
+      // and is safe to call from English too (returns the text unchanged).
+      return typeof window.tbTranslateStatusText === "function" ? window.tbTranslateStatusText(message) : message;
     }}
 
     function apiKeyMismatchMessage() {{
@@ -217,7 +226,10 @@ def test_mode_page() -> str:
         const provider = providerForModel(modelBSelect.value) === "claude" ? "Claude" : "Gemini";
         problems.push(`The Model B API key doesn't look like a ${{provider}} key.`);
       }}
-      return problems.join(" ");
+      const message = problems.join(" ");
+      // Same reasoning as missingRunSettingMessage() above -- assembled
+      // from variable parts, pattern-translated via tbTranslateStatusText().
+      return typeof window.tbTranslateStatusText === "function" ? window.tbTranslateStatusText(message) : message;
     }}
 
     function updateRunButton(running) {{
@@ -238,6 +250,11 @@ def test_mode_page() -> str:
       }} else {{
         runButton.title = "Check selected settings before running.";
       }}
+      // A raw .title assignment (above) bypasses i18n.js's DICTIONARY --
+      // see showSettingsAlert()'s own comment (static/app-common.js) for
+      // the same underlying bug. tbRefreshLanguage() re-applies whatever
+      // language is currently active.
+      if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
     }}
 
     function selectedRunSettings() {{
@@ -381,10 +398,16 @@ def test_mode_page() -> str:
       row.className = "extra-file-row";
       row.innerHTML =
         '<input type="text" placeholder="Label for this model" data-extra-label>' +
-        '<input type="file" accept=".docx" data-extra-file>' +
+        {json_for_inline_script(file_picker_html(accept=".docx", extra_attrs="data-extra-file"))} +
         '<button type="button" class="danger extra-file-remove">Remove</button>';
       row.querySelector(".extra-file-remove").addEventListener("click", () => row.remove());
       container.appendChild(row);
+      // Newly-inserted markup (the "Choose file" .file-picker button and
+      // "No file selected" placeholder) bypasses i18n.js's initial-load
+      // translation pass entirely -- it runs once, over content that
+      // exists at that moment. tbRefreshLanguage() re-applies whatever
+      // language is currently active and is exposed for exactly this case.
+      if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
     }}
 
     function addIndexCandidateRow() {{
@@ -395,10 +418,11 @@ def test_mode_page() -> str:
       row.className = "extra-file-row";
       row.innerHTML =
         '<input type="text" placeholder="Label for this model" data-ic-label>' +
-        '<input type="file" accept=".xlsx" data-ic-file>' +
+        {json_for_inline_script(file_picker_html(accept=".xlsx", extra_attrs="data-ic-file"))} +
         '<button type="button" class="danger extra-file-remove">Remove</button>';
       row.querySelector(".extra-file-remove").addEventListener("click", () => row.remove());
       container.appendChild(row);
+      if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
     }}
 
     // ---- Index Compare: run / mapping / results (see index_compare/ and
@@ -756,6 +780,20 @@ def test_mode_page() -> str:
       }}
     }}
 
+    // Shows the chosen filename next to the .file-picker translatable
+    // stand-in button (static/base.css) -- see file_picker_html()'s own
+    // docstring (pages/__init__.py) for why this never needs to restore
+    // the placeholder text itself. Delegated on document so it also
+    // covers rows added later by "Add another" (addExtraFileRow()/
+    // addIndexCandidateRow() above), with nothing extra to wire up.
+    document.addEventListener("change", (event) => {{
+      const input = event.target;
+      if (!input || input.tagName !== "INPUT" || input.type !== "file") return;
+      const picker = input.closest(".file-picker");
+      const nameEl = picker && picker.querySelector(".file-picker-name");
+      if (nameEl && input.files && input.files.length) nameEl.textContent = input.files[0].name;
+    }});
+
     window.addEventListener("DOMContentLoaded", () => {{
       const profileSelect = document.querySelector('[name="profile_id"]');
       if (profileSelect) {{
@@ -870,21 +908,7 @@ def test_mode_page() -> str:
   <link rel="stylesheet" href="/static/base.css">
   <link rel="stylesheet" href="/static/app-shell.css">
   <style>
-    input[type="file"]::file-selector-button {{
-      margin-right: 8px;
-      padding: 6px 10px;
-      border: 1px solid #8a8377;
-      border-radius: 6px;
-      font: inherit;
-      font-size: 13px;
-      background: #f4f5f6;
-      color: #1f2933;
-      cursor: pointer;
-    }}
-    input[type="file"]::file-selector-button:hover {{
-      background: #e9eaec;
-    }}
-    #refresh-status-button {{
+    #refresh-status-button, #open-outputs-folder-button {{
       margin-top: 0;
     }}
     .queue-list {{
@@ -953,7 +977,7 @@ def test_mode_page() -> str:
       align-items: center;
       margin-top: 8px;
     }}
-    .extra-file-row input {{
+    .extra-file-row input, .extra-file-row .file-picker {{
       margin-top: 0;
     }}
     .extra-file-remove {{
@@ -1131,6 +1155,7 @@ def test_mode_page() -> str:
     </a>
     <div class="header-nav-row">
       <nav class="site-nav" aria-label="Primary navigation">
+        <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
         <a class="nav-link" href="/prompt-builder">Prompt Builder</a>
         <a class="nav-link" href="/transcribe">Transcribe</a>
         <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
@@ -1248,18 +1273,18 @@ def test_mode_page() -> str:
     <div id="extra-model-files">
       <div class="extra-file-row">
         <input type="text" placeholder="Label for this model" data-extra-label>
-        <input type="file" accept=".docx" data-extra-file>
+        {file_picker_html(accept=".docx", extra_attrs="data-extra-file")}
       </div>
       <div class="extra-file-row">
         <input type="text" placeholder="Label for this model" data-extra-label>
-        <input type="file" accept=".docx" data-extra-file>
+        {file_picker_html(accept=".docx", extra_attrs="data-extra-file")}
       </div>
     </div>
     <button id="add-extra-file-button" class="button-tiny" type="button">Add another</button>
     <label>100% Corrected DOCX</label>
     <div class="extra-file-row">
       <input type="text" id="corrected-label-input" placeholder="Label for this model">
-      <input type="file" id="corrected-file-input" accept=".docx">
+      {file_picker_html("corrected-file-input", ".docx")}
     </div>
     <p id="compare-file-status" class="hint"></p>
     <div class="actions">
@@ -1267,29 +1292,29 @@ def test_mode_page() -> str:
     </div>
     <div id="compare-results"></div>
     <div class="actions" id="compare-report-actions" hidden>
-      <button id="download-report-button" class="button-secondary" type="button" disabled>Download Comparison Report (.docx)</button>
+      <button id="download-report-button" class="button-secondary" type="button" disabled>Download Comparison Report</button>
     </div>
   </details>
   <details class="tm-section">
     <summary>
       <span>Compare Indexes (XLSX)</span>
-      {tm_info_button_html("tm-info-compare-indexes", "Each candidate index is scored for statistical accuracy against the 100% Corrected index -- a downloadable DOCX report ranks them by character error rate, the same way the Compare Transcripts report above ranks transcripts. It does not list individual field differences; review a candidate's own spreadsheet against the corrected index by eye to find and fix specific entries.")}
+      {tm_info_button_html("tm-info-compare-indexes", "Each candidate XLSX index is scored for statistical accuracy against the 100% Corrected XLSX index -- a downloadable report ranks them by character error rate, the same way the Compare Transcripts report above ranks transcripts. It does not list individual field differences; review a candidate's own spreadsheet against the corrected index by eye to find and fix specific entries.")}
     </summary>
     <div id="ic-candidate-files">
       <div class="extra-file-row">
         <input type="text" placeholder="Label for this model" data-ic-label>
-        <input type="file" accept=".xlsx" data-ic-file>
+        {file_picker_html(accept=".xlsx", extra_attrs="data-ic-file")}
       </div>
       <div class="extra-file-row">
         <input type="text" placeholder="Label for this model" data-ic-label>
-        <input type="file" accept=".xlsx" data-ic-file>
+        {file_picker_html(accept=".xlsx", extra_attrs="data-ic-file")}
       </div>
     </div>
     <button id="ic-add-candidate-button" class="button-tiny" type="button">Add another</button>
     <label>100% Corrected XLSX</label>
     <div class="extra-file-row">
       <input type="text" id="ic-ground-truth-label" placeholder="Label for this index">
-      <input type="file" id="ic-ground-truth-file" accept=".xlsx">
+      {file_picker_html("ic-ground-truth-file", ".xlsx")}
     </div>
     <p id="ic-status" class="hint"></p>
     <div class="actions">
@@ -1297,7 +1322,7 @@ def test_mode_page() -> str:
     </div>
     <div id="ic-mapping-area" hidden></div>
     <div class="actions" id="ic-report-actions" hidden>
-      <button id="ic-download-report-button" class="button-secondary" type="button" disabled>Download Index Comparison Report (.docx)</button>
+      <button id="ic-download-report-button" class="button-secondary" type="button" disabled>Download Comparison Report</button>
     </div>
   </details>
   <section class="panel">

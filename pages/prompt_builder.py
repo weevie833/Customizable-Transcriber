@@ -7,7 +7,7 @@ from __future__ import annotations
 import html
 
 from customizable_transcription.core import DEFAULT_MODEL, MODELS
-from pages import FOOTER_HTML, json_for_inline_script
+from pages import FOOTER_HTML, file_picker_html, json_for_inline_script
 from profiles_store import load_custom_profiles, profiles_with_display_labels
 from prompt_builder_content import (
     PROMPT_BUILDER_COMMON_ABBREVIATIONS,
@@ -727,6 +727,7 @@ def prompt_builder_page(
       grid-column: 2;
       grid-row: 1;
       margin-top: 0;
+      align-self: center;
     }}
     .pb-example-row .pb-example-text {{
       grid-column: 1 / -1;
@@ -772,8 +773,7 @@ def prompt_builder_page(
     .pb-ie-grid .pb-ie-box {{
       margin: 0;
     }}
-    .pb-ie-box input[type="file"] {{
-      display: block;
+    .pb-ie-box .file-picker {{
       margin: 6px 0;
     }}
     .pb-preflight-optional {{
@@ -787,8 +787,7 @@ def prompt_builder_page(
       gap: 12px;
       margin: 10px 0;
     }}
-    .pb-preflight input[type="file"] {{
-      display: block;
+    .pb-preflight .file-picker {{
       margin: 6px 0 10px 0;
     }}
     @media (max-width: 520px) {{
@@ -927,6 +926,7 @@ def prompt_builder_page(
     </a>
     <div class="header-nav-row">
       <nav class="site-nav" aria-label="Primary navigation">
+        <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
         <a class="nav-link" href="/prompt-builder" aria-current="page">Prompt Builder</a>
         <a class="nav-link" href="/transcribe">Transcribe</a>
         <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
@@ -1175,7 +1175,7 @@ def prompt_builder_page(
             <p class="hint">Used only for this browser session/request. It is not saved to the project files or the profile. Running a preflight test sends this key and your uploaded file directly to your chosen AI provider's API — see PRIVACY.md.</p>
           </label>
         </div>
-        <input type="file" id="pb-preflight-image" accept="image/jpeg,image/png,application/pdf">
+        {file_picker_html("pb-preflight-image", "image/jpeg,image/png,application/pdf")}
         <label id="pb-preflight-example-row" hidden>Which example does this image show?
           <select id="pb-preflight-example-select"></select>
         </label>
@@ -1261,7 +1261,7 @@ def prompt_builder_page(
 
       <div class="pb-ie-box">
         <h3>Import a profile</h3>
-        <input type="file" id="pb-import-file" accept=".json,application/json">
+        {file_picker_html("pb-import-file", ".json,application/json")}
         <p class="hint">Importing a profile never overwrites an existing profile.</p>
         <button type="button" id="pb-import-button" class="button-tiny">Import profile</button>
         <p class="hint" id="pb-import-status" role="status" aria-live="polite"></p>

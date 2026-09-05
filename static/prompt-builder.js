@@ -1624,6 +1624,20 @@
     if (caption) caption.textContent = copy.caption;
   }
 
+  // Shows the chosen filename next to the .file-picker translatable
+  // stand-in button (static/base.css) -- see file_picker_html()'s own
+  // docstring (pages/__init__.py) for why this never needs to restore the
+  // placeholder text itself. Delegated on document so it also covers any
+  // .file-picker added to the DOM after this script runs, with nothing
+  // extra to wire up.
+  document.addEventListener("change", function (event) {
+    var input = event.target;
+    if (!input || input.tagName !== "INPUT" || input.type !== "file") return;
+    var picker = input.closest(".file-picker");
+    var nameEl = picker && picker.querySelector(".file-picker-name");
+    if (nameEl && input.files && input.files.length) nameEl.textContent = input.files[0].name;
+  });
+
   document.addEventListener("DOMContentLoaded", function () {
     document.getElementById("pb-questionnaire-form").addEventListener("input", function (event) {
       if (event.target.name === "recordType") { updateRecordTypeVisibility(); return; }

@@ -8,5 +8,5 @@ rapidfuzz==3.14.5
 # past two versions with known CVEs (PYSEC-2026-3552, PYSEC-2026-3455/6/7)
 # that were actually installed in this project's own environment when audited.
 # See docs/DESIGN.md's "Security hardening history" section.
-cryptography>=50.0.0
+cryptography>=50.0.1
 pyasn1>=0.6.4

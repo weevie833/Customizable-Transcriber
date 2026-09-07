@@ -1,5 +1,6 @@
 """Test Mode page ("/test-mode"). Split out of app.py as part of the
-app.py-modularization pass -- see CLAUDE.md."""
+app.py-modularization pass -- see docs/DESIGN.md's "Codebase structure"
+section."""
 
 from __future__ import annotations
 
@@ -17,8 +18,8 @@ def tm_info_button_html(panel_id: str, text: str) -> str:
     # class names -- Test Mode's JS is inline rather than loaded from
     # static/prompt-builder.js, so this is a deliberate parallel copy, not a
     # shared import, matching how this codebase already tolerates per-page
-    # duplication for styling only two pages need (see CLAUDE.md's
-    # base.css/app-shell.css tiering notes).
+    # duplication for styling only two pages need (see docs/DESIGN.md's
+    # "Codebase structure" section on the base.css/app-shell.css tiering).
     return (
         f'<span class="tm-info-wrap">'
         f'<button type="button" class="tm-info-btn" aria-expanded="false" aria-controls="{panel_id}" aria-label="More information">i</button>'
@@ -1012,8 +1013,9 @@ def test_mode_page() -> str:
        collapsible-section pattern of its own before Index Compare needed
        one. Kept as a local copy rather than shared CSS since exactly these
        two pages need it, not the same Transcribe+Test Mode pair
-       static/app-shell.css already covers -- see CLAUDE.md's modularization
-       notes on why this codebase tolerates that kind of duplication. */
+       static/app-shell.css already covers -- see docs/DESIGN.md's
+       "Codebase structure" section on why this codebase tolerates that
+       kind of duplication. */
     details.tm-section {{
       background: #ffffff;
       border: 1px solid #d9d4c8;

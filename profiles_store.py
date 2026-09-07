@@ -1,10 +1,13 @@
 """Prompt-profile storage: where profiles live on disk, and every load/save/
 update/delete/import/export operation on them. Split out of app.py as part
-of the app.py-modularization pass (see CLAUDE.md) -- this was the single
-largest cohesive concern still sitting in app.py's own module scope, with
-its own well-defined boundary (nothing here renders HTML or reads an HTTP
-request directly; app.py's own selected_profile_id()/profile_options_html()/
-resolve_profile_for_run() stay there for exactly that reason).
+of the app.py-modularization pass (see docs/DESIGN.md's "Codebase
+structure" section) -- this was the single largest cohesive concern still
+sitting in app.py's own module scope, with its own well-defined boundary
+(nothing here reads an HTTP request directly; app.py's own
+selected_profile_id()/resolve_profile_for_run() stay there for exactly that
+reason -- profile_options_html()/profiles_for_browser() moved here too in a
+later pass once pages/*.py also needed them, since both depend on nothing
+but this module's own data).
 
 Also owns PROJECT_DIR and safe_filename() -- not because they're profile-
 specific, but because profile path resolution needs them and moving them
@@ -351,7 +354,7 @@ def save_custom_profile(
         "role_context": role_context,
         "reference_context": reference_context,
         "output_format": output_format,
-        # Prompt Builder-only for now (see CLAUDE.md) -- a profile saved from
+        # Prompt Builder-only for now -- a profile saved from
         # the Transcribe page's manual free-text editor has neither field set,
         # which is exactly what tells write_docx() to skip the header box.
         "native_language": native_language.strip(),
@@ -539,9 +542,8 @@ def delete_profile(profile_id: str) -> dict[str, str]:
 
 # The two functions below render profile *display* representations (an
 # HTML <option> list, a JSON-able dict for the browser-side `profiles`
-# object every page embeds) rather than storing anything -- CLAUDE.md's
-# app.py-modularization section originally kept these in app.py for exactly
-# that reason. Moved here once pages/*.py (the page-render modules) also
+# object every page embeds) rather than storing anything -- originally kept
+# in app.py for exactly that reason. Moved here once pages/*.py (the page-render modules) also
 # needed them: they depend on nothing but profiles_with_display_labels()
 # and html.escape(), so this avoids an app.py <-> pages circular import
 # without duplicating either function.

@@ -4,7 +4,7 @@ from __future__ import annotations
 # classification), and reader.py-adjacent code that needs the same
 # "is this cell effectively empty" judgment -- an honestly-flagged
 # "[illegible]" (the convention this app's own transcription/extraction
-# prompts use, see CLAUDE.md's parser-contract notes) means the same thing
+# prompts use, see docs/DESIGN.md's "XLS Conversion" section) means the same thing
 # as a blank cell for every one of these purposes, so this is written once
 # rather than reimplemented per module.
 

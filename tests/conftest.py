@@ -1,5 +1,6 @@
-"""Shared pytest fixtures for the regression tests added alongside the
-2026-09 security/reliability review (see CLAUDE.md). Scope note: this suite
+"""Shared pytest fixtures for the regression tests added alongside a
+security/reliability review (see docs/DESIGN.md's "Security hardening
+history" section). Scope note: this suite
 targets the specific defects that review found and fixed -- it is not full
 coverage of the app (ai_parser.py's semantic AI extraction in particular
 can't be exercised offline; see xls_conversion/tests/run_parser_test.py for
@@ -47,7 +48,7 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     still appear to pass -- caught once already by inspection (profiles_store),
     and fixed proactively here a second time when app_state.py was split out
     with its own copies of USER_OUTPUTS_DIR/APP_SETTINGS_FILE. See
-    CLAUDE.md's app.py-modularization section for both."""
+    docs/DESIGN.md's "Codebase structure" section for both."""
     user_data_dir = tmp_path / "user-data"
     profiles_dir = user_data_dir / "profiles"
     outputs_dir = user_data_dir / "outputs"
@@ -56,8 +57,9 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     # PROFILES_DIR (the read-only shipped-examples directory) is also
     # sandboxed, even though nothing ever writes to it, so tests don't
     # depend on whatever this repo's own profiles/ folder happens to
-    # contain (currently nothing, per CLAUDE.md, but that's this repo's
-    # state, not a contract these tests should rely on).
+    # contain -- that's this repo's own state (currently one shipped
+    # example profile, see docs/DESIGN.md's "Profile storage" section),
+    # not a contract these tests should rely on.
     shipped_dir = tmp_path / "shipped-profiles"
     shipped_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(profiles_store, "PROFILES_DIR", shipped_dir)

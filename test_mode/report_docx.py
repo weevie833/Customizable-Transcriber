@@ -2,7 +2,7 @@
 Report" button -- split out of app.py alongside test_mode/comparison.py
 (which scores the comparison; this module only renders the downloadable
 write-up of those scores) as part of the app.py-modularization pass (see
-CLAUDE.md).
+docs/DESIGN.md's "Codebase structure" section).
 
 Separate small OOXML builder from the main transcription writer
 (header_box_element()/document_xml() in app.py): this one needs bold
@@ -34,8 +34,9 @@ def compare_report_contestant_label(entry: Mapping[str, object]) -> str:
 def build_compare_report_docx(results: list[Mapping[str, object]], corrected_label: str) -> bytes:
     """Assemble the downloadable comparison report: the same results table
     shown on-screen, plus a plain-language explanation of CER/WER/WER-BoW and
-    an estimated correction-effort breakdown per contestant. See CLAUDE.md's
-    Test Mode scoring section for what is and isn't included in these scores."""
+    an estimated correction-effort breakdown per contestant. See
+    docs/DESIGN.md's "Test Mode scoring" section for what is and isn't
+    included in these scores."""
     ground_truth_label = corrected_label.strip() or "100% corrected reference document"
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
 

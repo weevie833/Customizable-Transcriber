@@ -725,7 +725,7 @@
     // assembled prose above) -- lets write_docx() stamp a deterministic
     // "what does this document contain" box at the top of every transcription
     // this profile produces, instead of XLSX Conversion having to guess from
-    // the output later. See CLAUDE.md's Prompt Builder section. record_type
+    // the output later. record_type
     // reuses the same key selectedRecordType() already returns for the
     // questionnaire itself -- XLS Conversion's own "Source material" select
     // uses identical keys/labels, so no separate mapping is needed anywhere.
@@ -963,7 +963,8 @@
   // profile saved from this page. Loading one back just replays that
   // snapshot into the form -- it never tries to parse the assembled prose,
   // which is a one-way, lossy operation the rest of this app has always
-  // deliberately avoided (see CLAUDE.md's Prompt Builder notes).
+  // deliberately avoided (see docs/DESIGN.md's "Prompt Builder design"
+  // section).
   //
   // Repeatable rows (variants, abbreviations, and the four simple-value
   // lists) carry no `name` attribute -- they're read positionally via

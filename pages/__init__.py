@@ -1,5 +1,5 @@
 """Page-render modules (Transcribe, Test Mode, Prompt Builder, Home, Privacy)
--- see CLAUDE.md's app.py-modularization section."""
+-- see docs/DESIGN.md's "Codebase structure" section."""
 
 from __future__ import annotations
 
@@ -13,9 +13,8 @@ FOOTER_HTML = (
 )
 """The single footer every page (app.py's own getting_started_page()
 included) embeds verbatim. Kept here, not duplicated per page, so a wording
-or license change is one edit instead of six -- see CLAUDE.md's license
-section for why this text reads "all rights reserved" rather than an open
-license."""
+or license change is one edit instead of six. Deliberately "all rights
+reserved" rather than an open-source license."""
 
 
 def json_for_inline_script(value: object) -> str:

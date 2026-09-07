@@ -1,5 +1,6 @@
 """Privacy page ("/privacy"). Split out of app.py as part of the
-app.py-modularization pass -- see CLAUDE.md."""
+app.py-modularization pass -- see docs/DESIGN.md's "Codebase structure"
+section."""
 
 from __future__ import annotations
 
@@ -19,8 +20,8 @@ def render_markdown_inline(text: str) -> str:
 def render_privacy_markdown(text: str) -> str:
     """Minimal markdown -> HTML for PRIVACY.md's own subset (#, ##, bold, - and 1. lists,
     plain paragraphs). Not a general-purpose renderer -- deliberately narrow so this page
-    stays dependency-free (see HANDOFF.md's note that a simple render step is enough).
-    A top-level '# ' heading renders as h2 and '## ' as h3, one level below this page's own
+    stays dependency-free; a simple render step is enough for PRIVACY.md's own limited
+    markdown subset. A top-level '# ' heading renders as h2 and '## ' as h3, one level below this page's own
     <h1>Privacy</h1>, so the document's own title doesn't produce a second <h1>."""
     blocks: list[str] = []
     paragraph_lines: list[str] = []

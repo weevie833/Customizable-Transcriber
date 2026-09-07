@@ -24,7 +24,7 @@ of transcript characters.
 Accuracy mode only (a ground-truth file is required) -- Agreement mode
 (candidates compared only to each other, no ground truth) and AI-assisted
 diff classification were both dropped when this report was rebuilt as a
-DOCX; see CLAUDE.md's Index Compare notes for why."""
+DOCX; see docs/DESIGN.md's "Index Compare" section for why."""
 
 from __future__ import annotations
 

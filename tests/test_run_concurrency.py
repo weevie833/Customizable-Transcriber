@@ -1,6 +1,6 @@
 """Regression test for the /run and /test-mode/run TOCTOU race -- see
-CLAUDE.md's review notes on "concurrent run requests can start duplicate
-jobs and overwrite output." Reproduces the actual race at the HTTP layer
+docs/DESIGN.md's "Security hardening history" section on the run-
+reservation-race finding this closes. Reproduces the actual race at the HTTP layer
 (two real concurrent POST requests against the real Handler) rather than
 unit-testing the reservation logic in isolation, since the bug was
 specifically that code moved outside the lock -- a refactor that

@@ -1,5 +1,6 @@
-"""Regression tests for Excel sheet-name safety -- see CLAUDE.md's review
-notes on the sheet-name-injection finding this closes. Reproduced before the
+"""Regression tests for Excel sheet-name safety -- see docs/DESIGN.md's
+"Security hardening history" section on the sheet-name-injection finding
+this closes. Reproduced before the
 fix: combine_language_xlsx("battesimi", [("Latin/Italian", rows)]) produced
 a workbook openpyxl itself refuses to open (`ValueError: Invalid character /
 found in sheet title`)."""

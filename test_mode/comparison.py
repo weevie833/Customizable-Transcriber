@@ -10,9 +10,7 @@ from rapidfuzz.distance import Levenshtein
 # section 3.5 — the standard ASR/HTR evaluation trio: Character Error Rate,
 # Word Error Rate, and order-independent Bag-of-Words WER, all built on
 # Levenshtein (1965) edit distance. This replaces an earlier ad hoc
-# word-similarity score with the metric this project's own CLAUDE.md flagged
-# as the real backstop ("a method to determine the difference, such as
-# keystrokes") — CER *is* that keystroke-level count.
+# word-similarity score with a real keystroke-level count instead.
 
 _LINEBREAK_RUN = re.compile(r"\s*\n\s*")
 _TRAILING_PUNCTUATION = re.compile(r"[^\w\s]+(?=\s|$)")
@@ -34,7 +32,7 @@ def strip_non_transcription_blocks(text: str) -> str:
     Test Mode compares models on transcription accuracy specifically; without
     this, CER/WER conflates transcription quality with translation-phrasing
     conformance and note-writing style, neither of which is what's being
-    benchmarked. See CLAUDE.md "Chiusa Sclafani battesimi — decisions" for the
+    benchmarked. See docs/DESIGN.md's "Test Mode scoring" section for the
     block-structure contract this relies on. `Notes:`/`Latin Transcription:`
     label text itself is left in place exactly like every other block's own
     label — only whole blocks are dropped, never partial content.
@@ -42,9 +40,8 @@ def strip_non_transcription_blocks(text: str) -> str:
     _LABEL_LOCATOR matches the locator line with or without a trailing
     "- Entry N" (Prompt Builder profiles stopped emitting that suffix; an
     entry's own number, when the source has one, now lives in the Marginal
-    Heading block instead — see CLAUDE.md's Prompt Builder section), so both
-    an older profile's "Page 34 - Entry 1:" and a current one's "Page 34:"
-    still get stripped.
+    Heading block instead), so both an older profile's "Page 34 - Entry 1:"
+    and a current one's "Page 34:" still get stripped.
     """
     blocks = _BLOCK_SPLIT.split(text)
     kept: list[str] = []

@@ -53,7 +53,7 @@ def test_both_sides_blank_or_illegible_is_a_match_not_a_diff(truth, candidate):
 
 def test_wrong_value_for_a_differing_numeric_field():
     # Real example: image 194 both AIs read the marriage day as 20, ORIG
-    # says 30 -- see CLAUDE.md's "v3 real-image test results".
+    # says 30.
     assert classify_diff("marriage_day", "30", "20", is_numeric=True) == WRONG_VALUE
 
 
@@ -78,7 +78,7 @@ def test_latin_form_variants_from_the_example_workbook(truth, candidate):
     [
         ("Mauritzius", "Mauritius"),  # groom given name, San Mango R5
         ("Francesca Maria", "Francisca Maria"),  # bride given name, San Mango R13
-        ("Marturana", "Martorana"),  # CLAUDE.md's own noted spelling-variant surname pair
+        ("Marturana", "Martorana"),  # a real, noted spelling-variant surname pair
     ],
 )
 def test_spelling_variants_from_the_example_workbook(truth, candidate):

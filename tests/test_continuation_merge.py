@@ -1,7 +1,9 @@
 """Regression tests for parse_generic()'s split-entry continuation handling
-(CLAUDE.md's "Fix split-entry handling across image boundaries" commit and
-two follow-up review passes that found the merge still duplicated, dropped,
-or silently overwrote rows).
+-- an entry whose content spans two consecutive source images, merged
+rather than exported as two separate, truncated entries (see
+docs/DESIGN.md's "Test Mode scoring" section). Added after the merge logic
+was found, across two follow-up review passes, to still duplicate, drop,
+or silently overwrite rows in some cases.
 
 Both the forward-flag path (previous row's own notes say "...continues on
 the next image") and the backward-flag retry path (this block's first row

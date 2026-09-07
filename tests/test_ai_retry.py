@@ -1,7 +1,7 @@
 """Regression tests for call_ai_json()'s transient-error retry/backoff and
 for the widened per-image exception handling in parse_generic()'s loop --
-see CLAUDE.md's review notes on the "batch requests lack bounded failure
-handling" finding these close."""
+see docs/DESIGN.md's "Security hardening history" section on the "batch
+failures not bounded" finding these close."""
 
 from __future__ import annotations
 

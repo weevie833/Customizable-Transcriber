@@ -1,7 +1,7 @@
 /* Shared shell CSS for every page app.py renders (Transcribe, Test Mode,
    Prompt Builder, Home, Privacy, Getting Started). Extracted from six
    near-identical copies that had drifted into six separate inline <style>
-   blocks -- see CLAUDE.md's app.py-modularization section. These rules are
+   blocks -- see docs/DESIGN.md's "Codebase structure" section. These rules are
    the ones that were byte-identical across all six pages: page shell
    (:root/body/main/h1), the header/nav bar, the language-flag toggle, and
    the footer license line. Page-specific rules stay inline in each page's
@@ -38,7 +38,8 @@ h1 {
    accessibility tree (unlike display:none/visibility:hidden, which remove
    a node from both), just clipped to nothing on screen. Used to keep each
    page's real, page-identifying <h1> for screen-reader heading navigation
-   after the logo replaced the visible header title -- see CLAUDE.md. */
+   alongside a page's own visible heading content -- see docs/DESIGN.md's
+   "Accessibility" section. */
 .sr-only {
   position: absolute;
   width: 1px;

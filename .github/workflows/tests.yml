@@ -48,9 +48,9 @@ jobs:
       - name: Run offline parser regression suite (xls_conversion/tests/)
         run: python xls_conversion/tests/run_parser_test.py
 
-  # Automates the two manual checks the 2026-09 follow-up code review did
+  # Automates the two manual checks a follow-up code review did
   # by hand ("Runtime Python dependency audit", "Worksheet npm dependency
-  # audit" -- see CLAUDE.md). One run is enough (unlike the `test` job
+  # audit"). One run is enough (unlike the `test` job
   # above, this doesn't depend on OS or Python version), and it runs on the
   # weekly schedule too, not just push/PR -- see the top-level comment on
   # `schedule:`.

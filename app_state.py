@@ -3,8 +3,8 @@ app.py's Handler class and the page-render modules in pages/ both need,
 split out specifically to avoid the app.py <-> pages circular import that
 would otherwise result (pages/*.py needs to read `state`/`test_state` to
 render the current run status; app.py needs to import the render functions
-from pages/*.py; something has to sit below both). See CLAUDE.md's
-app.py-modularization section.
+from pages/*.py; something has to sit below both). See docs/DESIGN.md's
+"Codebase structure" section.
 
 Two kinds of thing live here, both "this running process's own transient or
 machine-local state" rather than anything a user would think of as their

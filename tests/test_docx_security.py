@@ -1,6 +1,6 @@
 """Regression tests for the DOCX ingestion guards in app.py's
-extract_docx_text() -- see CLAUDE.md's review notes on the DOCTYPE-bypass
-finding this closes."""
+extract_docx_text() -- see docs/DESIGN.md's "Security hardening history"
+section on the DOCTYPE-bypass finding this closes."""
 
 from __future__ import annotations
 

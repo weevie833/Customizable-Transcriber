@@ -3,8 +3,9 @@ in app.py) -- record-type metadata, boilerplate rule text, and vocabulary
 checklists. Pure data, no logic: every constant here is consumed by app.py's
 `pb_*_html()` functions and `build_output_format()`/`build_role_context()`-
 style assembly logic, none of which lives in this file. Split out of app.py
-as part of the app.py-modularization pass (see CLAUDE.md) specifically
-because it's content an editor would want to change without wading through
+as part of the app.py-modularization pass (see docs/DESIGN.md's "Codebase
+structure" section) specifically because it's content an editor would want
+to change without wading through
 unrelated routing/logic code, not because it's used from more than one
 place."""
 

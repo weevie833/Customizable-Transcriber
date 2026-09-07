@@ -1,6 +1,7 @@
 """Regression tests for xls_conversion.ai_parser.parse_image_range()'s
-input caps -- see CLAUDE.md's review notes on the unbounded-range-expansion
-finding this closes (both here and its client-side mirror in
+input caps -- see docs/DESIGN.md's "Security hardening history" section on
+the unbounded-range-expansion finding this closes (both here and its
+client-side mirror in
 xls_conversion/app.js's countImageRangeClientSide(), which isn't
 independently unit-testable without a browser)."""
 

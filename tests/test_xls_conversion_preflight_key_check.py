@@ -5,8 +5,8 @@ parse_xls_source() (/api/xls-conversion/parse) -- all run the same cheap
 (max_tokens=4) API-key check, bounded to PREFLIGHT_TIMEOUT_SECONDS, before
 their own real (and more expensive) AI call. See
 tests/test_prompt_builder_preflight.py for the equivalent coverage of
-Prompt Builder's Preflight Test, and CLAUDE.md for why this same pattern
-was extended to these three handlers in the same session.
+Prompt Builder's Preflight Test -- this same cheap-key-check pattern was
+later extended to these three handlers too.
 
 Exercises the real Handler on an ephemeral port (see tests/conftest.py's
 live_server fixture), the same way tests/test_index_compare_http.py does."""

@@ -1,6 +1,6 @@
 """Transcribe page ("/transcribe", the app's original page() function).
 Split out of app.py as part of the app.py-modularization pass -- see
-CLAUDE.md."""
+docs/DESIGN.md's "Codebase structure" section."""
 
 from __future__ import annotations
 
@@ -363,9 +363,9 @@ def page() -> str:
         // Choose Cancel to save a new version" and then, on Cancel, opened a
         // second prompt() that silently created a duplicate profile if
         // accepted -- easy to trigger by mistake, since Cancel reads as
-        // "cancel the save," not "keep both versions." Dropped per the
-        // profile-save-protocol review in CLAUDE.md: a user who clicks Save
-        // Profile does not need the prior version kept as a fallback.
+        // "cancel the save," not "keep both versions." Dropped: a user who
+        // clicks Save Profile does not need the prior version kept as a
+        // fallback (see docs/DESIGN.md's "Additional notes" section).
         action.value = "update";
         return;
       }}

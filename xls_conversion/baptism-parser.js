@@ -336,8 +336,8 @@
   }
 
   function extractMarginalHeading(body) {
-    // Per the block-structure contract (CLAUDE.md's Chiusa Sclafani notes),
-    // Marginal Heading always comes first and is always followed by Date --
+    // Per the block-structure contract (docs/DESIGN.md's "XLS Conversion"
+    // section), Marginal Heading always comes first and is always followed by Date --
     // stopping there is enough; no need for English's more elaborate
     // next-entry lookahead. Absent entirely for a register with no separate
     // marginal-heading zone, in which case this returns "".
@@ -661,15 +661,14 @@
   //    inline-name heading style ("Page 34 - Entry 1: Manfre, Filippa
   //    Maria"). Most direct when present, though current profiles never
   //    populate it: the locator line is now a pure "Page N - Entry n:" with
-  //    the name moved to its own Marginal Heading block instead (see
-  //    CLAUDE.md's Chiusa Sclafani notes).
+  //    the name moved to its own Marginal Heading block instead.
   // 2. The Marginal Heading's own trailing-surname clause, parsed
   //    structurally (see parseChildSurnameFromHeading) rather than
   //    positionally guessed.
   // 3./4. Whichever parent's own already-parsed name (from the entry's own
   //    body text) carries a surname -- father first, per this register's
-  //    dominant convention (see CLAUDE.md's editorial rules: the child
-  //    normally carries the father's surname), then mother. Needed because
+  //    dominant convention (see docs/DESIGN.md's "XLS Conversion" section:
+  //    the child normally carries the father's surname), then mother. Needed because
   //    some entries only ever attach a surname to one parent's clause, and
   //    it isn't always the same one the Marginal Heading uses: fixture
   //    Entry 6's heading attaches "Collica" to the father, but the body's
@@ -698,8 +697,8 @@
     if (!headingText) return "";
     // The dominant pattern in this register states the surname once,
     // trailing the mother's given name at the very end of the entry's own
-    // "et <mother>" clause (see CLAUDE.md's Chiusa Sclafani notes) -- but
-    // not every entry states one there. Capture everything from "et" to the
+    // "et <mother>" clause -- but not every entry states one there. Capture
+    // everything from "et" to the
     // end of the heading.
     const etMatch = headingText.match(/\bet\s+([A-Za-z''.[\]?ÀÁÈÉÌÍÒÓÙÚàáèéìíòóù -]+?)\.?\s*$/i);
     if (!etMatch) return "";
@@ -736,7 +735,7 @@
     // clauses identifies the godparent, it does not name an additional
     // godparent — folding it in would invent a person who was never a
     // sponsor and, worse, used to silently discard the real clauses (see
-    // CLAUDE.md "Known bug"). Take each clause's own name only.
+    // docs/DESIGN.md's "XLS Conversion" section). Take each clause's own name only.
     return clauses.map((clause) => ({ name: clause.name, father: clause.father }));
   }
 

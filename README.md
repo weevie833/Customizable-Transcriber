@@ -239,6 +239,10 @@ paragraph below it. Nothing this app writes while running lands inside the
 project folder itself, so a full folder replace during an update (see
 "Updating to a newer version" above) can never delete it.
 
+See [`docs/DESIGN.md`](docs/DESIGN.md) for the design rationale behind the
+codebase structure above, fixed security defects, and register-specific
+parsing rules — the "why," not just the "what."
+
 ## Running the tests
 
 Only needed for development, not for regular use of the app.

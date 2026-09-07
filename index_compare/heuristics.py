@@ -19,9 +19,9 @@ _DIFFERS_THRESHOLD = 45.0
 
 # Leading honorific/status markers that can precede a Latin given name
 # without being part of it -- stripped before comparing. Deliberately small
-# and explicit (not an attempt at general Latin parsing); see CLAUDE.md's
-# "Chiusa Sclafani battesimi" notes on how deep this specific rabbit hole
-# actually goes if you let it.
+# and explicit -- not an attempt at general Latin morphological parsing,
+# just the common patterns actually seen in these registers (see
+# docs/DESIGN.md's "XLS Conversion" section).
 _LATIN_PREFIXES = ("fu ", "mag d ", "mag ", "d ", "don ", "dr ", "rev ")
 
 # Common Latin case-ending / vernacular-ending suffixes -- tried longest

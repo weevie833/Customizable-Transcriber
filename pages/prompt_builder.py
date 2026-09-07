@@ -1,6 +1,7 @@
 """Prompt Builder page ("/prompt-builder") and its small HTML-fragment
 helper functions (pb_*). Split out of app.py as part of the
-app.py-modularization pass -- see CLAUDE.md."""
+app.py-modularization pass -- see docs/DESIGN.md's "Codebase structure"
+section."""
 
 from __future__ import annotations
 

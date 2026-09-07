@@ -1203,7 +1203,8 @@ def header_box_element(
     made after the fact.
 
     The record-type/native-language/translations lines are Prompt Builder
-    profiles only for now (see CLAUDE.md) and are omitted individually when
+    profiles only for now (see docs/DESIGN.md's "Profile storage" section)
+    and are omitted individually when
     their value is blank -- a manual-override profile has none of them set.
     The model/profile lines have no such restriction and are shown whenever
     the caller has them, which is unconditionally for every real run; the

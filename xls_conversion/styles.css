@@ -61,8 +61,8 @@ body {
    accessibility tree (unlike display:none/visibility:hidden, which remove
    a node from both), just clipped to nothing on screen. Used to keep this
    page's real, page-identifying <h1> for screen-reader heading navigation
-   after the logo replaced the visible header title -- see CLAUDE.md. Same
-   rule as static/base.css's own copy. */
+   alongside this page's own visible heading content -- see docs/DESIGN.md's
+   "Accessibility" section. Same rule as static/base.css's own copy. */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -101,8 +101,7 @@ h2 {
 
 /* Groups the secondary Getting Started link with the language flags on the
    right side of .header-nav-row -- see static/base.css's own copy of this
-   rule for the full rationale (this page keeps a separate stylesheet, see
-   CLAUDE.md). */
+   rule for the full rationale (this page keeps a separate stylesheet). */
 .header-right {
   display: flex;
   align-items: center;
@@ -525,8 +524,8 @@ legend {
 }
 
 /* Same modal used for the "missing setting" warnings and the conversion-
-   complete alert -- see the completion-alert note in CLAUDE.md and the
-   matching rules on Transcribe/Test Mode (static/app-shell.css), which this
+   complete alert -- matches the rules on Transcribe/Test Mode
+   (static/app-shell.css), which this
    mirrors using this page's own color tokens instead of app-shell.css's
    hardcoded ones (xls_conversion doesn't link that stylesheet). */
 .settings-alert {

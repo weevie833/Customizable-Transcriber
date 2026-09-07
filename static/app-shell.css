@@ -2,7 +2,7 @@
    not universal enough for base.css (Prompt Builder/Home/Privacy/Getting
    Started don't use most of these: run controls, the profile editor, the
    settings-alert modal, the download link, the progress spinner). See
-   CLAUDE.md's app.py-modularization section. Transcribe and Test Mode are
+   docs/DESIGN.md's "Codebase structure" section. Transcribe and Test Mode are
    near-twin pages by design (same nav, same profile editor, same run
    controls shape), which is why ~90% of their combined CSS turned out to
    be exactly this file. */
@@ -131,7 +131,7 @@ textarea {
 }
 /* One more column than .profile-select-row: the name field plus two save
    buttons ("Save Profile" overwrites in place, "Save as New Profile" keeps
-   the original -- see the profile-save-protocol note in CLAUDE.md). */
+   the original -- see docs/DESIGN.md's "Additional notes" section). */
 .profile-save-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

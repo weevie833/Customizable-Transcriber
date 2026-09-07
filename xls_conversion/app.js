@@ -130,8 +130,8 @@
   }
 
   // Reads the "Record type: <label>" line from the header box Prompt
-  // Builder-produced transcriptions now carry (see CLAUDE.md's Prompt
-  // Builder section). Matched against this page's own <option> text rather
+  // Builder-produced transcriptions now carry (see docs/DESIGN.md's
+  // "Profile storage" section). Matched against this page's own <option> text rather
   // than a separate label->key table, so the two can't drift out of sync.
   // Scoped to the first ~1000 characters (the box is always at the very top)
   // so nothing an entry's own text happens to contain can match instead.
@@ -876,8 +876,8 @@
 
   // On-screen + sonic alert when a conversion finishes, matching Transcribe/
   // Test Mode's own showCompletionAlert() (pages/transcribe.py, pages/
-  // test_mode.py) -- see CLAUDE.md's note on why this exists: a user who
-  // stepped away while a long conversion ran (up to ~10 minutes for a large
+  // test_mode.py) -- a user who stepped away while a long conversion ran
+  // (up to ~10 minutes for a large
   // transcript, per GETTING_STARTED) has no way to notice the on-page status
   // text change on its own. showSettingsAlert()/playAlertSound() are the
   // same shared functions those two pages use, loaded here from static/

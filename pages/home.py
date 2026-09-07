@@ -1,7 +1,7 @@
 """Home page ("/"). Split out of app.py as part of the
-app.py-modularization pass -- see CLAUDE.md. No external dependencies: this
-page is entirely static aside from the shared header/nav shell every page
-repeats."""
+app.py-modularization pass -- see docs/DESIGN.md's "Codebase structure"
+section. No external dependencies: this page is entirely static aside from
+the shared header/nav shell every page repeats."""
 
 from __future__ import annotations
 
@@ -48,10 +48,9 @@ def home_page() -> str:
     }
     /* The header's "Home" text is a <p>, not a heading, and is visually
        hidden (.sr-only) besides -- the hero text below is this page's one
-       real, visible <h1> (see WCAG review notes in CLAUDE.md: two <h1>s
-       gave screen-reader heading navigation two competing "page title"
-       landmarks). No .site-title cosmetic rule needed anymore now that
-       the logo replaced every page's visible header title. */
+       real, visible <h1> (see docs/DESIGN.md's "Accessibility" section:
+       two <h1>s gave screen-reader heading navigation two competing
+       "page title" landmarks). */
     .callout {
       background: #eef4fb;
       border: 1px solid #cddcee;

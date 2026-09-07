@@ -30,9 +30,8 @@ REPO = HERE.parent.parent
 # be a fabricated "Page N - Entry n: Surname, Given Names" line that
 # baptism-parser.js's parseChild() read the child's surname from (via the
 # titleName parameter). That heading was replaced with a pure locator plus a
-# verbatim "Marginal Heading:" block (see CLAUDE.md "Chiusa Sclafani battesimi
-# — decisions"), so titleName went permanently empty and Child regressed to
-# given-names-only.
+# verbatim "Marginal Heading:" block, so titleName went permanently empty and
+# Child regressed to given-names-only.
 #
 # Fixed via parseChildSurnameFromHeading() + childSurname() in
 # baptism-parser.js: parses the Marginal Heading's own "et <mother>" clause
@@ -134,7 +133,7 @@ def main():
 
     # regression: a "wife of"/"husband of" aside inside a multi-godparent entry
     # used to discard the real godparents and return [name, spouse] instead
-    # (see CLAUDE.md "Known bug", parseGodparents in baptism-parser.js).
+    # (parseGodparents in baptism-parser.js).
     spouse_clause = (HERE / "fixture-godparent-spouse-clause.md").read_text(encoding="utf-8")
     spouse_rows = parse(spouse_clause)["rows"]
     if not spouse_rows:

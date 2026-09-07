@@ -1,7 +1,7 @@
 // Shared browser-side helpers for the Transcribe and Test Mode pages
 // (app.py's page() and test_mode_page()) -- extracted after both pages'
 // inline <script> blocks turned out to define 12 functions with byte-
-// identical bodies. See CLAUDE.md's app.py-modularization section.
+// identical bodies. See docs/DESIGN.md's "Codebase structure" section.
 //
 // These all read/write DOM elements or module-level `let` variables
 // (settingsAlertReturnFocus, runConfirmed, preflightComplete) declared in

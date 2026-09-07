@@ -1,6 +1,8 @@
 """Regression tests for app.py's local-only request hardening -- see
-CLAUDE.md's review notes on "the localhost server trusts any website that
-can reach it." Runs the real Handler on an ephemeral port (see
+docs/DESIGN.md's "Security hardening history" section on the
+no-CSRF/Host/Origin-defense finding this closes: binding to 127.0.0.1
+alone doesn't stop a malicious page in the same browser from reaching this
+app's endpoints. Runs the real Handler on an ephemeral port (see
 conftest.live_server) rather than mocking the security logic in isolation,
 so a future regression that moves code back out of the checked lock (or
 otherwise bypasses do_GET/do_POST's _security_check() call) would actually

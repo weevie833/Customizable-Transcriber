@@ -102,24 +102,23 @@ h1 {
   color: #5f6b76;
   overflow-wrap: anywhere;
 }
-.site-logo {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-}
-.site-logo svg {
-  display: block;
-}
-.site-logo:focus-visible {
-  outline: 3px solid #255c99;
-  outline-offset: 2px;
-  border-radius: 8px;
-}
 .header-nav-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  flex: 1;
+}
+/* Groups the secondary Getting Started link with the language flags on the
+   right side of .header-nav-row, so .header-nav-row's own space-between
+   still only has two items to split (.site-nav vs. this) -- the main nav
+   links stay flush left and everything in here stays flush right, with
+   Getting Started landing immediately to the left of the flags. */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 .site-nav {
   display: flex;
@@ -151,6 +150,23 @@ h1 {
 .nav-home {
   font-size: 17px;
   padding: 6px 9px;
+}
+/* Deliberately quieter than the main .nav-link items it sits beside in
+   .header-right -- no bottom-border underline treatment, a muted color,
+   lighter weight, smaller size -- so Getting Started reads as a secondary,
+   always-available link rather than a fifth primary nav destination. */
+.nav-link.nav-secondary {
+  padding: 6px 0;
+  border-bottom: none;
+  color: #5f6b76;
+  font-weight: 500;
+  font-size: 13px;
+}
+.nav-link.nav-secondary:hover {
+  background: none;
+  border-bottom-color: transparent;
+  color: #255c99;
+  text-decoration: underline;
 }
 .skip-link {
   position: absolute;

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import re
+import zipfile
 from dataclasses import dataclass
 
 import openpyxl
@@ -10,6 +11,28 @@ from rapidfuzz import fuzz
 from xls_conversion.ai_parser import RECORD_TYPES, RecordTypeConfig
 
 Row = dict[str, str]
+
+# Zip-bomb defenses for an uploaded .xlsx -- an XLSX is a zip archive of XML
+# parts (worksheets, sharedStrings.xml, styles.xml, ...), and a tiny,
+# deliberately-repetitive entry can decompress to gigabytes before openpyxl
+# ever gets a chance to reject anything on content grounds. Same technique
+# and reasoning as app.py's extract_docx_text() DOCX guard -- ZipInfo.file_size
+# is the archive's own *declared* uncompressed size, checked before ever
+# calling .read() or handing the bytes to openpyxl.load_workbook() (which
+# decompresses every part up front, even in read_only mode). Verified against
+# a real crafted file: a ~20KB zip entry that declared, and unguarded would
+# have produced, a ~20MB decompressed XML payload.
+_MAX_ZIP_ENTRY_BYTES = 50_000_000  # 50MB -- generous for any one part of a legitimate index spreadsheet
+_MAX_ZIP_TOTAL_BYTES = 100_000_000  # 100MB decompressed, summed across every part in the archive
+
+# Caps a worksheet's own claimed dimensions. openpyxl trusts a sheet's own
+# <dimension> declaration in its XML, so a workbook can claim an enormous
+# row/column extent (up to Excel's own A1:XFD1048576 ceiling) for almost no
+# bytes -- passing the zip-size check above with room to spare while still
+# costing real time/memory to iterate. No real record-type template this app
+# ships even approaches these counts.
+_MAX_WORKSHEET_ROWS = 100_000
+_MAX_WORKSHEET_COLUMNS = 200
 
 # Below this score (rapidfuzz's 0-100 token_sort_ratio), suggest_mapping()
 # leaves a field unmapped rather than guessing wrong -- an unmapped field
@@ -53,11 +76,50 @@ def _trim_trailing_blanks(row: list[str]) -> list[str]:
     return trimmed
 
 
-def _open_workbook(file_bytes: bytes):
+def _check_zip_bomb_safety(file_bytes: bytes) -> None:
+    """Rejects an upload whose declared (pre-decompression) size is already
+    unreasonable, before any part of it is decompressed -- see the
+    _MAX_ZIP_*_BYTES comment above for why this has to happen at the zip
+    layer rather than after openpyxl has already expanded the content."""
     try:
-        return openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            total = 0
+            for info in archive.infolist():
+                if info.file_size > _MAX_ZIP_ENTRY_BYTES:
+                    raise RuntimeError("This file's content is too large to process.")
+                total += info.file_size
+                if total > _MAX_ZIP_TOTAL_BYTES:
+                    raise RuntimeError("This file's content is too large to process.")
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError("Could not read this file as an XLSX workbook.") from exc
+
+
+def _open_workbook(file_bytes: bytes):
+    # read_only=True was tried and deliberately not adopted here: it makes
+    # openpyxl trust a worksheet's own <dimension> XML tag for max_row/
+    # max_column rather than recalculating from the sheet's real cell data --
+    # and this app's own hand-rolled XLSX writer (spreadsheet_export.py)
+    # never emits a <dimension> tag at all, so every file this app has ever
+    # generated came back with max_row/max_column as None under read_only
+    # mode, breaking round-trip reads of this app's own output (confirmed:
+    # reproduced against a real spreadsheet_export.py-written file). Plain
+    # (non-read-only) mode instead recomputes real bounds from actual
+    # populated cells regardless of what a sheet's own <dimension> tag
+    # claims -- confirmed against a crafted file declaring dimension
+    # "A1:XFD1048576" with only one real cell: max_row/max_column came back
+    # 1/1, not 1048576/16384 -- so the caps below still do real work without
+    # needing read_only mode to get there.
+    _check_zip_bomb_safety(file_bytes)
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     except Exception as exc:  # openpyxl raises several distinct exception types
         raise RuntimeError("Could not read this file as an XLSX workbook.") from exc
+    for worksheet in workbook.worksheets:
+        if worksheet.max_row and worksheet.max_row > _MAX_WORKSHEET_ROWS:
+            raise RuntimeError("This file has more rows than this tool supports.")
+        if worksheet.max_column and worksheet.max_column > _MAX_WORKSHEET_COLUMNS:
+            raise RuntimeError("This file has more columns than this tool supports.")
+    return workbook
 
 
 @dataclass(frozen=True)

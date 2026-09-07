@@ -75,22 +75,6 @@ body {
   border: 0;
 }
 
-.site-logo {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-}
-
-.site-logo svg {
-  display: block;
-}
-
-.site-logo:focus-visible {
-  outline: 3px solid var(--blue);
-  outline-offset: 2px;
-  border-radius: 8px;
-}
-
 h1,
 h2,
 h3,
@@ -109,8 +93,20 @@ h2 {
 .header-nav-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  flex: 1;
+}
+
+/* Groups the secondary Getting Started link with the language flags on the
+   right side of .header-nav-row -- see static/base.css's own copy of this
+   rule for the full rationale (this page keeps a separate stylesheet, see
+   CLAUDE.md). */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
 .site-nav {
@@ -147,6 +143,23 @@ h2 {
 .nav-home {
   font-size: 17px;
   padding: 6px 9px;
+}
+
+/* Deliberately quieter than the main .nav-link items -- see static/base.css's
+   own copy of this rule for the full rationale. */
+.nav-link.nav-secondary {
+  padding: 6px 0;
+  border-bottom: none;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.nav-link.nav-secondary:hover {
+  background: none;
+  border-bottom-color: transparent;
+  color: var(--blue);
+  text-decoration: underline;
 }
 
 .nav-link[aria-current="page"] {

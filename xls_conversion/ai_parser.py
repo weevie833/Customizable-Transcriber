@@ -99,6 +99,7 @@ GENERAL_EXTRACTION_RULES = f"""GENERAL RULES:
 - image_link must always be "".
 - When an entry says "on the same day", "on the aforementioned day", "on the aforesaid day", "on the said day", or equivalent language, inherit the date from the preceding entry.
 - A PREVIOUS RECORD CONTEXT may be supplied for the first entry in a block. Use it only when the source explicitly refers back to a preceding date.
+- CROSSED-OUT ENTRIES: if the entry's transcribed text contains the marker "[ENTRY CROSSED OUT BY SCRIBE]" anywhere, set crossed_out to "true" and still extract every other field normally from the rest of that entry's transcribed content -- do not skip the entry or blank its fields. If no such marker is present, set crossed_out to "false", even if the entry has an ordinary correction, insertion, or a strikethrough affecting only part of it.
 """
 
 
@@ -195,6 +196,7 @@ FIELDS — every object must contain all of these string fields:
 - mother_other_information: brief summary of every other stated detail about the mother, or ""
 - sponsors: all sponsors formatted "Surname, Given Name; Surname, Given Name", preserving source order, or ""
 - image_link: always ""
+- crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, or ""
 
 GENERAL RULES:
@@ -206,6 +208,7 @@ GENERAL RULES:
 - Preserve source name spellings exactly. Do not translate, modernize, anglicize, or silently correct names.
 - Split given names from surnames. Keep Italian surname prefixes such as da, dal, de, del, della, di, la, le, li, and lo with the surname.
 - Strip honorifics from the name fields, but retain relevant titles, occupations, status, age, residence, origin, legitimacy, and relationship information in the appropriate Other Information or Notes field.
+- CROSSED-OUT ENTRIES: if the entry's transcribed text contains the marker "[ENTRY CROSSED OUT BY SCRIBE]" anywhere, set crossed_out to "true" and still extract every other field normally from the rest of that entry's transcribed content -- do not skip the entry or blank its fields. If no such marker is present, set crossed_out to "false", even if the entry has an ordinary correction, insertion, or a strikethrough affecting only part of it.
 
 PAGE AND DATES:
 - page_number is the page number printed or written in the source register. Do not use an entry number, image number, filename number, or sequential row number as the page number.
@@ -438,6 +441,7 @@ FIELDS — every object must contain all of these string fields:
 - bride_mother_last_name: bride's mother's surname, or ""
 - witnesses: all witnesses formatted "Surname, Given Name; Surname, Given Name", preserving source order, or ""
 - image_link: always ""
+- crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, or ""
 
 """
@@ -506,6 +510,7 @@ FIELDS — every object must contain all of these string fields:
 - spouse_given_name: spouse's given and middle name(s), or ""
 - spouse_last_name: spouse's surname, or ""
 - image_link: always ""
+- crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, or ""
 
 """
@@ -571,6 +576,7 @@ FIELDS — every object must contain all of these string fields:
 - mother_age: mother's age as stated, or ""
 - maternal_grandfather: mother's own father's given and last name as stated, or ""
 - image_link: always ""
+- crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, or ""
 
 """
@@ -632,6 +638,7 @@ FIELDS — every object must contain all of these string fields:
 - spouse_given_name: spouse's given and middle name(s), or ""
 - spouse_last_name: spouse's surname, or ""
 - image_link: always ""
+- crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, or ""
 
 """
@@ -703,6 +710,7 @@ FIELDS — every object must contain all of these string fields:
 - bride_mother_given_name: bride's mother's given and middle name(s), or ""
 - bride_mother_last_name: bride's mother's surname, or ""
 - image_link: always ""
+- crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, or ""
 
 """
@@ -1282,6 +1290,26 @@ def preflight_generic(
     }
 
 
+# Prepended to a row's own notes whenever the AI extraction flags an entry
+# as crossed_out (see the CROSSED-OUT ENTRIES rule in GENERAL_EXTRACTION_RULES
+# and BATTESIMI_SYSTEM_PROMPT). This guarantees every crossed-out row states
+# the fact in plain text even in CSV output, which has no cell styling to
+# fall back on -- the XLSX export additionally strikes the whole row through
+# (see rows_to_xlsx_multi() in spreadsheet_export.py). Guarded by a substring
+# check in normalize_rows() so an AI that already wrote an equivalent note on
+# its own doesn't get it duplicated.
+#
+# Deliberately says nothing about whether a reason was given -- an earlier
+# version claimed "reason not stated in source" unconditionally, which was
+# false whenever the extracted notes already state one (e.g. "marked invalid,
+# duplicate of the previous entry"): that reason is appended right after this
+# marker (see below), so the combined text would contradict itself. This
+# marker only asserts the one fact normalize_rows() actually knows -- that the
+# entry was crossed out -- and leaves whatever the source does or doesn't say
+# about why to the notes text that follows it.
+CROSSED_OUT_NOTE = "Entry crossed out by scribe in original record."
+
+
 def normalize_rows(
     config: RecordTypeConfig,
     records: Iterable[dict[str, object]],
@@ -1297,6 +1325,15 @@ def normalize_rows(
             row["image_number"] = image_number
         if "image_link" in row:
             row["image_link"] = ""
+        # crossed_out isn't one of the visible output columns (config.fields)
+        # for any record type -- it drives XLSX strikethrough formatting only
+        # (rows_to_xlsx_multi(), spreadsheet_export.py), never a spreadsheet
+        # cell of its own -- so it's read directly off the raw AI record
+        # rather than through the config.fields loop above.
+        crossed_out = str(record.get("crossed_out", "") or "").strip().lower() in {"true", "yes", "1"}
+        row["crossed_out"] = crossed_out
+        if crossed_out and "notes" in row and CROSSED_OUT_NOTE.lower() not in row["notes"].lower():
+            row["notes"] = f"{CROSSED_OUT_NOTE} {row['notes']}".strip() if row["notes"] else CROSSED_OUT_NOTE
         for field_name in config.post_process_fields:
             row[field_name] = remove_parent_marital_details(row[field_name])
         for field_name in config.gender_fields:

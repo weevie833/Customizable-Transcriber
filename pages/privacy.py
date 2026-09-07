@@ -134,12 +134,6 @@ def privacy_page() -> str:
 <main id="main-content" tabindex="-1">
   <header class="site-header">
     <h1 class="sr-only">Privacy</h1>
-    <a class="site-logo" href="/" aria-label="Customizable Transcription — Home">
-      <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-        <rect width="40" height="40" rx="8" fill="#255c99"/>
-        <text x="20" y="27" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">CT</text>
-      </svg>
-    </a>
     <div class="header-nav-row">
       <nav class="site-nav" aria-label="Primary navigation">
         <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
@@ -148,9 +142,12 @@ def privacy_page() -> str:
         <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
         <a class="nav-link" href="/test-mode">Test Mode</a>
       </nav>
-      <div class="lang-toggle" role="group" aria-label="Language / Lingua">
-        <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
-        <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+      <div class="header-right">
+        <a class="nav-link nav-secondary" href="/getting-started">Getting Started</a>
+        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+        </div>
       </div>
     </div>
   </header>

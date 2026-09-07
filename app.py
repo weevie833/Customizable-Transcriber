@@ -975,6 +975,24 @@ def neutral_system_scaffold(tool: str, role_context: str, output_format: str) ->
         "location on the page, or the entry formula -- even when the same information genuinely appears "
         "elsewhere in the entry. If two such blocks disagree, transcribe each exactly as it appears in its own "
         "location and flag the disagreement; do not resolve it by editing either block.\n\n"
+        "# CROSSED-OUT ENTRIES\n"
+        "- A whole-entry cancellation usually looks different from ordinary damage or an illegible word: one "
+        "or more long diagonal or zigzag strokes drawn across the full width of the entry, continuing from "
+        "its first line down through its last line -- not a short mark confined to a single word or name. "
+        "Before concluding that a stroke crossing a word only makes that one word illegible or corrected, "
+        "check whether the same stroke continues across the entry's other lines above and below it; if it "
+        "does, the whole entry was cancelled, not just that one word.\n"
+        "- If the scribe crossed out, struck through, voided, or otherwise visibly cancelled an entire "
+        "entry in the source (for example marking it invalid, an error, or a duplicate) -- regardless of "
+        "whether the reason is stated or knowable -- still transcribe that entry's full content exactly as "
+        "you would any other entry; never skip it, summarize it, or leave it blank.\n"
+        "- In addition, include the literal marker \"[ENTRY CROSSED OUT BY SCRIBE]\" once, somewhere within "
+        "that entry's own transcribed content -- for example immediately after the first word or name "
+        "affected, the same way you already flag an uncertain reading with [Name?] or [illegible] -- so it "
+        "is unambiguously attached to this entry and not to a neighboring one.\n"
+        "- Use this exact marker only when the scribe cancelled the entire entry. Do not use it for an "
+        "ordinary correction, insertion, or a strikethrough affecting only a single word, name, or phrase "
+        "within an otherwise-valid entry.\n\n"
         "# OUTPUT FORMAT\n"
         + format_text
     )
@@ -1107,12 +1125,6 @@ def getting_started_page() -> str:
 <main id="main-content" tabindex="-1">
   <header class="site-header">
     <h1 class="sr-only">Getting Started</h1>
-    <a class="site-logo" href="/" aria-label="Customizable Transcription — Home">
-      <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-        <rect width="40" height="40" rx="8" fill="#255c99"/>
-        <text x="20" y="27" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">CT</text>
-      </svg>
-    </a>
     <div class="header-nav-row">
       <nav class="site-nav" aria-label="Primary navigation">
         <a class="nav-link nav-home" href="/" aria-label="Home" title="Home">🏠</a>
@@ -1121,9 +1133,12 @@ def getting_started_page() -> str:
         <a class="nav-link" href="/xls-conversion">XLSX Conversion</a>
         <a class="nav-link" href="/test-mode">Test Mode</a>
       </nav>
-      <div class="lang-toggle" role="group" aria-label="Language / Lingua">
-        <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
-        <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+      <div class="header-right">
+        <a class="nav-link nav-secondary" href="/getting-started" aria-current="page">Getting Started</a>
+        <div class="lang-toggle" role="group" aria-label="Language / Lingua">
+          <button type="button" class="lang-flag" data-lang="en" aria-pressed="true" title="English" aria-label="English">🇺🇸</button>
+          <button type="button" class="lang-flag" data-lang="it" aria-pressed="false" title="Italiano" aria-label="Italiano">🇮🇹</button>
+        </div>
       </div>
     </div>
   </header>

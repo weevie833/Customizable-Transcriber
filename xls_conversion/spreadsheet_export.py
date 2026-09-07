@@ -146,10 +146,20 @@ def rows_to_xlsx_multi(sheets: Sequence[SheetSpec]) -> bytes:
     for index, spec in enumerate(sheets, start=1):
         name = sanitize_sheet_name(spec.sheet_name, used_names)
         used_names.append(name)
-        data_rows = [[row.get(field, "") for field in spec.fields] for row in spec.rows]
+        # Materialized once: crossed_out_flags below needs a second pass over
+        # the same rows, which would silently come back empty if spec.rows
+        # were a one-shot generator.
+        spec_rows = list(spec.rows)
+        data_rows = [[row.get(field, "") for field in spec.fields] for row in spec_rows]
         all_rows = [list(spec.group_headers), list(spec.column_headers), *data_rows]
+        # "crossed_out" is set by normalize_rows() (ai_parser.py) when an
+        # entry's own transcription carried the "[ENTRY CROSSED OUT BY
+        # SCRIBE]" marker -- never one of `spec.fields` (no visible column),
+        # so it survives only in the row dict itself. Header rows are never
+        # struck through.
+        crossed_out_flags = [False, False] + [bool(row.get("crossed_out")) for row in spec_rows]
         widths = list(spec.column_widths) if spec.column_widths is not None else BATTESIMI_COLUMN_WIDTHS
-        worksheet_xml = _worksheet_xml(all_rows, spec.numeric_columns, spec.padded_column, widths)
+        worksheet_xml = _worksheet_xml(all_rows, spec.numeric_columns, spec.padded_column, widths, crossed_out_flags)
         sheet_entries.append((index, name, worksheet_xml))
 
     content_type_overrides = "\n".join(
@@ -236,12 +246,14 @@ def _worksheet_xml(
     numeric_columns: frozenset[int],
     padded_column: int | None,
     column_widths: Sequence[int],
+    crossed_out_flags: Sequence[bool] | None = None,
 ) -> str:
     row_xml: list[str] = []
     for row_number, row in enumerate(rows, start=1):
-        style = 1 if row_number == 1 else 2 if row_number == 2 else 0
+        struck = bool(crossed_out_flags[row_number - 1]) if crossed_out_flags else False
+        style = 1 if row_number == 1 else 2 if row_number == 2 else (5 if struck else 0)
         cells = "".join(
-            _worksheet_cell(row_number, column_number, value, style, numeric_columns, padded_column)
+            _worksheet_cell(row_number, column_number, value, style, numeric_columns, padded_column, struck)
             for column_number, value in enumerate(row, start=1)
         )
         height = ' ht="24" customHeight="1"' if row_number <= 2 else ""
@@ -273,10 +285,14 @@ def _worksheet_cell(
     style: int,
     numeric_columns: frozenset[int],
     padded_column: int | None,
+    struck: bool = False,
 ) -> str:
     reference = _cell_reference(row, column)
     if row >= 3 and column in numeric_columns:
-        numeric_style = 3 if column == padded_column else 4
+        if struck:
+            numeric_style = 6 if column == padded_column else 7
+        else:
+            numeric_style = 3 if column == padded_column else 4
         return _numeric_cell(reference, value, numeric_style)
     return _inline_string_cell(reference, value, style)
 
@@ -319,9 +335,10 @@ def _styles_xml() -> str:
   <numFmts count="1">
     <numFmt numFmtId="164" formatCode="000"/>
   </numFmts>
-  <fonts count="2">
+  <fonts count="3">
     <font><sz val="11"/><name val="Aptos"/></font>
     <font><b/><color rgb="FF000000"/><sz val="11"/><name val="Aptos"/></font>
+    <font><strike/><sz val="11"/><name val="Aptos"/></font>
   </fonts>
   <fills count="2">
     <fill><patternFill patternType="none"/></fill>
@@ -331,7 +348,7 @@ def _styles_xml() -> str:
     <border><left/><right/><top/><bottom/><diagonal/></border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="5">
+  <cellXfs count="8">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
@@ -341,6 +358,9 @@ def _styles_xml() -> str:
     </xf>
     <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
     <xf numFmtId="1" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+    <xf numFmtId="164" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+    <xf numFmtId="1" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>"""

@@ -148,6 +148,35 @@ def test_identity_fallback_uses_global_best_first_assignment():
     assert pairs == {("Rollo", "Rollo"), ("Gagliardi", "Gagliardi")}
 
 
+def test_missing_first_entry_on_a_repeated_page_does_not_cascade_misalignment():
+    # Regression for a real defect: matching by (page, occurrence-index)
+    # alone paired truth's 2nd/3rd entries against the candidate's 1st/2nd
+    # once the candidate dropped the page's first entry, reporting the
+    # wrong person (the true last entry) as missing instead of the real
+    # gap, and silently mis-pairing everyone in between.
+    truth = [_row("34", "Alice"), _row("34", "Bob"), _row("34", "Carol")]
+    candidate = [_row("34", "Bob"), _row("34", "Carol")]  # Alice never made it into the candidate
+    result = align_rows(truth, candidate, MATRIMONI)
+    assert len(result.matched) == 2
+    pairs = {(t["groom_given_name"], c["groom_given_name"]) for t, c in result.matched}
+    assert pairs == {("Bob", "Bob"), ("Carol", "Carol")}
+    assert len(result.missing_from_candidate) == 1
+    assert result.missing_from_candidate[0]["groom_given_name"] == "Alice"
+    assert result.extra_in_candidate == []
+
+
+def test_missing_middle_entry_on_a_repeated_page_does_not_cascade_misalignment():
+    truth = [_row("34", "Alice"), _row("34", "Bob"), _row("34", "Carol")]
+    candidate = [_row("34", "Alice"), _row("34", "Carol")]  # Bob never made it into the candidate
+    result = align_rows(truth, candidate, MATRIMONI)
+    assert len(result.matched) == 2
+    pairs = {(t["groom_given_name"], c["groom_given_name"]) for t, c in result.matched}
+    assert pairs == {("Alice", "Alice"), ("Carol", "Carol")}
+    assert len(result.missing_from_candidate) == 1
+    assert result.missing_from_candidate[0]["groom_given_name"] == "Bob"
+    assert result.extra_in_candidate == []
+
+
 def test_locator_matches_take_priority_over_identity_fallback():
     # When locator-based matching already pairs everything, the identity
     # pass has nothing left to do and must not second-guess it.

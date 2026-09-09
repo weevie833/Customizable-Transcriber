@@ -95,8 +95,25 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
             "conjux / uxor = spouse / wife",
         ],
     },
+    # The 3 civil types' "label" values below say "Civil Battesimi"/"Civil
+    # Matrimoni"/"Civil Morti", not the plainer "Civil Birth"/"Civil
+    # Marriage"/"Civil Death" they used to -- the user's own choice, matching
+    # XLS Conversion's "Source material" dropdown (xls_conversion/index.html),
+    # which was renamed the same way first. This label drives this page's own
+    # record-type dropdown/headings AND -- via header_box_element() in
+    # app.py -- the "Record type: ..." line stamped into every transcription
+    # DOCX, which is what XLS Conversion's app.js reads back
+    # (DECLARED_LABEL_TO_VALUE) to auto-select its own dropdown. That table
+    # keeps the pre-rename labels mapped too, so a DOCX generated before this
+    # change still auto-detects correctly.
+    #
+    # Deliberately NOT applied to xls_conversion/ai_parser.py's own, separate
+    # RECORD_TYPES[...].label -- that string is also this app's literal
+    # Excel worksheet tab name and is spliced into the actual AI extraction
+    # prompt ("Extract every civil death entry..."), so it stays "Civil
+    # Birth"/"Civil Marriage"/"Civil Death" unless asked to change too.
     "civil_birth": {
-        "label": "Civil Birth",
+        "label": "Civil Battesimi",
         "has_marginal_heading_default": False,
         "marginal_heading_placeholder": "Numero [Act #]\n[Child's given name] [Child's surname]",
         "formula_fields": [
@@ -116,7 +133,7 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
         "role_vocab_extendable": True,
     },
     "civil_marriage": {
-        "label": "Civil Marriage",
+        "label": "Civil Matrimoni",
         "has_marginal_heading_default": False,
         "marginal_heading_placeholder": "Numero [Act #]\n[Groom's name] e [Bride's name]",
         "formula_fields": [
@@ -133,17 +150,32 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
         "role_vocab_stacked": True,
     },
     "civil_death": {
-        "label": "Civil Death",
+        "label": "Civil Morti",
         "has_marginal_heading_default": False,
         "marginal_heading_placeholder": "Numero [Act #]\n[Deceased's name]",
         "formula_fields": [
-            ("formula_act", "Act formula", "the declaration formula for the civil death act", False),
+            (
+                "formula_act",
+                "Act formula",
+                "Numero d'ordine [act number]\n"
+                "[Date] [Time of day] [Agent's name] Aggiunto ed Ufiziale dello Stato Civile del [District], sono comparsi [first declarant] di [declarant's city of residence] di anni [declarant's age] di professione [declarant's profession] domiciliato [where the declarant lives in the city] e [second declarant] di [declarant's city of residence] di anni [declarant's age] di professione [declarant's profession] domiciliato [where the declarant lives in the city] I quali han dichiarato, che nel giorno [date of death] alle [hour of death] è morta [decedent] di [decedent's city] di anni [decedent's age] di professione [decedent's occupation] domiciliata [where the decedent lives in the city] come sopra [son or daughter of] [status of father if deceased] [decedent's father if known] e [status of mother if deceased] [decedent's mother if known] ignorandosi il di lei stato voluto dalla legge.\n"
+                "Per esecuzione della legge, ci siamo trasferiti, insieme co' detti Testimonj, presso la persona defunta, e ne abbiamo riconosciuta la sua effettiva morte. Abbiamo indi formato il presente Atto, che abbiamo inscritto sopra i due registri, e datane lettura a' dichiaranti, si è nel giorno, mese, ed anno come sopra, segnato da Noi. e da essi dichiaranti",
+                False,
+                12,
+            ),
         ],
         "role_vocab": [
             "The informant's name, age, occupation, and domicile appear right after the opening clause, before the deceased is described",
             "Age and occupation are commonly stated",
             "The deceased's parentage is sometimes stated as unknown (e.g. \"ignoti genitori\") rather than named -- transcribe that statement literally rather than omitting it",
         ],
+        # These are full sentences (same reasoning as civil_marriage's own
+        # role_vocab_stacked above), not short "term = meaning" pairs -- the
+        # 2-column grid's minmax(max-content, 1fr) sized each column to its
+        # longest single-line item and forced every item onto one line
+        # (.pb-checklist-2col .pb-checkbox { white-space: nowrap }), so the
+        # longest sentence overflowed the panel instead of wrapping.
+        "role_vocab_stacked": True,
     },
 }
 

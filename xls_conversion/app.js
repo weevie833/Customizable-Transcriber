@@ -3,9 +3,9 @@
     battesimi: "Church Battesimi",
     matrimoni: "Church Matrimoni",
     morti: "Church Morti",
-    civil_birth: "Civil Birth",
-    civil_marriage: "Civil Marriage",
-    civil_death: "Civil Death",
+    civil_birth: "Civil Battesimi",
+    civil_marriage: "Civil Matrimoni",
+    civil_death: "Civil Morti",
   };
 
   const AI_READY = new Set(["battesimi", "matrimoni", "morti", "civil_birth", "civil_marriage", "civil_death"]);
@@ -129,24 +129,61 @@
     return recordType.value;
   }
 
+  // Maps a Prompt Builder profile's declared "Record type: <label>" text --
+  // written into every transcription DOCX by header_box_element() (app.py)
+  // from PROMPT_BUILDER_RECORD_TYPES's own "label" field
+  // (prompt_builder_content.py) -- to this page's own <option value>.
+  //
+  // This used to be a live match against this page's own <option> textContent
+  // instead of a fixed table -- the comment here even said so, on the theory
+  // that keeping the two pages' displayed text identical would keep them from
+  // drifting apart "without a separate lookup table." That theory broke the
+  // first time it was tested: this page's own Civil Birth/Marriage/Death
+  // options were renamed to Civil Battesimi/Matrimoni/Morti for terminology
+  // consistency with the Church options, but Prompt Builder's own label
+  // (baked into every already-existing DOCX) still said "Civil Birth"/
+  // "Civil Marriage"/"Civil Death" at the time. The live match silently
+  // found no option with that exact text and gave up, leaving the dropdown
+  // on its default ("Church Battesimi") -- exactly the bug this replaces.
+  // An explicit table keyed by Prompt Builder's own label text, independent
+  // of whatever this page's own option happens to display, can't be broken
+  // by either page's display text changing on its own again.
+  //
+  // Prompt Builder's own label has since been renamed to match (same "Civil
+  // Battesimi"/"Civil Matrimoni"/"Civil Morti" text) -- but the legacy
+  // "Civil Birth"/"Civil Marriage"/"Civil Death" entries below stay
+  // permanently, mapped to the same values, so a DOCX generated before that
+  // rename (there will always be some sitting on someone's disk) still
+  // auto-detects correctly.
+  const DECLARED_LABEL_TO_VALUE = {
+    "Church Battesimi": "battesimi",
+    "Church Matrimoni": "matrimoni",
+    "Church Morti": "morti",
+    "Civil Battesimi": "civil_birth",
+    "Civil Matrimoni": "civil_marriage",
+    "Civil Morti": "civil_death",
+    "Civil Birth": "civil_birth", // legacy label, pre-dating the rename above
+    "Civil Marriage": "civil_marriage", // legacy label, pre-dating the rename above
+    "Civil Death": "civil_death", // legacy label, pre-dating the rename above
+  };
+
   // Reads the "Record type: <label>" line from the header box Prompt
   // Builder-produced transcriptions now carry (see docs/DESIGN.md's
-  // "Profile storage" section). Matched against this page's own <option> text rather
-  // than a separate label->key table, so the two can't drift out of sync.
-  // Scoped to the first ~1000 characters (the box is always at the very top)
-  // so nothing an entry's own text happens to contain can match instead.
-  // Silently does nothing when absent or unrecognized -- this is a
+  // "Profile storage" section), and maps it through DECLARED_LABEL_TO_VALUE
+  // above. Scoped to the first ~1000 characters (the box is always at the
+  // very top) so nothing an entry's own text happens to contain can match
+  // instead. Silently does nothing when absent or unrecognized -- this is a
   // convenience, not a requirement, and the dropdown stays fully editable.
   function applyDeclaredRecordType(text) {
     const sample = (text || "").slice(0, 1000);
     const match = sample.match(/^Record type:\s*(.+?)\s*$/m);
     if (!match) return null;
     const declaredLabel = match[1].trim();
-    const option = Array.from(recordType.options).find(
-      (opt) => opt.textContent.trim() === declaredLabel
-    );
+    const value = DECLARED_LABEL_TO_VALUE[declaredLabel];
+    if (!value) return null;
+    const option = Array.from(recordType.options).find((opt) => opt.value === value);
     if (!option) return null;
-    recordType.value = option.value;
+    recordType.value = value;
     recordType.dispatchEvent(new Event("change"));
     return declaredLabel;
   }

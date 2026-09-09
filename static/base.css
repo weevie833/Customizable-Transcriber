@@ -264,3 +264,42 @@ input[type="checkbox"]:focus-visible {
   outline: 3px solid rgba(37, 92, 153, 0.32);
   outline-offset: 2px;
 }
+
+/* Same "stays hollow unless checked" treatment as the checkbox rule above,
+   for radio buttons -- e.g. Prompt Builder's Page format question
+   (pages/prompt_builder.py's .pb-radio). Without this, an unselected radio
+   falls back to the browser/OS's own native rendering, which on at least
+   one reported combination painted the unselected option as a solid filled
+   circle indistinguishable at a glance from a selected one. A bare
+   input[type="radio"] selector, not scoped to a wrapper class, so any radio
+   on any page picks it up automatically, same reasoning as the checkbox rule. */
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  margin: 0;
+  border: 1.5px solid #8a8377;
+  border-radius: 50%;
+  background: #fff;
+  position: relative;
+  cursor: pointer;
+}
+input[type="radio"]:checked {
+  border-color: #255c99;
+}
+input[type="radio"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #255c99;
+}
+input[type="radio"]:focus-visible {
+  outline: 3px solid rgba(37, 92, 153, 0.32);
+  outline-offset: 2px;
+}

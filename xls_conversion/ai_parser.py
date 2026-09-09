@@ -45,6 +45,7 @@ def _timeout_error(elapsed: float) -> RuntimeError:
 # audited for stray braces.
 TARGET_RULE_TOKEN = "__TARGET_RULE__"
 TARGET_SOURCE_TOKEN = "__TARGET_SOURCE__"
+TARGET_LANGUAGE_TOKEN = "__TARGET_LANGUAGE__"
 
 
 def target_source_description(language: str, role: str) -> str:
@@ -100,6 +101,7 @@ GENERAL_EXTRACTION_RULES = f"""GENERAL RULES:
 - When an entry says "on the same day", "on the aforementioned day", "on the aforesaid day", "on the said day", or equivalent language, inherit the date from the preceding entry.
 - A PREVIOUS RECORD CONTEXT may be supplied for the first entry in a block. Use it only when the source explicitly refers back to a preceding date.
 - CROSSED-OUT ENTRIES: if the entry's transcribed text contains the marker "[ENTRY CROSSED OUT BY SCRIBE]" anywhere, set crossed_out to "true" and still extract every other field normally from the rest of that entry's transcribed content -- do not skip the entry or blank its fields. If no such marker is present, set crossed_out to "false", even if the entry has an ordinary correction, insertion, or a strikethrough affecting only part of it.
+- REGISTER FRONT MATTER: a block introduced with the locator "Front Matter:" (instead of the usual page/act locator) is the register's own opening or administrative material -- a title page, volume-covered date range, page count, judicial delegation, or similar -- not an individual record. Do not extract it as an entry; it contributes zero objects to the output array.
 """
 
 
@@ -559,25 +561,25 @@ CIVIL_BIRTH_SYSTEM_PROMPT = (
 Return a JSON array containing one object for every birth entry. Return only valid JSON with no Markdown or commentary.
 
 FIELDS — every object must contain all of these string fields:
-- act_number: the civil registry act/entry number stated in the source, or "" if not stated
+- act_number: the civil registry act/entry number stated in the source, always as plain numeric digits (for example "2", never "due" or "two" -- see NUMERIC FIELDS below), or "" if not stated
 - birth_year: four-digit birth year, or ""
-- birth_month: full English month name such as "January", or ""
+- birth_month: the month's full name written in __TARGET_LANGUAGE__ (for example "gennaio" for Italian, "January" for English), or ""
 - birth_day: numeric day without a leading zero, or ""
 - individual_given_name: the child's given and middle name(s), or ""
 - individual_last_name: the child's surname, or ""
-- gender: "Male", "Female", or ""
+- gender: the child's gender written in __TARGET_LANGUAGE__ ("Maschio"/"Femmina" for Italian, "Male"/"Female" for English), or ""
 - father_given_name: father's given and middle name(s), or ""
 - father_last_name: father's surname, or ""
-- father_age: father's age as stated, or ""
+- father_age: father's age, always as plain numeric digits (for example "45", never "quarantacinque" or "forty-five" -- see NUMERIC FIELDS below), or ""
 - father_occupation: father's stated occupation, or ""
 - paternal_grandfather: father's own father's given and last name as stated, or ""
 - mother_given_name: mother's given and middle name(s), or ""
 - mother_last_name: mother's surname, or ""
-- mother_age: mother's age as stated, or ""
+- mother_age: mother's age, always as plain numeric digits (for example "45", never "quarantacinque" or "forty-five" -- see NUMERIC FIELDS below), or ""
 - maternal_grandfather: mother's own father's given and last name as stated, or ""
 - image_link: always ""
 - crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
-- notes: concise semicolon-separated notes relevant to the record, or ""
+- notes: concise semicolon-separated notes relevant to the record, written in __TARGET_LANGUAGE__, or ""
 
 """
     + GENERAL_EXTRACTION_RULES
@@ -587,8 +589,15 @@ CIVIL ACT STRUCTURE:
 - act_number is the record's own act/entry number as stated in the source (for example "Act No. 45" or "N. 45"), not a page number and not a sequential row number.
 - paternal_grandfather and maternal_grandfather capture only the grandfather's name when the source explicitly names the father's father or the mother's father, a detail civil acts commonly include; leave "" when not stated.
 
+NUMERIC FIELDS:
+- act_number, father_age, and mother_age must always be plain numeric digits (matching regex ^\\d+$), never a spelled-out number word in any language, even when the source itself spells the number out (for example "Numero d'ordine due" -> "2"; "di anni quarantacinque" -> "45"). This is a stricter, field-specific version of the general "convert written-out numbers to numerals" rule above -- these fields must never contain a word at all, spelled-out or otherwise.
+
+FIELD LANGUAGE:
+- __TARGET_LANGUAGE__ governs every field marked above as language-dependent (birth_month, gender, notes). A value copied verbatim from the source -- a name, a place, an occupation -- is never translated, regardless of __TARGET_LANGUAGE__.
+
 NOTES:
 - Notes should capture the declarant's identity when not the father, home birth vs. institutional birth, legitimacy questions, late registration, corrections, and any other exceptional circumstances.
+- Do not record the time/hour of the declaration or birth in notes -- it is not useful for indexing purposes; a researcher who needs it can consult the transcript directly.
 - Keep notes concise and separate distinct notes with semicolons.
 """
 )
@@ -621,25 +630,25 @@ CIVIL_DEATH_SYSTEM_PROMPT = (
 Return a JSON array containing one object for every death entry. Return only valid JSON with no Markdown or commentary.
 
 FIELDS — every object must contain all of these string fields:
-- act_number: the civil registry act/entry number stated in the source, or ""
+- act_number: the civil registry act/entry number stated in the source, always as plain numeric digits (for example "2", never "due" or "two" -- see NUMERIC FIELDS below), or ""
 - death_year: four-digit death year, or ""
-- death_month: full English month name such as "January", or ""
+- death_month: the month's full name written in __TARGET_LANGUAGE__ (for example "gennaio" for Italian, "January" for English), or ""
 - death_day: numeric day without a leading zero, or ""
 - individual_given_name: the deceased's given and middle name(s), or ""
 - individual_last_name: the deceased's surname, or ""
-- gender: "Male", "Female", or ""
-- age: age at death as stated, or ""
+- gender: the deceased's gender written in __TARGET_LANGUAGE__ ("Maschio"/"Femmina" for Italian, "Male"/"Female" for English), or ""
+- age: age at death, always as plain numeric digits (for example "95", never "novantacinque" or "ninety-five" -- see NUMERIC FIELDS below), or ""
 - occupation: the deceased's stated occupation or status, or ""
 - father_given_name: father's given and middle name(s), or ""
 - father_last_name: father's surname, or ""
 - mother_given_name: mother's given and middle name(s), or ""
 - mother_last_name: mother's surname, or ""
-- spouse_status: "Married" or "Widowed" if stated, otherwise ""
+- spouse_status: whether the deceased was married or widowed, written in __TARGET_LANGUAGE__ (for Italian: "Vedovo"/"Vedova" for widowed, "Coniugato"/"Coniugata" for married, matching the deceased's own gender; for English: "Widowed"/"Married") if stated, otherwise ""
 - spouse_given_name: spouse's given and middle name(s), or ""
 - spouse_last_name: spouse's surname, or ""
 - image_link: always ""
 - crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
-- notes: concise semicolon-separated notes relevant to the record, or ""
+- notes: concise semicolon-separated notes relevant to the record, written in __TARGET_LANGUAGE__, or ""
 
 """
     + GENERAL_EXTRACTION_RULES
@@ -648,6 +657,12 @@ CIVIL ACT STRUCTURE:
 - act_number is the record's own act/entry number as stated in the source, not a page number and not a sequential row number.
 - Civil death acts are declared by an informant (often a relative or neighbor); extract the deceased's own details regardless of who made the declaration.
 
+NUMERIC FIELDS:
+- act_number and age must always be plain numeric digits (matching regex ^\\d+$), never a spelled-out number word in any language, even when the source itself spells the number out (for example "Numero d'ordine due" -> "2"; "di anni novantacinque" -> "95"). This is a stricter, field-specific version of the general "convert written-out numbers to numerals" rule above -- these two fields must never contain a word at all, spelled-out or otherwise.
+
+FIELD LANGUAGE:
+- __TARGET_LANGUAGE__ governs every field marked above as language-dependent (death_month, gender, spouse_status, notes). A value copied verbatim from the source -- a name, a place, an occupation -- is never translated, regardless of __TARGET_LANGUAGE__.
+
 FAMILY AND SPOUSE:
 - Extract parents from language such as "son/daughter of".
 - spouse_status records whether the deceased was married or widowed at death, from explicit language such as "husband of"/"wife of" (married) or "widower of"/"widow of" (widowed). Leave "" when not stated.
@@ -655,6 +670,7 @@ FAMILY AND SPOUSE:
 
 NOTES:
 - Notes should capture cause of death if stated, place of death if unusual, the informant's identity and relationship, and any other exceptional circumstances.
+- Do not record the time/hour of death or of the declaration in notes -- it is not useful for indexing purposes; a researcher who needs it can consult the transcript directly. Names and dates are what matter for indexing.
 - Keep notes concise and separate distinct notes with semicolons.
 """
 )
@@ -689,13 +705,13 @@ CIVIL_MARRIAGE_SYSTEM_PROMPT = (
 Return a JSON array containing one object for every marriage entry. Return only valid JSON with no Markdown or commentary.
 
 FIELDS — every object must contain all of these string fields:
-- act_number: the civil registry act/entry number stated in the source, or ""
+- act_number: the civil registry act/entry number stated in the source, always as plain numeric digits (for example "2", never "due" or "two" -- see NUMERIC FIELDS below), or ""
 - marriage_year: four-digit marriage year, or ""
-- marriage_month: full English month name such as "January", or ""
+- marriage_month: the month's full name written in __TARGET_LANGUAGE__ (for example "gennaio" for Italian, "January" for English), or ""
 - marriage_day: numeric day without a leading zero, or ""
 - groom_given_name: the groom's given and middle name(s), or ""
 - groom_last_name: the groom's surname, or ""
-- groom_age: groom's age as stated, or ""
+- groom_age: groom's age, always as plain numeric digits (for example "30", never "trenta" or "thirty" -- see NUMERIC FIELDS below), or ""
 - groom_occupation: groom's stated occupation, or ""
 - groom_father_given_name: groom's father's given and middle name(s), or ""
 - groom_father_last_name: groom's father's surname, or ""
@@ -703,7 +719,7 @@ FIELDS — every object must contain all of these string fields:
 - groom_mother_last_name: groom's mother's surname, or ""
 - bride_given_name: the bride's given and middle name(s), or ""
 - bride_last_name: the bride's surname, or ""
-- bride_age: bride's age as stated, or ""
+- bride_age: bride's age, always as plain numeric digits (for example "30", never "trenta" or "thirty" -- see NUMERIC FIELDS below), or ""
 - bride_occupation: bride's stated occupation, or ""
 - bride_father_given_name: bride's father's given and middle name(s), or ""
 - bride_father_last_name: bride's father's surname, or ""
@@ -711,7 +727,7 @@ FIELDS — every object must contain all of these string fields:
 - bride_mother_last_name: bride's mother's surname, or ""
 - image_link: always ""
 - crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
-- notes: concise semicolon-separated notes relevant to the record, or ""
+- notes: concise semicolon-separated notes relevant to the record, written in __TARGET_LANGUAGE__, or ""
 
 """
     + GENERAL_EXTRACTION_RULES
@@ -720,8 +736,15 @@ CIVIL ACT STRUCTURE:
 - act_number is the record's own act/entry number as stated in the source, not a page number and not a sequential row number.
 - Extract each spouse's parents from language such as "son/daughter of"; if a parent is deceased, still record their name and note the deceased status in notes rather than inventing a separate field.
 
+NUMERIC FIELDS:
+- act_number, groom_age, and bride_age must always be plain numeric digits (matching regex ^\\d+$), never a spelled-out number word in any language, even when the source itself spells the number out (for example "Numero d'ordine due" -> "2"; "di anni trenta" -> "30"). This is a stricter, field-specific version of the general "convert written-out numbers to numerals" rule above -- these fields must never contain a word at all, spelled-out or otherwise.
+
+FIELD LANGUAGE:
+- __TARGET_LANGUAGE__ governs every field marked above as language-dependent (marriage_month, notes). A value copied verbatim from the source -- a name, a place, an occupation -- is never translated, regardless of __TARGET_LANGUAGE__.
+
 NOTES:
 - Notes should capture prior marriages/widowhood, publication of banns, witnesses if named (civil acts often name witnesses without a dedicated column — record them here), consent given by parents for a minor, and any other exceptional circumstances.
+- Do not record the time/hour of the declaration or ceremony in notes -- it is not useful for indexing purposes; a researcher who needs it can consult the transcript directly.
 - Keep notes concise and separate distinct notes with semicolons.
 """
 )
@@ -735,9 +758,21 @@ FILENAME_KEYWORDS: dict[str, tuple[str, ...]] = {
     "battesimi": ("battesim", "baptism", "baptismal"),
     "matrimoni": ("matrimoni", "matrimonio", "marriage", "wedding"),
     "morti": ("morti", "morte", "death", "deaths", "burial"),
-    "civil_birth": ("birth", "nascita", "nascite"),
-    "civil_marriage": ("marriage", "matrimonio", "wedding"),
-    "civil_death": ("death", "morte"),
+    # The 3 civil types' own keyword lists were missing the Italian
+    # collective nouns Prompt Builder itself now generates
+    # ("battesim"/"matrimoni"/"morti" -- see static/prompt-builder.js's
+    # civil_birth/civil_marriage/civil_death nounSingular/nounPlural), so a
+    # profile named and saved using that exact convention (e.g. "Napoli
+    # Stella Morti V1", exported as
+    # "napoli-stella-morti-v1-transcription-....docx") false-positived this
+    # check against its own correct record type. "morti" without the
+    # trailing "e" doesn't match "morte", and "matrimoni" without the
+    # trailing "o" doesn't match "matrimonio" -- Italian's singular/plural
+    # endings differ, so each needed its own explicit entry rather than
+    # assuming the other civil types' existing keywords already covered it.
+    "civil_birth": ("birth", "nascita", "nascite", "battesim"),
+    "civil_marriage": ("marriage", "matrimonio", "matrimoni", "wedding"),
+    "civil_death": ("death", "morte", "morti"),
 }
 
 
@@ -1309,11 +1344,40 @@ def preflight_generic(
 # about why to the notes text that follows it.
 CROSSED_OUT_NOTE = "Entry crossed out by scribe in original record."
 
+# Non-English translations of CROSSED_OUT_NOTE, for the record types whose
+# own system prompt now asks for notes in __TARGET_LANGUAGE__ (the 3 civil
+# types -- see CIVIL_BIRTH/CIVIL_DEATH/CIVIL_MARRIAGE_SYSTEM_PROMPT's own
+# "FIELD LANGUAGE" section). Without this, a crossed-out entry in an
+# Italian-language run would get this one marker sentence silently left in
+# English, mismatched against the rest of that same notes cell. Falls back
+# to CROSSED_OUT_NOTE itself for English or any language without an entry
+# here, matching this function's prior (English-only) behavior exactly.
+CROSSED_OUT_NOTE_TRANSLATIONS = {
+    "italian": "Voce depennata dallo scriba nel documento originale.",
+}
+
+
+def crossed_out_note(target_language: str) -> str:
+    return CROSSED_OUT_NOTE_TRANSLATIONS.get(target_language.strip().lower(), CROSSED_OUT_NOTE)
+
+
+# Non-English gender labels normalize_rows() writes into config.gender_fields
+# -- same reasoning and same "falls back to English" default as
+# CROSSED_OUT_NOTE_TRANSLATIONS above.
+GENDER_LABELS_BY_LANGUAGE = {
+    "italian": ("Maschio", "Femmina"),
+}
+
+
+def gender_labels(target_language: str) -> tuple[str, str]:
+    return GENDER_LABELS_BY_LANGUAGE.get(target_language.strip().lower(), ("Male", "Female"))
+
 
 def normalize_rows(
     config: RecordTypeConfig,
     records: Iterable[dict[str, object]],
     image_number: str,
+    target_language: str = "English",
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for record in records:
@@ -1332,16 +1396,18 @@ def normalize_rows(
         # rather than through the config.fields loop above.
         crossed_out = str(record.get("crossed_out", "") or "").strip().lower() in {"true", "yes", "1"}
         row["crossed_out"] = crossed_out
-        if crossed_out and "notes" in row and CROSSED_OUT_NOTE.lower() not in row["notes"].lower():
-            row["notes"] = f"{CROSSED_OUT_NOTE} {row['notes']}".strip() if row["notes"] else CROSSED_OUT_NOTE
+        marker = crossed_out_note(target_language)
+        if crossed_out and "notes" in row and marker.lower() not in row["notes"].lower():
+            row["notes"] = f"{marker} {row['notes']}".strip() if row["notes"] else marker
         for field_name in config.post_process_fields:
             row[field_name] = remove_parent_marital_details(row[field_name])
+        male_label, female_label = gender_labels(target_language)
         for field_name in config.gender_fields:
-            gender = row[field_name].lower()
-            if gender in {"m", "male", "boy", "son"}:
-                row[field_name] = "Male"
-            elif gender in {"f", "female", "girl", "daughter"}:
-                row[field_name] = "Female"
+            gender = row[field_name].strip().lower()
+            if gender in {"m", "male", "maschio", "boy", "son"}:
+                row[field_name] = male_label
+            elif gender in {"f", "female", "femmina", "girl", "daughter"}:
+                row[field_name] = female_label
         # Internal bookkeeping only -- not an output column for record types
         # (the 3 civil types) whose template has no Image # column. Stripped
         # back out before rows are returned to the caller.
@@ -1429,8 +1495,21 @@ def parse_generic(
     blocks = split_image_blocks(text, image_range, image_overrides, process_all=process_all)
     system_prompt = config.system_prompt.replace(
         TARGET_RULE_TOKEN, target_rule_sentence(target_language, target_role)
-    ).replace(TARGET_SOURCE_TOKEN, target_source_description(target_language, target_role))
+    ).replace(
+        TARGET_SOURCE_TOKEN, target_source_description(target_language, target_role)
+    ).replace(TARGET_LANGUAGE_TOKEN, target_language)
     extraction_phrase = target_extraction_phrase(target_language, target_role)
+    # normalize_rows()'s gender/crossed-out-note output only follows
+    # target_language for the 3 civil types -- the only ones whose own
+    # system_prompt above (CIVIL_BIRTH/CIVIL_DEATH/CIVIL_MARRIAGE_SYSTEM_PROMPT's
+    # "FIELD LANGUAGE" section) actually asks the AI to write those values in
+    # __TARGET_LANGUAGE__. Battesimi/matrimoni/morti still hardcode "Male"/
+    # "Female" in their own FIELDS text regardless of target_language, so
+    # forcing "English" here for them preserves that -- passing the real
+    # target_language for those types would silently relabel an English value
+    # the AI wrote correctly (per its own prompt) into Italian, contradicting
+    # that prompt rather than respecting it.
+    normalize_language = target_language if config.key.startswith("civil_") else "English"
     rows: list[dict[str, str]] = []
     exceptions: list[str] = []
 
@@ -1529,7 +1608,7 @@ def parse_generic(
                 raise
             exceptions.append(f"Image {image_number or 'unknown'}: AI extraction failed ({exc}).")
             continue
-        normalized = normalize_rows(config, records, image_number)
+        normalized = normalize_rows(config, records, image_number, normalize_language)
 
         # Forward-flagged merge: the model was told (via previous_context,
         # above) to fold this block's first entry into the previous row
@@ -1565,7 +1644,7 @@ def parse_generic(
             retry_message = build_user_message(image_number, retry_context, block["text"])
             try:
                 retry_records = call_ai(api_key, model, system_prompt, retry_message)
-                retry_normalized = normalize_rows(config, retry_records, image_number)
+                retry_normalized = normalize_rows(config, retry_records, image_number, normalize_language)
             except Exception:
                 retry_normalized = None  # signal: retry itself failed
 

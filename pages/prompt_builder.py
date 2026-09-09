@@ -117,12 +117,19 @@ def pb_formula_fields_html(type_key: str, config: dict) -> str:
     # in one <span> (not left as bare siblings) so they land on the label's
     # first grid row together -- same fix as Name lexicon's label, see there.
     rows = []
-    for key, label, placeholder, optional in config["formula_fields"]:
+    for field in config["formula_fields"]:
+        # Most formulas are one short standing phrase and fit the default
+        # 2-row textarea; a field tuple may carry an optional 5th element
+        # (textarea_rows) when its sample text is long enough to need more
+        # -- e.g. civil_death's full declaration-of-death formula, several
+        # sentences long, not a single clause like the church formulas.
+        key, label, placeholder, optional = field[:4]
+        textarea_rows = field[4] if len(field) > 4 else 2
         note = " (optional — leave blank if this register has none)" if optional else ""
         info_button = pb_info_button_html(f"pb-info-formula-{type_key}-{key}", PB_FORMULA_INFO_TEXT)
         rows.append(
             f'      <label><span>{html.escape(label)}{note}{info_button}</span>\n'
-            f'        <textarea name="{type_key}_{key}" rows="2">{html.escape(placeholder)}</textarea>\n'
+            f'        <textarea name="{type_key}_{key}" rows="{textarea_rows}">{html.escape(placeholder)}</textarea>\n'
             f'      </label>'
         )
     return "\n".join(rows)

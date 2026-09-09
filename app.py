@@ -1209,10 +1209,16 @@ def header_box_element(
     The model/profile lines have no such restriction and are shown whenever
     the caller has them, which is unconditionally for every real run; the
     whole box is only skipped when write_docx() has nothing at all to put in
-    it. record_type is the same key/label pair XLS Conversion's own "Source
-    material" dropdown uses (PROMPT_BUILDER_RECORD_TYPES), so that page can
-    match the label back to a dropdown option without a separate lookup
-    table; an unrecognized or blank key just omits the line."""
+    it. record_type_label comes from PROMPT_BUILDER_RECORD_TYPES -- the same
+    dict XLS Conversion's own "Source material" dropdown was originally built
+    from -- but that page's own <option> text and this label are no longer
+    guaranteed to read identically (the dropdown's civil options were later
+    renamed to "Civil Battesimi"/"Civil Matrimoni"/"Civil Morti" without a
+    matching rename here). XLS Conversion's app.js matches this exact label
+    text back to a record type via its own explicit
+    DECLARED_LABEL_TO_VALUE table now, not by comparing against its
+    dropdown's live display text -- keep that table in sync if this label
+    ever changes. An unrecognized or blank key just omits the line."""
     ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     record_type_label = PROMPT_BUILDER_RECORD_TYPES.get(record_type, {}).get("label", "")
     # This box is generated once, server-side, and baked into a downloaded file --

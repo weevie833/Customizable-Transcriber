@@ -1,5 +1,14 @@
-// Generates the Prompt Builder worksheet DOCX files (church record types
-// only), one per record type per language.
+// Generates the Prompt Builder worksheet DOCX files -- the 3 church record
+// types (TYPES) plus, so far, one civil record type (CIVIL_TYPES.civil_death)
+// -- one per record type per language. Civil types use their own
+// section1Civil()/section2Civil()/section3Civil() builders instead of
+// section1()/section2()/section3(), since the live app itself asks a
+// genuinely different Section 1/2/3 field set for a civil_* record type (no
+// Era/Institution/Hand descriptor/Page-numbering scheme, a Page format radio
+// instead, English-only translation, Latin-specific vocabulary hidden by
+// default) -- see updateRecordTypeVisibility()/updateLanguageDefaults() in
+// static/prompt-builder.js. civil_birth and civil_marriage aren't built yet;
+// see the CIVIL_TYPES comment below for what's missing.
 //
 // Usage:
 //   npm install                       (once, installs the `docx` package)
@@ -10,9 +19,9 @@
 //   cd en && zip -X -j ../../../static/prompt-builder-worksheets/prompt-builder-worksheets-en.zip *.docx && cd ..
 //   cd it && zip -X -j ../../../static/prompt-builder-worksheets/prompt-builder-worksheets-it.zip *.docx && cd ..
 //
-// Edit the `strings()` function and the per-type TYPES config below, not the
-// generated .docx files directly -- same "rebuild, don't hand-edit" rule as
-// profiles/sources/chiusa-sclafani/build_prompt.py.
+// Edit the `strings()` function and the per-type TYPES/CIVIL_TYPES configs
+// below, not the generated .docx files directly -- same "rebuild, don't
+// hand-edit" rule as profiles/sources/chiusa-sclafani/build_prompt.py.
 
 const fs = require("fs");
 const path = require("path");
@@ -276,6 +285,31 @@ function strings(lang) {
     infoPrefix: it ? "Informazioni: " : "Info: ",
 
     pageLabel: it ? "Pagina " : "Page ",
+
+    // ---- Civil-only strings (source language defaults to Italian for these
+    // types, so the Latin-specific fields church worksheets always show --
+    // declension, month convention, and the Latin preset vocabulary --
+    // aren't asked here; see civilLatinGapNote below) ----
+    sourceLanguageAppDefaultCivilSuffix: it
+      ? " (impostazione predefinita dell'app per i registri civili)"
+      : " (app default for civil records)",
+
+    civilPageFormatLabel: it ? "Formato della pagina" : "Page format",
+    civilPageFormatOptions: it
+      ? ["Modulo prestampato con le voci compilate a mano (impostazione predefinita dell'app)", "Interamente manoscritto — nessun modulo prestampato sulla pagina"]
+      : ["Printed form with handwritten entries filled in (app default)", "Entirely handwritten -- no printed form on the page"],
+    civilPageFormatInfo: it
+      ? "I registri civili di questo periodo si presentano in due forme visivamente diverse: una narrazione interamente manoscritta (comune prima dell'adozione dei moduli prestampati nazionali), oppure un modulo prestampato con la formula legale fissa già presente sulla pagina e solo i nomi, le date e gli altri dettagli compilati a mano. Se il tuo registro è un modulo prestampato, l'IA viene istruita ad aspettarsi due grafie diverse sulla stessa pagina — il testo prestampato e la scrittura a mano del funzionario — e a dare priorità di accuratezza alle parti compilate a mano, poiché è lì che si trovano i nomi e le date rilevanti per l'indicizzazione."
+      : "Civil registers from this period take two visibly different forms: an entirely handwritten narrative (common before national printed templates were adopted), or a printed form with the fixed legal wording already on the page and only the names, dates, and other specifics filled in by hand. If your register is a printed form, the AI is told to expect two different scripts on the same page -- the printed boilerplate and the clerk's handwriting -- and to weigh transcription accuracy toward the handwritten fill-ins, since that is where the names and dates that matter for indexing are recorded.",
+
+    civilTranslationNote: it
+      ? "opzionale — lascia la casella deselezionata per un output di sola trascrizione, senza alcuna traduzione"
+      : "optional -- leave unchecked for a transcription-only output with no translation",
+    civilTranslationItems: it ? ["Inglese"] : ["English"],
+
+    civilLatinGapNote: it
+      ? "Le voci preimpostate di questo campo sono specifiche del latino e sono nascoste per impostazione predefinita nei registri civili (normalmente redatti in italiano). Usa lo spazio qui sotto per aggiungere i tuoi termini se il tuo registro utilizza un linguaggio ricorrente degno di nota."
+      : "The app's preset items for this field are Latin-specific and are hidden by default for civil records (normally written in Italian). Use the space below to add your own terms if your register uses recurring language worth noting.",
   };
 }
 
@@ -494,6 +528,155 @@ function section1(S, recordLabel) {
   ];
 }
 
+// ---------- Section 1 (civil) ----------
+// Civil records default to Italian, not Latin, so this omits every
+// church-only field the live app itself hides for a civil_* record type
+// (Era, Institution name, Hand descriptor, Page-numbering scheme, Page
+// number corner, Declension, Month-abbreviation convention) -- see
+// updateRecordTypeVisibility()/updateLanguageDefaults() in
+// static/prompt-builder.js. The Latin preset vocabulary checklists stay as
+// headings with a blank "add your own" area (same as the live page keeps
+// their "Add another" button visible even while the preset boxes are
+// hidden), rather than disappearing outright.
+
+function civilSourceLanguageOptions(S) {
+  return S.sourceLanguageOptions.map((text, i) =>
+    // Italian is index 1 in the shared sourceLanguageOptions array (Latin,
+    // Italian, Latin and Italian mixed, Other) -- tag it as this record
+    // type's own app default instead of Latin, which church types tag
+    // implicitly by simply listing it first.
+    i === 1 ? text + S.sourceLanguageAppDefaultCivilSuffix : text
+  );
+}
+
+function section1Civil(S, recordLabel) {
+  return [
+    ...sectionHeading(1, S.s1Title, S.s1Caption),
+
+    fieldLabel(S.recordTypeLabel),
+    new Paragraph({ spacing: { after: 160 }, indent: { left: 200 },
+      children: [new TextRun({ text: `☒  ${recordLabel}`, size: 21, bold: true })] }),
+
+    fieldLabel(S.sourceLanguageLabel),
+    ...choiceList(civilSourceLanguageOptions(S)),
+
+    fieldLabel(S.localityLabel, { note: S.localityNote }),
+    blankLine(),
+    fieldLabel(S.provinceLabel, { note: S.provinceNote }),
+    blankLine(),
+    fieldLabel(S.volumeLabel, { note: S.volumeNote }),
+    blankLine(),
+
+    fieldLabel(S.pageLayoutLabel),
+    ...choiceList(S.pageLayoutOptions),
+
+    fieldLabel(S.hourLabel),
+    ...choiceList(S.hourOptions),
+
+    fieldLabel(S.relativeDateLabel),
+    infoNote(S, S.civilLatinGapNote),
+    hint(S.addMoreRelativeDate),
+    ...blankLines(3),
+  ];
+}
+
+// ---------- Section 2 (civil) ----------
+
+function section2Civil(S, type) {
+  const out = [
+    ...sectionHeading(2, S.s2Title, S.s2Caption),
+
+    fieldLabel(S.marginalQuestionLabel),
+    soloCheckbox(S, S.marginalYesItem, { checkedByDefault: type.hasMarginalHeadingDefault }),
+    infoNote(S, S.marginalInfo(type.marginalPlaceholder)),
+
+    fieldLabel(S.marginalStructureLabel, { note: S.marginalStructureNote }),
+    writingBox(S, 3, type.marginalPlaceholder),
+  ];
+
+  for (const f of type.formulaFields) {
+    out.push(fieldLabel(f.label, f.optional ? { note: S.formulaOptionalNote } : undefined));
+    out.push(infoNote(S, S.formulaInfo));
+    out.push(writingBox(S, 4, f.placeholder));
+  }
+
+  out.push(fieldLabel(S.civilPageFormatLabel));
+  out.push(infoNote(S, S.civilPageFormatInfo));
+  out.push(...choiceList(S.civilPageFormatOptions));
+
+  out.push(fieldLabel(S.roleVocabLabel(type.label), { note: S.roleVocabNote }));
+  out.push(infoNote(S, S.roleVocabInfo));
+  out.push(defaultCheckedNote(S));
+  out.push(...checklistUnchecked(type.roleVocab));
+  out.push(hint(S.addMoreRoleVocab));
+  out.push(...blankLines(2));
+
+  out.push(fieldLabel(S.entryVariantsLabel, { note: S.entryVariantsNote }));
+  out.push(...blankLines(3));
+
+  out.push(fieldLabel(S.relationshipLabel));
+  out.push(infoNote(S, S.civilLatinGapNote));
+  out.push(hint(S.addMoreRelationship));
+  out.push(...blankLines(2));
+
+  out.push(fieldLabel(S.abbrevLabel));
+  out.push(infoNote(S, S.civilLatinGapNote));
+  out.push(hint(S.addMoreAbbrev));
+  out.push(...blankLines(3));
+
+  out.push(fieldLabel(S.scribalLabel));
+  out.push(infoNote(S, S.civilLatinGapNote));
+  out.push(hint(S.addMoreScribal));
+  out.push(...blankLines(2));
+
+  out.push(fieldLabel(S.surnameParticleLabel, { note: S.surnameParticleNote }));
+  out.push(soloCheckbox(S, S.surnameParticleItem, { checkedByDefault: true }));
+
+  out.push(fieldLabel(S.lexiconLabel, { note: S.lexiconNote }));
+  out.push(infoNote(S, S.lexiconInfo));
+  out.push(hint(S.lexiconHint));
+  out.push(writingBox(S, 10, null));
+
+  return out;
+}
+
+// ---------- Section 3 (civil) ----------
+// Civil profiles only ever offer an English translation (the source is
+// already Italian, so an Italian translation option would be meaningless --
+// see updateRecordTypeVisibility() in static/prompt-builder.js), and the
+// hint sentence is reworded for a single checkbox instead of "leave both
+// unchecked."
+
+function section3Civil(S) {
+  return [
+    ...sectionHeading(3, S.s3Title, S.s3Caption),
+
+    fieldLabel(S.exampleEntryLabel, { note: S.exampleEntryNote }),
+    writingBox(S, 8, null),
+
+    fieldLabel(S.translationLabel, { note: S.civilTranslationNote }),
+    ...checklistUnchecked(S.civilTranslationItems),
+
+    fieldLabel(S.translationStyleLabel, { note: S.translationStyleNote }),
+    ...checklistUnchecked(S.translationStyleItems),
+
+    fieldLabel(S.honorificsLabel),
+    infoNote(S, S.honorificsInfo),
+    defaultCheckedNote(S),
+    ...checklistUnchecked(S.honorificsItems),
+    hint(S.addMoreHonorifics),
+    ...blankLines(2),
+
+    spacer(200),
+    new Paragraph({
+      border: { top: { style: BorderStyle.SINGLE, size: 6, color: RULE, space: 8 } },
+      spacing: { before: 100, after: 40 },
+      children: [new TextRun({ text: S.profileNameLabel, bold: true, size: 21 })],
+    }),
+    blankLine(),
+  ];
+}
+
 // ---------- Section 2 ----------
 
 function section2(S, type) {
@@ -695,9 +878,58 @@ const TYPES = {
   },
 };
 
+// ---------- record type configs (civil) ----------
+// Field content (marginalPlaceholder, formulaFields' English placeholder
+// text, roleVocab) mirrors PROMPT_BUILDER_RECORD_TYPES["civil_death"] in
+// prompt_builder_content.py verbatim -- keep the two in sync if that config
+// changes. Only Civil Death is built for now (see main() below); civil_birth
+// and civil_marriage aren't added yet -- civil_birth in particular also has
+// the "baptism column" field pb_civil_fields_html() adds only for that type,
+// which section2Civil() doesn't yet know how to render.
+
+const CIVIL_TYPES = {
+  civil_death: {
+    fileSlug: "prompt-builder-worksheet-civil-death",
+    fileSlugIt: "generatore-di-prompt-morte-civile",
+    label: { en: "Civil Death", it: "Morte civile" },
+    hasMarginalHeadingDefault: false,
+    marginalPlaceholder: "Numero [Act #]\n[Deceased's name]",
+    formulaFields: {
+      // Kept in sync with prompt_builder_content.py's civil_death
+      // formula_fields placeholder -- see that file's own comment.
+      en: [
+        {
+          label: "Act formula",
+          placeholder: "Numero d'ordine [act number]\n[Date] [Time of day] [Agent's name] Aggiunto ed Ufiziale dello Stato Civile del [District], sono comparsi [first declarant] di [declarant's city of residence] di anni [declarant's age] di professione [declarant's profession] domiciliato [where the declarant lives in the city] e [second declarant] di [declarant's city of residence] di anni [declarant's age] di professione [declarant's profession] domiciliato [where the declarant lives in the city] I quali han dichiarato, che nel giorno [date of death] alle [hour of death] è morta [decedent] di [decedent's city] di anni [decedent's age] di professione [decedent's occupation] domiciliata [where the decedent lives in the city] come sopra [son or daughter of] [status of father if deceased] [decedent's father if known] e [status of mother if deceased] [decedent's mother if known] ignorandosi il di lei stato voluto dalla legge.\nPer esecuzione della legge, ci siamo trasferiti, insieme co' detti Testimonj, presso la persona defunta, e ne abbiamo riconosciuta la sua effettiva morte. Abbiamo indi formato il presente Atto, che abbiamo inscritto sopra i due registri, e datane lettura a' dichiaranti, si è nel giorno, mese, ed anno come sopra, segnato da Noi. e da essi dichiaranti",
+          optional: false,
+        },
+      ],
+      it: [
+        {
+          label: "Formula dell'atto",
+          placeholder: "Numero d'ordine [act number]\n[Date] [Time of day] [Agent's name] Aggiunto ed Ufiziale dello Stato Civile del [District], sono comparsi [first declarant] di [declarant's city of residence] di anni [declarant's age] di professione [declarant's profession] domiciliato [where the declarant lives in the city] e [second declarant] di [declarant's city of residence] di anni [declarant's age] di professione [declarant's profession] domiciliato [where the declarant lives in the city] I quali han dichiarato, che nel giorno [date of death] alle [hour of death] è morta [decedent] di [decedent's city] di anni [decedent's age] di professione [decedent's occupation] domiciliata [where the decedent lives in the city] come sopra [son or daughter of] [status of father if deceased] [decedent's father if known] e [status of mother if deceased] [decedent's mother if known] ignorandosi il di lei stato voluto dalla legge.\nPer esecuzione della legge, ci siamo trasferiti, insieme co' detti Testimonj, presso la persona defunta, e ne abbiamo riconosciuta la sua effettiva morte. Abbiamo indi formato il presente Atto, che abbiamo inscritto sopra i due registri, e datane lettura a' dichiaranti, si è nel giorno, mese, ed anno come sopra, segnato da Noi. e da essi dichiaranti",
+          optional: false,
+        },
+      ],
+    },
+    roleVocab: {
+      en: [
+        "The informant's name, age, occupation, and domicile appear right after the opening clause, before the deceased is described",
+        "Age and occupation are commonly stated",
+        "The deceased's parentage is sometimes stated as unknown (e.g. \"ignoti genitori\") rather than named -- transcribe that statement literally rather than omitting it",
+      ],
+      it: [
+        "Il nome, l'età, la professione e il domicilio del dichiarante compaiono subito dopo la formula di apertura, prima della descrizione del defunto",
+        "Età e professione sono generalmente indicate",
+        "La filiazione del defunto è talvolta indicata come sconosciuta (es. \"ignoti genitori\") anziché nominata -- trascrivi questa dicitura letteralmente invece di ometterla",
+      ],
+    },
+  },
+};
+
 // ---------- assemble & write ----------
 
-function buildDoc(lang, type) {
+function buildDoc(lang, type, isCivil = false) {
   const S = strings(lang);
   const recordLabel = type.label[lang];
   const typeForSection2 = {
@@ -708,12 +940,19 @@ function buildDoc(lang, type) {
     roleVocab: type.roleVocab[lang],
   };
 
-  const children = [
-    ...titleBlock(S, recordLabel),
-    ...section1(S, recordLabel),
-    ...section2(S, typeForSection2),
-    ...section3(S),
-  ];
+  const children = isCivil
+    ? [
+        ...titleBlock(S, recordLabel),
+        ...section1Civil(S, recordLabel),
+        ...section2Civil(S, typeForSection2),
+        ...section3Civil(S),
+      ]
+    : [
+        ...titleBlock(S, recordLabel),
+        ...section1(S, recordLabel),
+        ...section2(S, typeForSection2),
+        ...section3(S),
+      ];
 
   return new Document({
     creator: "Customizable Transcription",
@@ -761,7 +1000,16 @@ async function main() {
     fs.mkdirSync(dir, { recursive: true });
     for (const key of Object.keys(TYPES)) {
       const type = TYPES[key];
-      const doc = buildDoc(lang, type);
+      const doc = buildDoc(lang, type, false);
+      const buf = await Packer.toBuffer(doc);
+      const slug = lang === "it" ? type.fileSlugIt : type.fileSlug;
+      const outPath = path.join(dir, `${slug}.docx`);
+      fs.writeFileSync(outPath, buf);
+      console.log("wrote", outPath);
+    }
+    for (const key of Object.keys(CIVIL_TYPES)) {
+      const type = CIVIL_TYPES[key];
+      const doc = buildDoc(lang, type, true);
       const buf = await Packer.toBuffer(doc);
       const slug = lang === "it" ? type.fileSlugIt : type.fileSlug;
       const outPath = path.join(dir, `${slug}.docx`);

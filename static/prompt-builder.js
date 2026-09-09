@@ -23,9 +23,21 @@
     battesimi: { label: "Church Battesimi", nounSingular: "baptism", nounPlural: "baptisms", principal: "the baptized individual", locatorKind: "page", hasMarginalHeadingDefault: true },
     matrimoni: { label: "Church Matrimoni", nounSingular: "marriage", nounPlural: "marriages", principal: "the couple", locatorKind: "page", hasMarginalHeadingDefault: true },
     morti: { label: "Church Morti", nounSingular: "death", nounPlural: "deaths", principal: "the deceased", locatorKind: "page", hasMarginalHeadingDefault: true },
-    civil_birth: { label: "Civil Birth", nounSingular: "birth", nounPlural: "births", principal: "the child", locatorKind: "act", hasMarginalHeadingDefault: false },
-    civil_marriage: { label: "Civil Marriage", nounSingular: "marriage", nounPlural: "marriages", principal: "the couple", locatorKind: "act", hasMarginalHeadingDefault: false },
-    civil_death: { label: "Civil Death", nounSingular: "death", nounPlural: "deaths", principal: "the deceased", locatorKind: "act", hasMarginalHeadingDefault: false },
+    // nounSingular/nounPlural for the 3 civil types deliberately use the
+    // same Italian category words as their church counterparts' labels
+    // ("Church Battesimi"/"Church Matrimoni"/"Church Morti") instead of the
+    // plain English nouns church types still use below -- the user's own
+    // choice, for terminology consistency across civil and church records.
+    // Used as a fixed collective label (same as "Church Battesimi" is never
+    // inflected either), so nounSingular and nounPlural are identical here.
+    // label here is never actually read (checked: no callsite reads
+    // RECORD_TYPES[key].label) -- the record type's displayed name comes
+    // from PROMPT_BUILDER_RECORD_TYPES's own "label" (prompt_builder_content.py),
+    // rendered server-side. Kept in sync anyway so this dict doesn't show a
+    // stale name to the next person reading it.
+    civil_birth: { label: "Civil Battesimi", nounSingular: "Battesimi", nounPlural: "Battesimi", principal: "the child", locatorKind: "act", hasMarginalHeadingDefault: false },
+    civil_marriage: { label: "Civil Matrimoni", nounSingular: "Matrimoni", nounPlural: "Matrimoni", principal: "the couple", locatorKind: "act", hasMarginalHeadingDefault: false },
+    civil_death: { label: "Civil Morti", nounSingular: "Morti", nounPlural: "Morti", principal: "the deceased", locatorKind: "act", hasMarginalHeadingDefault: false },
   };
 
   var LATIN_DECLENSION_BLOCK = [
@@ -599,8 +611,22 @@
     var hasMarginal = document.querySelector('[name="' + typeField("hasMarginalHeading") + '"]');
     var includeMarginal = hasMarginal ? hasMarginal.checked : false;
 
-    var blockLines = ["# BLOCK STRUCTURE", "", "For every entry, emit these labeled blocks, in this order, SEPARATED BY BLANK LINES:", "",
-      "    " + locatorPreviewText(), ""];
+    // An "Act <act number>:" locator is never actually needed: unlike a page
+    // number (genuinely separate information -- where on the physical
+    // register an entry sits), the act number is always also stated inside
+    // the entry's own legal text ("Numero d'ordine uno...") and extracted
+    // from there directly by ai_parser.py's own act_number field -- this
+    // heading was never read by anything downstream, just a redundant
+    // restatement of a number already visible two lines below it. Confirmed
+    // against a real Civil Death transcript before removing it. The "Page
+    // <page number>:"/"Entry <n>:" locators stay -- neither is restated
+    // anywhere else in the entry, so removing those would be a real loss of
+    // information, not a redundancy.
+    var usesActLocator = typeMeta().locatorKind === "act" || pbVal("pageNumberScheme") === "native_acts";
+    var blockLines = ["# BLOCK STRUCTURE", "", "For every entry, emit these labeled blocks, in this order, SEPARATED BY BLANK LINES:", ""];
+    if (!usesActLocator) {
+      blockLines.push("    " + locatorPreviewText(), "");
+    }
     if (includeMarginal) {
       blockLines.push("    Marginal Heading: <verbatim transcription of the heading -- optional, omit if the page has none>", "");
     }
@@ -625,6 +651,45 @@
       }
     }
     parts.push(blockLines.join("\n"));
+
+    // Civil-only: a register's opening/title page (province, comune, and
+    // circondario; the year(s) and act type the volume covers; a page
+    // count; a judicial delegation or certification statement -- see the
+    // real 1850 Napoli "Atti di Morte" title page this was written
+    // against) states no dated act at all. Without an explicit exception,
+    // the entry-count anti-hallucination check above ("your entry count
+    // must equal that count") reads as "zero acts visible -> output
+    // nothing", silently dropping this content instead of preserving it.
+    // Fixed by giving it its own locator ("Front Matter:", not "Preamble:"
+    // -- the OUTPUT FORMAT rules above already use "no preamble" to mean
+    // "no AI-added commentary before your output", and reusing that word
+    // for a real transcribed block would read as a contradiction) so it's
+    // still transcribed and translated in full, but is clearly not one of
+    // the register's acts -- see GENERAL_EXTRACTION_RULES in
+    // xls_conversion/ai_parser.py for the matching instruction that tells
+    // the downstream XLS Conversion step to skip a block labeled this way
+    // rather than trying to force it into a spreadsheet row.
+    if (selectedRecordType().indexOf("civil_") === 0) {
+      var frontMatterLines = [
+        "# REGISTER FRONT MATTER",
+        "",
+        "An image may show this register's own opening or administrative material instead of any dated acts -- for example a title page naming the province, comune, and circondario; the year(s) and act type the volume covers; a page count; or a judicial delegation or certification statement. This is not an act, and the entry-count check above does not apply to it: do not skip it. Transcribe and translate it in full, using the same fidelity and uncertainty rules as any other page, but label the whole block with its own locator instead of the usual entry structure:",
+        "",
+        "    Front Matter:", "",
+        "    " + transcriptionLabel, "", "    <the full transcription>",
+      ];
+      langs.forEach(function (lang) {
+        var frontMatterTranslationLabel = useItalianLabels
+          ? "Traduzione in " + italianLanguageName(lang) + ":"
+          : lang + " Translation:";
+        frontMatterLines.push("", "    " + frontMatterTranslationLabel, "", "    <the full " + lang + " translation>");
+      });
+      frontMatterLines.push(
+        "",
+        "This \"Front Matter:\" locator tells the downstream XLS Conversion step this text is not one of the register's acts, so it is never turned into a spreadsheet row."
+      );
+      parts.push(frontMatterLines.join("\n"));
+    }
 
     var examples = pbExampleEntries();
     if (examples.length === 1) {

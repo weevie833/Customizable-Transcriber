@@ -341,9 +341,9 @@
     "Role-clause vocabulary for Church Battesimi (optional)": "Vocabolario delle formule di ruolo per Battesimi parrocchiali (opzionale)",
     "Role-clause vocabulary for Church Matrimoni (optional)": "Vocabolario delle formule di ruolo per Matrimoni parrocchiali (opzionale)",
     "Role-clause vocabulary for Church Morti (optional)": "Vocabolario delle formule di ruolo per Morti parrocchiali (opzionale)",
-    "Role-clause vocabulary for Civil Birth (optional)": "Vocabolario delle formule di ruolo per Nascita civile (opzionale)",
-    "Role-clause vocabulary for Civil Marriage (optional)": "Vocabolario delle formule di ruolo per Matrimonio civile (opzionale)",
-    "Role-clause vocabulary for Civil Death (optional)": "Vocabolario delle formule di ruolo per Morte civile (opzionale)",
+    "Role-clause vocabulary for Civil Battesimi (optional)": "Vocabolario delle formule di ruolo per Battesimi civili (opzionale)",
+    "Role-clause vocabulary for Civil Matrimoni (optional)": "Vocabolario delle formule di ruolo per Matrimoni civili (opzionale)",
+    "Role-clause vocabulary for Civil Morti (optional)": "Vocabolario delle formule di ruolo per Morti civili (opzionale)",
     "P.nus / Patrinus = godfather (one male)": "P.nus / Patrinus = padrino (un uomo)",
     "P.na / Patrina = godmother (one female)": "P.na / Patrina = madrina (una donna)",
     "PP. / Patrini = two or more godparents": "PP. / Patrini = due o più padrini/madrine",
@@ -492,9 +492,20 @@
     "Church Battesimi": "Battesimi parrocchiali",
     "Church Matrimoni": "Matrimoni parrocchiali",
     "Church Morti": "Morti parrocchiali",
-    "Civil Birth": "Nascita civile",
-    "Civil Marriage": "Matrimonio civile",
-    "Civil Death": "Morte civile",
+    // Shared by both XLS Conversion's "Source material" dropdown
+    // (xls_conversion/index.html + app.js) and Prompt Builder's own
+    // record-type dropdown/DOCX "Record type:" label
+    // (prompt_builder_content.py's "label" field) -- both were renamed from
+    // "Civil Birth"/"Civil Marriage"/"Civil Death" to this "X civili"
+    // pattern (matching "Church X"/"X parrocchiali" just above), so one set
+    // of entries now covers both pages. The old English source strings
+    // themselves are gone from the app entirely -- no DICTIONARY entry
+    // needed for them, but see xls_conversion/app.js's DECLARED_LABEL_TO_VALUE
+    // for where the old label text still has to be recognized, in a DOCX
+    // generated before this rename.
+    "Civil Battesimi": "Battesimi civili",
+    "Civil Matrimoni": "Matrimoni civili",
+    "Civil Morti": "Morti civili",
     "Upload the transcription": "Carica la trascrizione",
     "Select a Microsoft Word DOCX file containing the completed transcription and English translations.":
       "Seleziona un file DOCX di Microsoft Word contenente la trascrizione completata e le traduzioni in inglese.",

@@ -379,6 +379,45 @@ input[type="checkbox"]:focus-visible {
   outline-offset: 2px;
 }
 
+/* Same "stays hollow unless checked" treatment as the checkbox rule above,
+   for radio buttons (e.g. the "File type"/Source-material radios on this
+   page) -- matching static/base.css's own copy of this rule. A bare
+   input[type="radio"] selector, not scoped to a wrapper class, so any radio
+   on this page picks it up automatically. */
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  margin: 0;
+  border: 1.5px solid #8a8377;
+  border-radius: 50%;
+  background: #fff;
+  position: relative;
+  cursor: pointer;
+}
+
+input[type="radio"]:checked {
+  border-color: var(--blue);
+}
+
+input[type="radio"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+input[type="radio"]:focus-visible {
+  outline: 3px solid rgb(37 92 153 / 20%);
+  outline-offset: 2px;
+}
+
 .model-settings {
   display: grid;
   grid-template-columns: 1fr 1fr;

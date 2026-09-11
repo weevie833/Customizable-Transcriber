@@ -22,7 +22,7 @@ from unittest import mock
 import anthropic
 import pytest
 
-import app as ctapp
+import handlers.xls_conversion as xls_handlers
 
 
 def _get(host, port, path, cookiejar):
@@ -63,9 +63,9 @@ def jar(live_server):
 
 def test_preflight_fails_fast_on_bad_key_without_the_expensive_call(jar, monkeypatch):
     host, port, cookiejar = jar
-    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", mock.Mock(side_effect=_auth_error()))
+    monkeypatch.setattr(xls_handlers, "validate_api_key_with_retry", mock.Mock(side_effect=_auth_error()))
     expensive_call = mock.Mock(side_effect=AssertionError("preflight_records_with_ai() should not run after a bad key"))
-    monkeypatch.setattr(ctapp, "preflight_records_with_ai", expensive_call)
+    monkeypatch.setattr(xls_handlers, "preflight_records_with_ai", expensive_call)
 
     response = _post_json(
         host,
@@ -82,9 +82,9 @@ def test_preflight_fails_fast_on_bad_key_without_the_expensive_call(jar, monkeyp
 
 def test_detect_languages_fails_fast_on_bad_key_without_the_expensive_call(jar, monkeypatch):
     host, port, cookiejar = jar
-    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", mock.Mock(side_effect=_auth_error()))
+    monkeypatch.setattr(xls_handlers, "validate_api_key_with_retry", mock.Mock(side_effect=_auth_error()))
     expensive_call = mock.Mock(side_effect=AssertionError("detect_languages() should not run after a bad key"))
-    monkeypatch.setattr(ctapp, "detect_languages", expensive_call)
+    monkeypatch.setattr(xls_handlers, "detect_languages", expensive_call)
 
     response = _post_json(
         host,
@@ -105,10 +105,10 @@ def test_parse_fails_fast_on_bad_key_without_the_expensive_call(jar, monkeypatch
     # before the key check -- stub that out so this test isolates the key
     # check itself, the same way a real preflight pass followed by a
     # changed/bad key at Convert time would.
-    monkeypatch.setattr(ctapp, "validate_xls_preflight", mock.Mock(return_value=None))
-    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", mock.Mock(side_effect=_auth_error()))
+    monkeypatch.setattr(xls_handlers, "validate_xls_preflight", mock.Mock(return_value=None))
+    monkeypatch.setattr(xls_handlers, "validate_api_key_with_retry", mock.Mock(side_effect=_auth_error()))
     expensive_call = mock.Mock(side_effect=AssertionError("parse_records_with_ai() should not run after a bad key"))
-    monkeypatch.setattr(ctapp, "parse_records_with_ai", expensive_call)
+    monkeypatch.setattr(xls_handlers, "parse_records_with_ai", expensive_call)
 
     response = _post_json(
         host,
@@ -133,10 +133,10 @@ def test_detect_languages_honors_a_blank_key_via_env_fallback(jar, monkeypatch):
     succeeded using a real (env-sourced) key. This confirms the actual
     resolved key reaches detect_languages(), not the blank pasted value."""
     host, port, cookiejar = jar
-    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", mock.Mock(return_value=None))
-    monkeypatch.setattr(ctapp, "api_key", lambda project_dir: "env-sourced-gemini-key")
+    monkeypatch.setattr(xls_handlers, "validate_api_key_with_retry", mock.Mock(return_value=None))
+    monkeypatch.setattr(xls_handlers, "api_key", lambda project_dir: "env-sourced-gemini-key")
     monkeypatch.setattr(
-        ctapp, "claude_api_key", mock.Mock(side_effect=AssertionError("wrong provider resolver called"))
+        xls_handlers, "claude_api_key", mock.Mock(side_effect=AssertionError("wrong provider resolver called"))
     )
 
     captured = {}
@@ -145,7 +145,7 @@ def test_detect_languages_honors_a_blank_key_via_env_fallback(jar, monkeypatch):
         captured.update(kwargs)
         return {"languages": []}
 
-    monkeypatch.setattr(ctapp, "detect_languages", fake_detect_languages)
+    monkeypatch.setattr(xls_handlers, "detect_languages", fake_detect_languages)
 
     response = _post_json(
         host,
@@ -174,8 +174,8 @@ def test_all_three_endpoints_bound_the_key_check_to_preflight_timeout(jar, monke
         calls.append({"model": model, "timeout_seconds": timeout_seconds})
         raise _auth_error()
 
-    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", fake_validate)
-    monkeypatch.setattr(ctapp, "validate_xls_preflight", mock.Mock(return_value=None))
+    monkeypatch.setattr(xls_handlers, "validate_api_key_with_retry", fake_validate)
+    monkeypatch.setattr(xls_handlers, "validate_xls_preflight", mock.Mock(return_value=None))
 
     for path, extra in (
         ("/api/xls-conversion/preflight", {"record_type": "battesimi", "text": "x"}),
@@ -188,4 +188,4 @@ def test_all_three_endpoints_bound_the_key_check_to_preflight_timeout(jar, monke
 
     assert len(calls) == 3
     for call in calls:
-        assert call["timeout_seconds"] == ctapp.PREFLIGHT_TIMEOUT_SECONDS
+        assert call["timeout_seconds"] == xls_handlers.PREFLIGHT_TIMEOUT_SECONDS

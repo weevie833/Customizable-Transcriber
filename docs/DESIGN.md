@@ -8,14 +8,75 @@ comments throughout the repo point here by section.
 ## Codebase structure
 
 `app.py` originally held every page's HTML/CSS/JS render function, all
-request routing, and most business logic in one file. It has since been
-split by concern:
+request routing, all ~30 of its Handler class's HTTP-endpoint methods, and
+most business logic in one file. It has since been split by concern, in two
+passes: first the page-render functions and shared app state/profile
+storage, then (a later pass) the Handler class's own HTTP-endpoint methods.
 
 - **`pages/`** — one module per page (`transcribe.py`, `test_mode.py`,
   `prompt_builder.py`, `home.py`, `privacy.py`), each holding the render
   function for that page. `pages/__init__.py` holds `json_for_inline_script()`,
   `json_data_island_html()`, and `file_picker_html()`, small helpers more
   than one page needs.
+- **`handlers/`** — one module per feature area, each holding a
+  `*HandlerMixin` class of plain methods (`self` is a `BaseHTTPRequestHandler`)
+  that used to be defined directly on `app.py`'s `Handler` class:
+  - `xls_conversion.py` — the `/xls-conversion` page's `/api/xls-conversion/*`
+    endpoints (upload/parse/preflight/detect-languages/combine) plus the
+    small preflight-token cache tying a Preflight Test run to the Convert
+    request allowed to reuse its result.
+  - `index_compare.py` — Test Mode's "Compare Indexes (XLSX)" section's
+    `/api/index-compare/*` endpoints.
+  - `profiles.py` — profile CRUD from the Transcribe page's free-text
+    editor (`save_profile`/`delete_profile`), and every Prompt Builder
+    save/preflight/import/export endpoint, including Preflight Test's own
+    AI-calling logic (`critique_prompt_gap()`).
+  - `transcribe_run.py` / `test_mode_run.py` — the Transcribe and Test Mode
+    pages' own run controls (`/run`, `/test-mode/run`, stop/reset,
+    queueing, status/download) and, for Test Mode, its transcript-
+    comparison feature (`compare_test()`/`compare_report()`).
+  - `settings.py` — the folder-picker/settings endpoints (browse for a
+    source folder, type one in manually, open the outputs folder), plus
+    the per-OS subprocess-dispatch helpers those three endpoints call.
+
+  Business logic for XLS Conversion, Index Compare, and Test Mode's
+  transcript comparison already lived in their own packages
+  (`xls_conversion/`, `index_compare/`, `test_mode/`) before this split;
+  those packages stayed HTTP-agnostic (no `http.server`/multipart-parsing
+  awareness) by design, so each feature's HTTP-request-parsing/response-
+  shaping layer went into `handlers/` instead of into the existing package
+  — mirroring `pages/`'s own precedent of one dedicated module per concern,
+  not colocation with business logic. `app.py`'s `Handler` class composes
+  every mixin alongside `BaseHTTPRequestHandler` and keeps only what's
+  genuinely cross-cutting: routing (`do_GET`/`do_POST`), the CSRF/Host/
+  Origin security checks, the generic response helpers
+  (`respond()`/`respond_json()`/the `redirect_*()` methods), and static-
+  asset serving.
+- **`http_utils.py`** — generic HTTP-request parsing shared by every
+  `handlers/*.py` mixin (and by `app.py` itself): `FormData`,
+  `parse_post_form()`/`parse_json_body()`/`parse_multipart_form()`/
+  `uploaded_docx()`/`uploaded_docx_field()`/`extract_docx_text()`, plus the
+  request-size caps (`MAX_FORM_BYTES` and friends) and
+  `PREFLIGHT_TIMEOUT_SECONDS`. Exists as its own module for the same
+  reason `app_state.py` does: every `handlers/*.py` mixin needs these, but
+  `app.py` imports the mixins to compose `Handler`, so if these helpers
+  stayed in `app.py` every mixin would need to import them back from a
+  module that imports it — a circular import. `http_utils.py` depends on
+  nothing else in this app, so importing from it in either direction is
+  always safe.
+- **`run_support.py`** — the profile/model/file-type resolution helpers
+  (`selected_profile_id()`, `resolve_profile_for_run()`,
+  `selected_model()`, `selected_file_type()`, etc.), the DOCX-writing
+  functions (`write_docx()`/`header_box_element()`/`document_xml()`), and
+  the two background job functions (`run_job()`/`run_test_job()`) that
+  both `handlers/transcribe_run.py` and `handlers/test_mode_run.py` need —
+  plus a couple (`selected_profile_id()`/`resolve_profile_for_run()`) that
+  `handlers/profiles.py` also needs. Exists as its own module for the same
+  circular-import reason as `http_utils.py`. Unlike `profiles_store.py`,
+  this module *is* allowed to depend on `FormData`/HTTP-shaped input —
+  that's exactly why `selected_profile_id()`/`resolve_profile_for_run()`
+  live here and not in `profiles_store.py` (see that module's own
+  docstring on this boundary, predating this split).
 - **`app_state.py`** — the in-memory run state (`state`/`test_state` and
   their locks/events), the user-facing outputs directory, and app-settings
   persistence. This exists as its own module because both `app.py` (the
@@ -56,6 +117,23 @@ split by concern:
   (`content_types_xml()`, `root_rels_xml()`) that every DOCX writer in this
   codebase needs, plus `strip_xml_illegal_chars()` (see "Security hardening
   history" below).
+
+This kind of split has bitten the test suite's own sandboxing before (see
+`tests/conftest.py`'s `sandboxed_user_data` fixture docstring): a raw Path
+constant imported by value (`from x import SOME_PATH`) creates a second,
+independent binding in the importing module's own namespace, and
+monkeypatching only one of the two silently leaves the other pointing at
+the real directory. This split's own version of that check: `run_support.py`
+imports `PROFILES_DIR`/`USER_OUTPUTS_DIR` by value (both are read directly
+by `run_job()`/`run_test_job()`/`destination_output_file()`, not via a
+function call that would re-read `profiles_store`'s/`app_state`'s own
+patched copy), and `handlers/test_mode_run.py`/`handlers/settings.py` each
+import their own copy of `USER_OUTPUTS_DIR` too — all four now have their
+own line in the fixture. Functions imported by reference
+(`load_source_folder()`, `save_custom_profile()`, etc.) are not at risk the
+same way: calling any module's copy of that binding still runs the
+function's own original code body, which reads its *defining* module's
+globals internally, regardless of which module's name pointed at it.
 
 ## Profile storage: shipped examples vs. user data
 

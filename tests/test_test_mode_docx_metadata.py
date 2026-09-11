@@ -12,6 +12,7 @@ import zipfile
 from xml.etree import ElementTree
 
 import app as ctapp
+import run_support
 
 _NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -38,9 +39,9 @@ def test_test_mode_docx_includes_model_profile_and_record_type(
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(ctapp, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source_folder)
     monkeypatch.setattr(
-        ctapp, "validate_api_key_with_retry", lambda *args, **kwargs: None
+        run_support, "validate_api_key_with_retry", lambda *args, **kwargs: None
     )
 
     def fake_run_batch(config, project_dir, progress=None, cancel_requested=None):
@@ -48,7 +49,7 @@ def test_test_mode_docx_includes_model_profile_and_record_type(
         config.output_file.write_text("Some transcription text.", encoding="utf-8")
         return []
 
-    monkeypatch.setattr(ctapp, "run_batch", fake_run_batch)
+    monkeypatch.setattr(run_support, "run_batch", fake_run_batch)
 
     model = "gemini-2.5-pro"
     markdown_file = tmp_path / "run.md"

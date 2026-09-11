@@ -22,7 +22,10 @@ import pytest
 
 import app as ctapp
 import app_state
+import handlers.settings
+import handlers.test_mode_run
 import profiles_store
+import run_support
 
 
 @pytest.fixture
@@ -47,8 +50,23 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     side silently writes test data into the real directory while tests
     still appear to pass -- caught once already by inspection (profiles_store),
     and fixed proactively here a second time when app_state.py was split out
-    with its own copies of USER_OUTPUTS_DIR/APP_SETTINGS_FILE. See
-    docs/DESIGN.md's "Codebase structure" section for both."""
+    with its own copies of USER_OUTPUTS_DIR/APP_SETTINGS_FILE, and a third
+    time when the Handler-method modularization pass (see docs/DESIGN.md's
+    "Codebase structure" section) gave run_support.py its own copies of
+    PROFILES_DIR/USER_OUTPUTS_DIR (run_job()/run_test_job()/
+    destination_output_file() all read these as plain module-level values,
+    not through a function call that would re-read app_state's/
+    profiles_store's own patched copy at call time) and gave
+    handlers/test_mode_run.py and handlers/settings.py their own copies of
+    USER_OUTPUTS_DIR for the same reason. Functions imported by reference
+    (load_source_folder(), save_custom_profile(), etc.) are NOT at risk here
+    even when several modules each hold their own binding of the *function*
+    -- calling any of those bindings still runs the original function's own
+    code body, which reads its *own* defining module's globals internally.
+    Only a raw value (a Path constant) captured into a second module's
+    namespace via `from x import SOME_PATH` needs a matching patch in every
+    module that imported it that way; see docs/DESIGN.md's "Codebase
+    structure" section for this exact failure mode."""
     user_data_dir = tmp_path / "user-data"
     profiles_dir = user_data_dir / "profiles"
     outputs_dir = user_data_dir / "outputs"
@@ -64,6 +82,7 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     shipped_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(profiles_store, "PROFILES_DIR", shipped_dir)
     monkeypatch.setattr(ctapp, "PROFILES_DIR", shipped_dir)
+    monkeypatch.setattr(run_support, "PROFILES_DIR", shipped_dir)
 
     monkeypatch.setattr(profiles_store, "USER_DATA_DIR", user_data_dir)
     monkeypatch.setattr(profiles_store, "USER_PROFILES_DIR", profiles_dir)
@@ -80,6 +99,15 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     monkeypatch.setattr(app_state, "APP_SETTINGS_FILE", settings_file)
     monkeypatch.setattr(ctapp, "USER_OUTPUTS_DIR", outputs_dir)
     monkeypatch.setattr(ctapp, "APP_SETTINGS_FILE", settings_file)
+    # USER_OUTPUTS_DIR specifically is also captured by value (not read via a
+    # function call back into app_state) in run_support.py -- run_job()/
+    # run_test_job()/destination_output_file()/test_destination_output_file()
+    # all build paths from their own imported copy of this name -- and in
+    # handlers/test_mode_run.py's run_test() (its own markdown_file path) and
+    # handlers/settings.py's open_outputs_folder(). Each needs its own patch.
+    monkeypatch.setattr(run_support, "USER_OUTPUTS_DIR", outputs_dir)
+    monkeypatch.setattr(handlers.test_mode_run, "USER_OUTPUTS_DIR", outputs_dir)
+    monkeypatch.setattr(handlers.settings, "USER_OUTPUTS_DIR", outputs_dir)
 
     profiles_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)

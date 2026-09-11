@@ -17,7 +17,7 @@ from unittest import mock
 
 import pytest
 
-import app as ctapp
+import handlers.settings as settings_handlers
 
 
 def _fake_result(returncode=0, stderr=""):
@@ -28,57 +28,57 @@ def _fake_result(returncode=0, stderr=""):
 
 
 def test_macos_dispatch_uses_open(tmp_path, monkeypatch):
-    monkeypatch.setattr(ctapp.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(settings_handlers.platform, "system", lambda: "Darwin")
     calls = []
 
     def fake_run(args, **kwargs):
         calls.append(args)
         return _fake_result()
 
-    monkeypatch.setattr(ctapp.subprocess, "run", fake_run)
-    ctapp.open_folder_in_file_manager(tmp_path / "outputs")
+    monkeypatch.setattr(settings_handlers.subprocess, "run", fake_run)
+    settings_handlers.open_folder_in_file_manager(tmp_path / "outputs")
     assert calls[0][0] == "open"
 
 
 def test_windows_dispatch_ignores_nonzero_exit(tmp_path, monkeypatch):
     """explorer.exe routinely exits 1 even on success -- must not be treated
     as a failure the way the macOS/Linux branches treat it."""
-    monkeypatch.setattr(ctapp.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(ctapp.subprocess, "run", lambda args, **kwargs: _fake_result(returncode=1))
-    ctapp.open_folder_in_file_manager(tmp_path / "outputs")  # must not raise
+    monkeypatch.setattr(settings_handlers.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(settings_handlers.subprocess, "run", lambda args, **kwargs: _fake_result(returncode=1))
+    settings_handlers.open_folder_in_file_manager(tmp_path / "outputs")  # must not raise
 
 
 def test_linux_dispatch_uses_xdg_open(tmp_path, monkeypatch):
-    monkeypatch.setattr(ctapp.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(settings_handlers.platform, "system", lambda: "Linux")
     calls = []
 
     def fake_run(args, **kwargs):
         calls.append(args)
         return _fake_result()
 
-    monkeypatch.setattr(ctapp.subprocess, "run", fake_run)
-    ctapp.open_folder_in_file_manager(tmp_path / "outputs")
+    monkeypatch.setattr(settings_handlers.subprocess, "run", fake_run)
+    settings_handlers.open_folder_in_file_manager(tmp_path / "outputs")
     assert calls[0][0] == "xdg-open"
 
 
 def test_linux_missing_xdg_open_raises_clear_error(tmp_path, monkeypatch):
-    monkeypatch.setattr(ctapp.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(settings_handlers.platform, "system", lambda: "Linux")
 
     def fake_run(args, **kwargs):
         raise FileNotFoundError()
 
-    monkeypatch.setattr(ctapp.subprocess, "run", fake_run)
+    monkeypatch.setattr(settings_handlers.subprocess, "run", fake_run)
     with pytest.raises(RuntimeError):
-        ctapp.open_folder_in_file_manager(tmp_path / "outputs")
+        settings_handlers.open_folder_in_file_manager(tmp_path / "outputs")
 
 
 def test_macos_nonzero_exit_raises(tmp_path, monkeypatch):
-    monkeypatch.setattr(ctapp.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(settings_handlers.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(
-        ctapp.subprocess, "run", lambda args, **kwargs: _fake_result(returncode=1, stderr="denied")
+        settings_handlers.subprocess, "run", lambda args, **kwargs: _fake_result(returncode=1, stderr="denied")
     )
     with pytest.raises(RuntimeError):
-        ctapp.open_folder_in_file_manager(tmp_path / "outputs")
+        settings_handlers.open_folder_in_file_manager(tmp_path / "outputs")
 
 
 def test_folder_is_created_if_missing(tmp_path, monkeypatch):
@@ -87,15 +87,15 @@ def test_folder_is_created_if_missing(tmp_path, monkeypatch):
     rather than erroring, matching ensure_profiles_dir()'s own
     mkdir(exist_ok=True) pattern for the analogous profiles directory."""
     target = tmp_path / "not-yet-created" / "outputs"
-    monkeypatch.setattr(ctapp.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(ctapp.subprocess, "run", lambda args, **kwargs: _fake_result())
-    ctapp.open_folder_in_file_manager(target)
+    monkeypatch.setattr(settings_handlers.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(settings_handlers.subprocess, "run", lambda args, **kwargs: _fake_result())
+    settings_handlers.open_folder_in_file_manager(target)
     assert target.is_dir()
 
 
 def test_open_outputs_folder_endpoint_success(live_server, sandboxed_user_data, monkeypatch):
     host, port = live_server
-    monkeypatch.setattr(ctapp, "open_folder_in_file_manager", lambda path: None)
+    monkeypatch.setattr(settings_handlers, "open_folder_in_file_manager", lambda path: None)
 
     jar = CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))

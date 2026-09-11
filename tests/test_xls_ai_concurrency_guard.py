@@ -49,13 +49,13 @@ def _post_json(host, port, jar, path, payload):
 
 
 def test_concurrent_xls_ai_requests_across_different_endpoints_are_rejected(live_server, monkeypatch):
-    import app as ctapp
+    import handlers.xls_conversion as xls_handlers
 
     host, port = live_server
     jar = CookieJar()
     _request(host, port, "GET", "/", headers={"Host": f"{host}:{port}"}, cookiejar=jar)
 
-    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", lambda *args, **kwargs: None)
+    monkeypatch.setattr(xls_handlers, "validate_api_key_with_retry", lambda *args, **kwargs: None)
 
     slow_call_started = threading.Event()
     release_slow_call = threading.Event()
@@ -65,9 +65,9 @@ def test_concurrent_xls_ai_requests_across_different_endpoints_are_rejected(live
         release_slow_call.wait(timeout=5)
         return {"languages": []}
 
-    monkeypatch.setattr(ctapp, "detect_languages", slow_detect_languages)
+    monkeypatch.setattr(xls_handlers, "detect_languages", slow_detect_languages)
     monkeypatch.setattr(
-        ctapp,
+        xls_handlers,
         "preflight_records_with_ai",
         lambda **kwargs: {"ok": True, "entries": [], "issues": [], "reviewed_images": []},
     )

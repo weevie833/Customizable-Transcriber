@@ -21,6 +21,8 @@ import urllib.parse
 from http.cookiejar import Cookie, CookieJar
 
 import app as ctapp
+import handlers.test_mode_run as test_mode_handlers
+import run_support
 
 
 def _cookie_header(jar: CookieJar) -> str:
@@ -83,7 +85,7 @@ def test_mixed_provider_queue_requires_only_the_providers_in_use(
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(ctapp, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(test_mode_handlers, "load_source_folder", lambda: source_folder)
 
     captured_specs = []
     done_event = threading.Event()
@@ -92,7 +94,7 @@ def test_mixed_provider_queue_requires_only_the_providers_in_use(
         captured_specs.append(run_specs)
         done_event.set()
 
-    monkeypatch.setattr(ctapp, "run_test_job", fake_run_test_job)
+    monkeypatch.setattr(test_mode_handlers, "run_test_job", fake_run_test_job)
 
     profile = ctapp.save_custom_profile("Mixed Queue Profile", "role", "reference", "format")
 
@@ -165,7 +167,7 @@ def test_one_run_failure_does_not_abort_the_rest_of_the_queue(sandboxed_user_dat
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(ctapp, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source_folder)
 
     call_count = {"n": 0}
 
@@ -174,14 +176,14 @@ def test_one_run_failure_does_not_abort_the_rest_of_the_queue(sandboxed_user_dat
         if call_count["n"] == 1:
             raise RuntimeError("bad key")
 
-    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", flaky_validate)
+    monkeypatch.setattr(run_support, "validate_api_key_with_retry", flaky_validate)
 
     def fake_run_batch(config, project_dir, progress=None, cancel_requested=None):
         config.output_file.parent.mkdir(parents=True, exist_ok=True)
         config.output_file.write_text("Some transcription text.", encoding="utf-8")
         return []
 
-    monkeypatch.setattr(ctapp, "run_batch", fake_run_batch)
+    monkeypatch.setattr(run_support, "run_batch", fake_run_batch)
 
     run_1_id, run_2_id = "run-1", "run-2"
     with ctapp.test_lock:

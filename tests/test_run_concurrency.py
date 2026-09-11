@@ -16,6 +16,7 @@ import urllib.request
 from http.cookiejar import CookieJar
 
 import app as ctapp
+import handlers.transcribe_run as transcribe_handlers
 
 # Exceptions a spurious server-side connection reset can surface as, seen
 # during this file's own flaky-repro runs. RemoteDisconnected is already a
@@ -94,7 +95,7 @@ def test_two_concurrent_run_requests_only_start_one_job(live_server, sandboxed_u
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(ctapp, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(transcribe_handlers, "load_source_folder", lambda: source_folder)
 
     profile = ctapp.save_custom_profile("Race Test Profile", "role", "reference", "format")
 
@@ -112,7 +113,7 @@ def test_two_concurrent_run_requests_only_start_one_job(live_server, sandboxed_u
         with ctapp.lock:
             ctapp.state["running"] = False
 
-    monkeypatch.setattr(ctapp, "run_job", fake_run_job)
+    monkeypatch.setattr(transcribe_handlers, "run_job", fake_run_job)
 
     with ctapp.lock:
         ctapp.state["running"] = False

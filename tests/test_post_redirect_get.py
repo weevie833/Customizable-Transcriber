@@ -31,6 +31,8 @@ import urllib.parse
 from http.cookiejar import Cookie, CookieJar
 
 import app as ctapp
+import handlers.test_mode_run as test_mode_handlers
+import handlers.transcribe_run as transcribe_handlers
 
 
 def _cookie_header(jar: CookieJar) -> str:
@@ -95,8 +97,8 @@ def test_run_redirects_instead_of_rendering_html(live_server, sandboxed_user_dat
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(ctapp, "load_source_folder", lambda: source_folder)
-    monkeypatch.setattr(ctapp, "run_job", lambda form, output_file: None)
+    monkeypatch.setattr(transcribe_handlers, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(transcribe_handlers, "run_job", lambda form, output_file: None)
 
     profile = ctapp.save_custom_profile("Redirect Test Profile", "role", "reference", "format")
     try:
@@ -127,8 +129,8 @@ def test_test_mode_run_redirects_instead_of_rendering_html(live_server, sandboxe
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(ctapp, "load_source_folder", lambda: source_folder)
-    monkeypatch.setattr(ctapp, "run_test_job", lambda form, run_specs: None)
+    monkeypatch.setattr(test_mode_handlers, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(test_mode_handlers, "run_test_job", lambda form, run_specs: None)
 
     profile = ctapp.save_custom_profile("Redirect Test Mode Profile", "role", "reference", "format")
     try:

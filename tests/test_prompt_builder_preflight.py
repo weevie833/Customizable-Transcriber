@@ -18,7 +18,7 @@ from unittest import mock
 
 import anthropic
 
-import app as ctapp
+import handlers.profiles as profiles_handlers
 
 # Only needs to satisfy sniff_file_type()'s magic-byte check -- the real
 # transcribe_image() call is never expected to run in these tests, so the
@@ -87,9 +87,9 @@ def test_preflight_test_fails_fast_on_bad_key_without_the_expensive_call(live_se
         response=mock.Mock(status_code=401, headers={}),
         body={"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}},
     )
-    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", mock.Mock(side_effect=auth_error))
+    monkeypatch.setattr(profiles_handlers, "validate_api_key_with_retry", mock.Mock(side_effect=auth_error))
     expensive_call = mock.Mock(side_effect=AssertionError("transcribe_image() should not run after a bad key"))
-    monkeypatch.setattr(ctapp, "transcribe_image", expensive_call)
+    monkeypatch.setattr(profiles_handlers, "transcribe_image", expensive_call)
 
     response = _post_multipart(
         host,
@@ -111,10 +111,10 @@ def test_preflight_test_runs_the_real_call_when_the_key_check_passes(live_server
     jar = CookieJar()
     _get(host, port, "/", jar)
 
-    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", mock.Mock(return_value=None))
-    monkeypatch.setattr(ctapp, "make_client", mock.Mock(return_value=object()))
-    monkeypatch.setattr(ctapp, "transcribe_image", mock.Mock(return_value="raw transcription"))
-    monkeypatch.setattr(ctapp, "critique_prompt_gap", mock.Mock(return_value=["looks good"]))
+    monkeypatch.setattr(profiles_handlers, "validate_api_key_with_retry", mock.Mock(return_value=None))
+    monkeypatch.setattr(profiles_handlers, "make_client", mock.Mock(return_value=object()))
+    monkeypatch.setattr(profiles_handlers, "transcribe_image", mock.Mock(return_value="raw transcription"))
+    monkeypatch.setattr(profiles_handlers, "critique_prompt_gap", mock.Mock(return_value=["looks good"]))
 
     response = _post_multipart(
         host,

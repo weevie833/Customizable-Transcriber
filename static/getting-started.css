@@ -1,0 +1,74 @@
+/* Getting Started page ("/getting-started") styling, extracted from
+app.py's getting_started_page() inline <style> block -- see CODEX_REVIEW.md
+finding L-2 / HUMAN_DECISIONS.md. Content is unchanged from the inline
+block it replaced (the summary::before escape is a single backslash here,
+not the doubled "\\25B8" the Python string literal needed). */
+.panel p {
+  margin: 12px 0;
+}
+.gs-intro {
+  margin: 0 0 18px;
+  color: #5f6b76;
+}
+details.gs-section {
+  background: #ffffff;
+  border: 1px solid #d9d4c8;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+}
+details.gs-section summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 17px;
+}
+details.gs-section summary::-webkit-details-marker {
+  display: none;
+}
+details.gs-section summary::before {
+  content: "\25B8";
+  color: #255c99;
+  display: inline-block;
+  transition: transform 0.12s ease;
+}
+details.gs-section[open] summary::before {
+  transform: rotate(90deg);
+}
+.gs-body {
+  margin-top: 14px;
+}
+.gs-body p {
+  margin: 12px 0;
+}
+.gs-body ul, .gs-body ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+.gs-body li {
+  margin: 6px 0;
+}
+.gs-body a {
+  color: #255c99;
+}
+.gs-example {
+  background: #f4f5f6;
+  border: 1px solid #d9d4c8;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 12px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+@media (max-width: 720px) {
+  main {
+    width: min(100% - 28px, 980px);
+    padding-top: 20px;
+  }
+  .site-header { align-items: stretch; }
+}

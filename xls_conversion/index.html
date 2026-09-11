@@ -183,16 +183,7 @@
     </main>
 
     <script src="/static/app-common.js"></script>
-    <script>
-      // playAlertSound()/showSettingsAlert()/hideSettingsAlert() (loaded
-      // above from static/app-common.js, shared with Transcribe/Test Mode --
-      // see that file's own comment) read/write this as a plain top-level
-      // `let`, not a window.* property -- declared here, in a real inline
-      // <script> tag, rather than inside app.js's own IIFE, so it's visible
-      // to app-common.js's functions the same way it is on those two pages.
-      let settingsAlertReturnFocus = null;
-      document.getElementById("settings-alert-close").addEventListener("click", hideSettingsAlert);
-    </script>
+    <script src="/static/xls-conversion-init.js"></script>
     <script src="/xls-conversion/app.js"></script>
   </body>
 </html>

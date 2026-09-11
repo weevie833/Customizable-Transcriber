@@ -96,12 +96,12 @@
     "Used only for this browser session/request. It is not saved to the project files. Converting sends this key and the selected source content directly to your chosen AI provider's API — see PRIVACY.md.":
       "Usata solo per questa sessione/richiesta del browser. Non viene salvata nei file del progetto. La conversione invia questa chiave e il contenuto sorgente selezionato direttamente all'API del provider IA scelto — consulta PRIVACY.md.",
     "Paste your API key for this run": "Incolla la tua chiave API per questa esecuzione",
-    "API key for Model A": "Chiave API per il Modello A",
-    "API key for Model B": "Chiave API per il Modello B",
-    "Paste the API key for Model A": "Incolla la chiave API per il Modello A",
-    "Paste the API key for Model B": "Incolla la chiave API per il Modello B",
-    "Each key must match its model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model). Used for every run in the queue. Not saved to the project files. Submitting a run sends each key and the selected source content directly to that provider's API — see PRIVACY.md.":
-      "Ogni chiave deve corrispondere al provider del proprio modello (una chiave Gemini per un modello Gemini, una chiave Claude per un modello Claude). Usata per ogni esecuzione della coda. Non viene salvata nei file del progetto. L'avvio di un'esecuzione invia ciascuna chiave e il contenuto sorgente selezionato direttamente all'API di quel provider — consulta PRIVACY.md.",
+    "Gemini API key": "Chiave API Gemini",
+    "Claude API key": "Chiave API Claude",
+    "Paste your Gemini API key": "Incolla la tua chiave API Gemini",
+    "Paste your Claude API key": "Incolla la tua chiave API Claude",
+    "Only the key(s) actually needed are required -- if every model in use is Gemini, the Claude field can stay blank, and vice versa. Whichever key matches a given run's own model is the one used for that run, so one queue can freely mix Gemini and Claude models. Not saved to the project files. Submitting a run sends the matching key and the selected source content directly to that provider's API — see PRIVACY.md.":
+      "Sono richieste solo le chiavi effettivamente necessarie -- se tutti i modelli in uso sono Gemini, il campo Claude può restare vuoto, e viceversa. La chiave usata per ciascuna esecuzione è quella corrispondente al modello di quella esecuzione, quindi una singola coda può mescolare liberamente modelli Gemini e Claude. Non viene salvata nei file del progetto. L'avvio di un'esecuzione invia la chiave corrispondente e il contenuto sorgente selezionato direttamente all'API di quel provider — consulta PRIVACY.md.",
     "Process order": "Ordine di elaborazione",
     "Oldest-to-newest": "Dal più vecchio al più recente",
     "Newest-to-oldest": "Dal più recente al più vecchio",
@@ -143,8 +143,8 @@
     "Check selected settings before transcription.":
       "Controlla le impostazioni selezionate prima della trascrizione.",
     "A test run is already in progress.": "Un'esecuzione di test è già in corso.",
-    "Paste an API key for both Model A and Model B before running.":
-      "Incolla una chiave API sia per il Modello A che per il Modello B prima di procedere.",
+    "Paste the API key for each model provider in use before running.":
+      "Incolla la chiave API per ciascun provider di modello in uso prima di procedere.",
     "Select a prompt profile before running.": "Seleziona un profilo del prompt prima di procedere.",
     "Check selected settings before running.": "Controlla le impostazioni selezionate prima di procedere.",
     "Order:": "Ordine:",
@@ -584,14 +584,25 @@
     var italian = lang === "it";
 
     collectTextNodes(document.body).forEach(function (node) {
-      if (node.tbOrig === undefined) node.tbOrig = node.nodeValue;
-      if (italian) {
-        var trimmed = node.tbOrig.trim();
-        var translated = DICTIONARY[trimmed];
-        if (translated) node.nodeValue = node.tbOrig.replace(trimmed, translated);
-      } else {
-        node.nodeValue = node.tbOrig;
+      // node.tbOrig is the cached English baseline; node.tbLast is whatever
+      // this function itself last wrote into nodeValue (English or its
+      // translation). If something else (e.g. updateRunButton()'s
+      // runButton.title, or showSettingsAlert()'s raw .textContent =
+      // assignment on this same underlying text-node path) changed
+      // nodeValue since our own last write, current !== tbLast and that new
+      // value becomes the new baseline to translate from -- otherwise a
+      // dynamically-set string stays frozen at whatever it was the very
+      // first time this ran for that node. See the TRANSLATABLE_ATTRS loop
+      // below for the identical fix applied to attributes.
+      var current = node.nodeValue;
+      if (node.tbOrig === undefined || (node.tbLast !== undefined && current !== node.tbLast)) {
+        node.tbOrig = current;
       }
+      var trimmed = node.tbOrig.trim();
+      var translated = DICTIONARY[trimmed];
+      var next = italian && translated ? node.tbOrig.replace(trimmed, translated) : node.tbOrig;
+      node.nodeValue = next;
+      node.tbLast = next;
     });
 
     var titleEl = document.querySelector("title");
@@ -603,14 +614,27 @@
 
     TRANSLATABLE_ATTRS.forEach(function (attr) {
       var dataAttr = "data-tb-orig-" + attr;
+      var lastAttr = "data-tb-last-" + attr;
       document.querySelectorAll("[" + attr + "]").forEach(function (el) {
+        // Same fix as the text-node loop above, via a pair of DOM attributes
+        // instead of JS properties (data-tb-orig-<attr> / data-tb-last-<attr>)
+        // since attribute state, unlike node.tbOrig, needs to be readable by
+        // el.getAttribute(). Without this, a dynamic setter like
+        // updateRunButton() (pages/transcribe.py, pages/test_mode.py) that
+        // sets runButton.title more than once, each followed by
+        // tbRefreshLanguage(), would have its later titles overwritten back
+        // to whichever value got cached on the very first call.
+        var current = el.getAttribute(attr);
+        var last = el.getAttribute(lastAttr);
         var orig = el.getAttribute(dataAttr);
-        if (orig === null) {
-          orig = el.getAttribute(attr);
+        if (orig === null || (last !== null && current !== last)) {
+          orig = current;
           el.setAttribute(dataAttr, orig);
         }
         var translated = DICTIONARY[orig.trim()];
-        el.setAttribute(attr, italian && translated ? translated : orig);
+        var next = italian && translated ? translated : orig;
+        el.setAttribute(attr, next);
+        el.setAttribute(lastAttr, next);
       });
     });
 
@@ -701,8 +725,7 @@
         var PHRASES = {
           "choose a source folder": "scegliere una cartella di origine",
           "paste a Gemini API key": "incollare una chiave API di Gemini",
-          "paste an API key for Model A": "incollare una chiave API per il Modello A",
-          "paste an API key for Model B": "incollare una chiave API per il Modello B",
+          "paste a Claude API key": "incollare una chiave API di Claude",
           "select a prompt profile": "selezionare un profilo del prompt",
         };
         var clause = m[1];
@@ -718,20 +741,25 @@
     },
     {
       // apiKeyMismatchMessage() (Test Mode only): one or both sentences,
-      // space-joined (never both -- see the app-code comment on why a
-      // single regex with an optional second sentence covers this instead
-      // of two separate patterns).
-      re: /^The Model A API key doesn't look like a (Claude|Gemini) key\.(?: The Model B API key doesn't look like a (Claude|Gemini) key\.)?$/,
+      // space-joined in this fixed order (the Gemini-field check always
+      // runs, and is pushed, first) -- see the app-code comment on why one
+      // regex with an optional second sentence covers this instead of two
+      // separate patterns.
+      re: /^The Gemini API key looks like a Claude key -- check you pasted the right one\.(?: The Claude API key doesn't look like a Claude key\.)?$/,
       it: function (m) {
-        var out = "La chiave API del Modello A non sembra una chiave " + m[1] + ".";
-        if (m[2]) out += " La chiave API del Modello B non sembra una chiave " + m[2] + ".";
+        var out = "La chiave API Gemini sembra una chiave Claude -- controlla di aver incollato quella giusta.";
+        if (/ The Claude API key doesn't look like a Claude key\.$/.test(m[0])) {
+          out += " La chiave API Claude non sembra una chiave Claude.";
+        }
         return out;
       },
     },
     {
-      re: /^The Model B API key doesn't look like a (Claude|Gemini) key\.$/,
-      it: function (m) {
-        return "La chiave API del Modello B non sembra una chiave " + m[1] + ".";
+      // The Claude-field sentence can also appear alone (Gemini field
+      // fine, Claude field wrong).
+      re: /^The Claude API key doesn't look like a Claude key\.$/,
+      it: function () {
+        return "La chiave API Claude non sembra una chiave Claude.";
       },
     },
   ];

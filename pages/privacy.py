@@ -95,40 +95,7 @@ def privacy_page() -> str:
   <title>Privacy</title>
   <script src="/static/i18n.js" defer></script>
   <link rel="stylesheet" href="/static/base.css">
-  <style>
-    .panel {{
-      background: #ffffff;
-      border: 1px solid #d9d4c8;
-      border-radius: 8px;
-      padding: 24px 28px;
-      margin-bottom: 18px;
-    }}
-    .panel h2 {{
-      margin-top: 0;
-      font-size: 21px;
-    }}
-    .panel h3 {{
-      font-size: 17px;
-      margin-top: 26px;
-    }}
-    .panel p {{
-      margin: 12px 0;
-    }}
-    .panel ul, .panel ol {{
-      margin: 12px 0;
-      padding-left: 24px;
-    }}
-    .panel li {{
-      margin: 6px 0;
-    }}
-    @media (max-width: 720px) {{
-      main {{
-        width: min(100% - 28px, 980px);
-        padding-top: 20px;
-      }}
-      .site-header {{ align-items: stretch; }}
-    }}
-  </style>
+  <link rel="stylesheet" href="/static/privacy.css">
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>

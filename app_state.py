@@ -58,6 +58,19 @@ lock = threading.Lock()
 stop_event = threading.Event()
 xls_preflight_lock = threading.Lock()
 xls_preflight_cache: dict[str, dict[str, object]] = {}
+# Guards against two concurrent AI-backed XLS Conversion requests (Parse,
+# Preflight, Detect Languages) running at once -- see CODEX_REVIEW.md
+# finding M-2 / HUMAN_DECISIONS.md. Unlike lock/test_lock above, this isn't
+# reserving a *background job*: each of these three endpoints blocks its
+# own request thread for the AI call(s) it makes, with no persistent
+# "running" state to poll, so the guard is just "reject a second request
+# while one is still in flight" rather than a full run/reset/status
+# lifecycle. Deliberately one shared lock across all three endpoints, not
+# one each -- a user has no real reason to run two of them at once, and a
+# single lock is the simplest way to bound concurrent AI-provider cost/load
+# from this page without a larger job-queue rework (left as a documented,
+# deferred decision -- see HUMAN_DECISIONS.md's M-2 entry).
+xls_ai_lock = threading.Lock()
 
 
 def new_test_run_state() -> dict[str, str]:

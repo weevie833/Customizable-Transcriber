@@ -123,6 +123,41 @@ def test_parse_fails_fast_on_bad_key_without_the_expensive_call(jar, monkeypatch
     expensive_call.assert_not_called()
 
 
+def test_detect_languages_honors_a_blank_key_via_env_fallback(jar, monkeypatch):
+    """CODEX_REVIEW_2.md finding M-3: validate_api_key_with_retry() already
+    resolves a blank pasted key to a configured .env key internally (see
+    make_client()'s own fallback) and validates THAT -- but the handler
+    used to then call detect_languages() with the original, still-blank
+    api_key_value, which immediately rejected it with "Paste an API key
+    before detecting languages." even though validation had just
+    succeeded using a real (env-sourced) key. This confirms the actual
+    resolved key reaches detect_languages(), not the blank pasted value."""
+    host, port, cookiejar = jar
+    monkeypatch.setattr(ctapp, "validate_api_key_with_retry", mock.Mock(return_value=None))
+    monkeypatch.setattr(ctapp, "api_key", lambda project_dir: "env-sourced-gemini-key")
+    monkeypatch.setattr(
+        ctapp, "claude_api_key", mock.Mock(side_effect=AssertionError("wrong provider resolver called"))
+    )
+
+    captured = {}
+
+    def fake_detect_languages(**kwargs):
+        captured.update(kwargs)
+        return {"languages": []}
+
+    monkeypatch.setattr(ctapp, "detect_languages", fake_detect_languages)
+
+    response = _post_json(
+        host,
+        port,
+        cookiejar,
+        "/api/xls-conversion/detect-languages",
+        {"model": "gemini-2.5-pro", "gemini_api_key": "", "text": "x"},
+    )
+    assert response.status == 200
+    assert captured["api_key"] == "env-sourced-gemini-key"
+
+
 @pytest.mark.parametrize(
     "attr_name",
     ["validate_api_key_with_retry"],

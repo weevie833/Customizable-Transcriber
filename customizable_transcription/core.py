@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import mimetypes
 import os
 import random
 import re
@@ -92,6 +91,12 @@ DEFAULT_MODEL = "gemini-3.1-pro-preview"
 # image and letting the batch continue. 10 minutes is long enough that a
 # real response essentially always arrives well before it.
 BATCH_REQUEST_TIMEOUT_SECONDS = 600
+# Per-file ceiling for a batch source image -- see CODEX_REVIEW.md finding
+# M-1 / HUMAN_DECISIONS.md. Matches app.py's own MAX_DOCX_BYTES (50MB),
+# chosen as a size no legitimate archival page scan should realistically
+# exceed while still bounding the memory a single mislabeled/pathological
+# file can consume before it's even sent to a provider.
+MAX_BATCH_IMAGE_BYTES = 50_000_000
 USER_INSTRUCTION = "Transcribe and translate this document word-for-word."
 MONTHS = {
     "jan": 1,
@@ -143,7 +148,22 @@ class ImageResult:
     text: str
 
 
+# The only two variables this app's .env support was ever designed for --
+# see .env.example, which documents exactly these two and nothing else.
+_ENV_FILE_ALLOWED_KEYS = frozenset({"GEMINI_API_KEY", "ANTHROPIC_API_KEY"})
+
+
 def load_env_file(path: Path) -> None:
+    """Loads GEMINI_API_KEY/ANTHROPIC_API_KEY from a .env file into the
+    process environment, if not already set. Deliberately narrower than a
+    generic dotenv loader in two ways: (1) only the two keys this app
+    actually documents/uses are copied -- an unrelated line (a stray PROXY
+    or PATH override, say) in a hand-edited .env can't change this
+    process's network routing or executable resolution as a side effect of
+    just wanting to store an API key; (2) an already-set environment
+    variable is never overwritten, matching the common expectation (and
+    python-dotenv's own default) that an explicitly exported value takes
+    precedence over a dotenv file, not the other way around."""
     if not path.exists():
         return
 
@@ -152,7 +172,10 @@ def load_env_file(path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ[key.strip()] = value.strip().strip("\"'")
+        key = key.strip()
+        if key not in _ENV_FILE_ALLOWED_KEYS or key in os.environ:
+            continue
+        os.environ[key] = value.strip().strip("\"'")
 
 
 def api_key(project_dir: Path) -> str:
@@ -184,19 +207,21 @@ def provider_for_model(model: str) -> str:
 
 
 def key_looks_like_claude(api_key: str) -> bool:
+    """Loose, prefix-based sanity check -- not a substitute for a real API
+    call. Anthropic keys reliably start with "sk-ant-", so this is enough to
+    catch a key pasted into the wrong provider's field; Gemini/Google AI
+    keys don't have one universal prefix, so there's no equivalent positive
+    check for those, only "this doesn't look like a Claude key."
+
+    Test Mode's API key fields are scoped by provider (one Gemini field, one
+    Claude field -- see required_providers()/run_test() in app.py), so the
+    validation this enables is a direct per-field check: does the Claude
+    field's value look like a Claude key, and does the Gemini field's value
+    *not* look like one (which would mean a Claude key got pasted into the
+    wrong field). There's no longer a model-driven key_matches_provider()
+    wrapper, since which provider a given key is *for* is now declared by
+    which field it was typed into, not inferred from a model selection."""
     return api_key.strip().startswith("sk-ant-")
-
-
-def key_matches_provider(model: str, api_key: str) -> bool:
-    """Loose, prefix-based sanity check -- not a substitute for a real API call.
-
-    Anthropic keys reliably start with "sk-ant-", so a Claude model paired
-    with a key that doesn't start that way is unambiguously wrong. Gemini/
-    Google AI keys don't have one universal prefix, so a Gemini model just
-    requires the key to *not* look like an Anthropic one.
-    """
-    looks_claude = key_looks_like_claude(api_key)
-    return looks_claude if provider_for_model(model) == "claude" else not looks_claude
 
 
 def parse_date_folder(name: str) -> tuple[int, int, int] | None:
@@ -265,6 +290,46 @@ def display_name(path: Path, root: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return path.name
+
+
+def _path_is_or_contains_symlink(path: Path, root: Path) -> bool:
+    """True if `path` itself, or any directory between it and `root`
+    (exclusive), is a symlink. `Path.is_symlink()` alone only checks the
+    final path component -- a file reached through a symlinked *directory*
+    (source_folder/aliased_subdir/page.jpg, say) would otherwise pass that
+    check even though part of the path taken to reach it isn't really
+    inside the folder the user selected."""
+    current = path
+    while current != root:
+        if current.is_symlink():
+            return True
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return False
+
+
+def validate_batch_source_file(image_path: Path, source_root: Path) -> None:
+    """Rejects a discovered batch source file that is (or is reached
+    through) a symlink, or that exceeds MAX_BATCH_IMAGE_BYTES -- see
+    CODEX_REVIEW.md finding M-1 / HUMAN_DECISIONS.md. Raises RuntimeError,
+    which run_batch()'s existing per-image try/except turns into one failed
+    image rather than aborting the batch or, for the size check, reading an
+    unbounded amount of data into memory before ever finding out it was too
+    large (the size check runs before anything reads the file's bytes)."""
+    if _path_is_or_contains_symlink(image_path, source_root):
+        raise RuntimeError(
+            f"{image_path.name} is a symlink (or is reached through one) -- refusing to follow it. "
+            "Source images must be real files inside the selected source folder, not links to files "
+            "elsewhere on this machine."
+        )
+    size = image_path.stat().st_size
+    if size > MAX_BATCH_IMAGE_BYTES:
+        raise RuntimeError(
+            f"{image_path.name} is {size / 1_000_000:.1f} MB, over the "
+            f"{MAX_BATCH_IMAGE_BYTES // 1_000_000} MB per-file limit -- skipping."
+        )
 
 
 def source_files(folder: Path, extensions: Iterable[str], reverse_order: bool = False) -> list[Path]:
@@ -533,7 +598,7 @@ _TRUNCATION_NOTICE = (
 
 def _transcribe_image_gemini(
     client: genai.Client,
-    image_path: Path,
+    data: bytes,
     mime_type: str,
     system_prompt: str,
     model: str,
@@ -564,7 +629,7 @@ def _transcribe_image_gemini(
     response = client.models.generate_content(
         model=model,
         contents=[
-            types.Part.from_bytes(data=image_path.read_bytes(), mime_type=mime_type),
+            types.Part.from_bytes(data=data, mime_type=mime_type),
             USER_INSTRUCTION,
         ],
         config=types.GenerateContentConfig(**config_kwargs),
@@ -578,16 +643,16 @@ def _transcribe_image_gemini(
 
 def _transcribe_image_claude(
     client: anthropic.Anthropic,
-    image_path: Path,
+    data: bytes,
     mime_type: str,
     system_prompt: str,
     model: str,
 ) -> str:
-    data = base64.standard_b64encode(image_path.read_bytes()).decode("utf-8")
+    encoded = base64.standard_b64encode(data).decode("utf-8")
     block_type = "document" if mime_type == "application/pdf" else "image"
     source_block = {
         "type": block_type,
-        "source": {"type": "base64", "media_type": mime_type, "data": data},
+        "source": {"type": "base64", "media_type": mime_type, "data": encoded},
     }
     # Streaming, not a plain (non-streaming) messages.create() call. This used
     # to be non-streaming with max_tokens capped at 16000 -- raised once
@@ -631,11 +696,29 @@ def transcribe_image(
     include_thoughts: bool = False,
     max_thinking_level: str | None = None,
 ) -> str:
-    mime_type = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
+    data = image_path.read_bytes()
+    # Detected from the file's own leading bytes, not its extension -- same
+    # sniff_file_type() the single-upload paths (Prompt Builder's Preflight
+    # Test, XLS Conversion's DOCX upload) already use, and the same reasoning:
+    # a batch source folder is selected by the user, not vetted file-by-file,
+    # so a mislabeled or renamed file (a real ".jpg" that's actually a screenshot
+    # someone renamed, a stray non-image file matching the extension filter by
+    # accident) would otherwise be sent to the AI provider tagged with a MIME
+    # type that doesn't match its real content, or -- for anything that isn't
+    # even a JPEG/PNG/PDF at all -- sent as arbitrary unvalidated bytes. This
+    # rejects it as a clean per-image failure (see run_batch()'s own per-image
+    # try/except) instead.
+    detected_type = sniff_file_type(data)
+    if detected_type is None:
+        raise RuntimeError(
+            f"{image_path.name} does not look like a JPEG, PNG, or PDF file (checked its content, "
+            "not just its extension) -- skipping."
+        )
+    mime_type = FILE_TYPE_MIME[detected_type]
     if client.provider == "claude":
-        return _transcribe_image_claude(client.claude, image_path, mime_type, system_prompt, model)
+        return _transcribe_image_claude(client.claude, data, mime_type, system_prompt, model)
     return _transcribe_image_gemini(
-        client.gemini, image_path, mime_type, system_prompt, model, include_thoughts, max_thinking_level
+        client.gemini, data, mime_type, system_prompt, model, include_thoughts, max_thinking_level
     )
 
 
@@ -724,6 +807,7 @@ def run_batch(
             name = display_name(image_path, config.image_folder)
             log(f"[{index}/{len(files)}] Processing {name}")
             try:
+                validate_batch_source_file(image_path, config.image_folder)
                 text = transcribe_image_with_retry(
                     client=client,
                     image_path=image_path,

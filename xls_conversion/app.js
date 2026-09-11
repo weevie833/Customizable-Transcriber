@@ -307,11 +307,11 @@
       setMessage("Upload a DOCX file before detecting languages.", true);
       return;
     }
-    if (!geminiApiKey.value.trim()) {
-      setMessage("Paste an API key before detecting languages.", true);
-      geminiApiKey.focus();
-      return;
-    }
+    // No client-side blank-key gate here, deliberately -- unlike Preflight/
+    // Convert below, Detect Languages honors a saved .env key with no key
+    // pasted at all (see setBusy()'s own comment and CODEX_REVIEW_2.md
+    // finding M-3). If neither a pasted key nor a .env key exists, the
+    // request below still fails cleanly with a clear server-side error.
     if (!imageRange.value.trim() && !processAll.checked) {
       setMessage("Select an image range, or check Process all, before detecting languages.", true);
       imageRange.focus();
@@ -424,14 +424,19 @@
   function estimateImageCount() {
     if (!sourceText) return 0;
     if (processAll.checked) {
-      const numbers = new Set();
+      // Counts marker OCCURRENCES, not distinct image numbers -- matching
+      // what the server actually bills/calls per image block
+      // (xls_conversion/ai_parser.py's split_image_blocks() emits one
+      // block per marker occurrence, not per distinct number). A
+      // duplicate-marker transcription would otherwise let this estimate
+      // (and the large-run confirmation dialog it feeds) understate the
+      // real AI-call count -- see CODEX_REVIEW_2.md finding M-2.
+      let count = 0;
       const pattern = /(?:^|\n)\s*(?:---\s*)?START OF RECORD:\s*.*?_(\d+)\.[A-Za-z0-9]+/gi;
-      let match = pattern.exec(sourceText);
-      while (match) {
-        numbers.add(match[1]);
-        match = pattern.exec(sourceText);
+      while (pattern.exec(sourceText)) {
+        count += 1;
       }
-      return numbers.size;
+      return count;
     }
     return countImageRangeClientSide(imageRange.value.trim());
   }
@@ -880,7 +885,18 @@
     const imageRangeEntered = Boolean(imageRange.value.trim()) || processAll.checked;
     const hasLanguages = selectedLanguages().length > 0;
     sourceFile.disabled = isBusy;
-    detectLanguagesButton.disabled = isBusy || !sourceText || !apiKeyEntered || !imageRangeEntered || !aiReady;
+    // Detect Languages does NOT require a pasted key, unlike the three
+    // buttons below it -- it's one of the two small, bounded-cost AI calls
+    // (alongside Prompt Builder's Preflight Test) this app lets a saved
+    // .env key satisfy on its own, per README's/PRIVACY.md's Setup
+    // section. The batch tools (Preflight/Convert/Ignore) still require an
+    // explicit paste as a deliberate cost-commitment gate before a
+    // potentially large, billable run -- see CODEX_REVIEW_2.md finding M-3
+    // and this app's own M-3 resolution notes for why that friction is
+    // intentional and shouldn't be relaxed here. A click with no pasted
+    // key and no .env key configured either still fails cleanly server-side
+    // with a clear "GEMINI_API_KEY is not set" style error.
+    detectLanguagesButton.disabled = isBusy || !sourceText || !imageRangeEntered || !aiReady;
     preflightButton.disabled =
       isBusy || !sourceText || !apiKeyEntered || !imageRangeEntered || !aiReady || !hasLanguages;
     convertButton.disabled = isBusy || !allLanguagesPassed() || !aiReady || !apiKeyEntered || !hasLanguages;

@@ -17,3 +17,17 @@ license = { file = "LICENSE" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Informational only -- see .github/workflows/tests.yml's `lint` job
+# (continue-on-error: true, never fails the build). Added per
+# CODEX_REVIEW.md finding L-8 / HUMAN_DECISIONS.md: a prior review found 20
+# unused imports that had drifted in unnoticed; this surfaces that class of
+# drift in every PR's CI output without imposing a zero-findings bar on a
+# codebase that hasn't been tuned against a linter before. No `select`/
+# `ignore` customization deliberately -- Ruff's own default rule set
+# (pyflakes + a slice of pycodestyle) is enough to catch the drift this was
+# added for; narrowing or widening it is a separate decision for whoever
+# starts actually acting on its output.
+[tool.ruff]
+target-version = "py310"
+line-length = 120

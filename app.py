@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import html
 import hashlib
 import http.cookies
 import io
 import json
-import os
 import platform
 import re
 import secrets
@@ -15,7 +13,7 @@ import threading
 import urllib.parse
 import zipfile
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,7 +34,7 @@ from customizable_transcription.core import (
     default_output_file,
     extensions_for_file_type,
     humanize_provider_error,
-    key_matches_provider,
+    key_looks_like_claude,
     make_client,
     provider_for_model,
     run_batch,
@@ -58,31 +56,24 @@ from index_compare.reader import NeedsMapping, resolve_index_file, suggest_mappi
 from index_compare.report_docx import build_index_compare_report
 from index_compare.scoring import compare_indexes
 from xls_conversion.ai_parser import RECORD_TYPES
-from prompt_builder_content import (
-    PROMPT_BUILDER_COMMON_ABBREVIATIONS,
-    PROMPT_BUILDER_CORE_RULES,
-    PROMPT_BUILDER_RECORD_TYPES,
-    PROMPT_BUILDER_RELATIONSHIP_TERMS,
-    PROMPT_BUILDER_RELATIVE_DATE_TERMS,
-    PROMPT_BUILDER_SCRIBAL_QUIRKS,
-    PROMPT_BUILDER_SECTION_HELP,
-)
+from prompt_builder_content import PROMPT_BUILDER_RECORD_TYPES
 from profiles_store import (
     PROFILES_DIR,
     PROJECT_DIR,
     USER_DATA_DIR,
-    USER_PROFILES_DIR,
+    # USER_PROFILES_DIR is never referenced directly below -- it's kept as a
+    # re-export solely so tests/conftest.py's sandboxed_user_data fixture can
+    # monkeypatch.setattr(ctapp, "USER_PROFILES_DIR", ...); every profile
+    # CRUD function still reads profiles_store's own copy of the name (see
+    # docs/DESIGN.md's "Codebase structure" section on this exact footgun).
+    # Do not remove as a "dead import" cleanup without patching that fixture.
+    USER_PROFILES_DIR,  # noqa: F401 -- re-exported for test monkeypatching, see comment above
     delete_profile,
     ensure_profiles_dir,
     export_profile_payload,
     find_profile_path,
     import_custom_profile,
-    load_custom_profiles,
     load_profile,
-    profile_id_from_name,
-    profile_options_html,
-    profiles_for_browser,
-    profiles_with_display_labels,
     safe_filename,
     save_custom_profile,
     update_full_profile,
@@ -93,7 +84,6 @@ from app_state import (
     USER_OUTPUTS_DIR,
     add_log,
     add_test_log,
-    clear_source_folder,
     load_source_folder,
     lock,
     new_test_run_state,
@@ -107,6 +97,7 @@ from app_state import (
     test_state,
     test_status_payload,
     test_stop_event,
+    xls_ai_lock,
     xls_preflight_cache,
     xls_preflight_lock,
 )
@@ -165,6 +156,14 @@ def _cookie_token(cookie_header: str | None) -> str | None:
     try:
         jar.load(cookie_header)
     except Exception:
+        # Deliberately broad (see CODEX_REVIEW.md finding L-8 / HUMAN_DECISIONS.md's
+        # exception-catch audit): the Cookie header is attacker-controllable
+        # input reaching this security check on every single request, before
+        # any other validation. SimpleCookie.load() on a malformed value must
+        # never be allowed to crash request handling -- that would turn a
+        # malformed cookie into a denial-of-service against the CSRF check
+        # itself. Failing closed (treat it as "no valid token", same as a
+        # missing cookie) is correct regardless of what actually went wrong.
         return None
     morsel = jar.get(CSRF_COOKIE_NAME)
     return morsel.value if morsel else None
@@ -669,6 +668,22 @@ def resolve_run_batches(form: FormData) -> list[dict[str, str]]:
     ]
 
 
+def required_providers(batches: list[dict[str, str]]) -> set[str]:
+    """Every provider ("gemini"/"claude") at least one queued batch's Model A
+    or Model B actually needs. Test Mode's API keys are entered per-provider
+    (one Gemini field, one Claude field), not per A/B slot -- a queue that
+    mixes providers across batches, or even within one batch's own A/B pair,
+    is satisfied by whichever of the two fields matches each run's own model,
+    rather than requiring both fields to be filled in regardless of whether
+    a batch actually uses both providers. See CODEX_REVIEW.md finding M-5 /
+    HUMAN_DECISIONS.md for the decision behind this."""
+    providers: set[str] = set()
+    for batch in batches:
+        providers.add(provider_for_model(batch["model_a"]))
+        providers.add(provider_for_model(batch["model_b"]))
+    return providers
+
+
 def selected_file_type(form: FormData) -> str:
     file_type = form.getfirst("file_type", "jpeg") or "jpeg"
     if file_type not in FILE_TYPE_EXTENSIONS:
@@ -1035,9 +1050,11 @@ def getting_started_page() -> str:
     The section content itself lives in GETTING_STARTED.html/.it.html (plain
     HTML fragments, not markdown -- unlike privacy_page()'s PRIVACY.md, there's
     no markdown-to-HTML render step here) so it can be edited on its own
-    without touching this function's page shell (nav/CSS/footer). Read in and
-    substituted via plain string replace, not an f-string, since the CSS below
-    is full of literal `{`/`}` that would otherwise all need doubling."""
+    without touching this function's page shell (nav/footer -- the CSS moved
+    to static/getting-started.css, see CODEX_REVIEW.md finding L-2 /
+    HUMAN_DECISIONS.md). Read in and substituted via plain string replace,
+    not an f-string, since GETTING_STARTED.html/.it.html's own content could
+    contain literal `{`/`}` characters that would otherwise need escaping."""
     content_en = (PROJECT_DIR / "GETTING_STARTED.html").read_text(encoding="utf-8")
     content_it = (PROJECT_DIR / "GETTING_STARTED.it.html").read_text(encoding="utf-8")
     page = """<!doctype html>
@@ -1048,77 +1065,7 @@ def getting_started_page() -> str:
   <title>Getting Started</title>
   <script src="/static/i18n.js" defer></script>
   <link rel="stylesheet" href="/static/base.css">
-  <style>
-    .panel p {
-      margin: 12px 0;
-    }
-    .gs-intro {
-      margin: 0 0 18px;
-      color: #5f6b76;
-    }
-    details.gs-section {
-      background: #ffffff;
-      border: 1px solid #d9d4c8;
-      border-radius: 8px;
-      padding: 16px 20px;
-      margin-bottom: 14px;
-    }
-    details.gs-section summary {
-      cursor: pointer;
-      list-style: none;
-      display: flex;
-      align-items: baseline;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 17px;
-    }
-    details.gs-section summary::-webkit-details-marker {
-      display: none;
-    }
-    details.gs-section summary::before {
-      content: "\\25B8";
-      color: #255c99;
-      display: inline-block;
-      transition: transform 0.12s ease;
-    }
-    details.gs-section[open] summary::before {
-      transform: rotate(90deg);
-    }
-    .gs-body {
-      margin-top: 14px;
-    }
-    .gs-body p {
-      margin: 12px 0;
-    }
-    .gs-body ul, .gs-body ol {
-      margin: 12px 0;
-      padding-left: 24px;
-    }
-    .gs-body li {
-      margin: 6px 0;
-    }
-    .gs-body a {
-      color: #255c99;
-    }
-    .gs-example {
-      background: #f4f5f6;
-      border: 1px solid #d9d4c8;
-      border-radius: 6px;
-      padding: 10px 14px;
-      margin: 12px 0;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 13px;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    @media (max-width: 720px) {
-      main {
-        width: min(100% - 28px, 980px);
-        padding-top: 20px;
-      }
-      .site-header { align-items: stretch; }
-    }
-  </style>
+  <link rel="stylesheet" href="/static/getting-started.css">
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -1440,21 +1387,29 @@ def run_test_job(
     """Run every queued (batch, model) pair's full image batch, one after another.
 
     run_specs is (run_id, label, model, api_key, markdown_file, output_file).
-    Each entry already carries the API key for its own model slot (Model A's
-    key for every "-a" run, Model B's key for every "-b" run — see run_test()
-    below) so a queue that mixes Gemini and Claude pairs still sends each run
-    to the right provider with the right key. Each iteration is an
-    independent run_batch() call: its own TranscriptionConfig, its own
-    markdown/docx output files, and its own fresh client (created inside
-    run_batch via make_client). Nothing from one run — its output text, its
-    log, anything — is read back into another run's prompt or config, so
-    every run in the queue is unaffected by whatever the others produced, no
-    matter how many pairs are queued.
+    Each entry already carries the right provider's key for its own model
+    (see required_providers()/run_test() above) so a queue that mixes Gemini
+    and Claude pairs still sends each run to the right provider with the
+    right key. Each iteration is an independent run_batch() call: its own
+    TranscriptionConfig, its own markdown/docx output files, and its own
+    fresh client (created inside run_batch via make_client). Nothing from
+    one run — its output text, its log, anything — is read back into
+    another run's prompt or config, so every run in the queue is unaffected
+    by whatever the others produced, no matter how many pairs are queued.
+
+    That independence guarantee now extends to failure handling too (see
+    CODEX_REVIEW.md finding M-5 / HUMAN_DECISIONS.md): each run's own setup/
+    validation/batch failure is caught and recorded against that run alone
+    -- it does not abort any run still queued after it. Only a failure
+    *outside* any specific run (source folder missing, profile resolution
+    failing before the loop even starts) is still a fatal, whole-job error,
+    since there is no single run to attribute it to.
     """
-    # Defaulted before the try/loop so the except block below always has some
-    # value to name in a humanize_provider_error() message, even if the
-    # failure happens before the loop ever assigns a real one.
+    # Defaulted before the try/loop so the outer except block below always
+    # has some value to name in a humanize_provider_error() message, even if
+    # the failure happens before the loop ever assigns a real one.
     model = DEFAULT_MODEL
+    failed_run_ids: set[str] = set()
     try:
         image_folder = load_source_folder()
         file_type = selected_file_type(form)
@@ -1479,52 +1434,68 @@ def run_test_job(
                 test_state["current_run_id"] = run_id
 
             tag = f"[{label}: {model}]"
-            add_test_log(f"{tag} Checking API key before starting image processing...")
-            validate_api_key_with_retry(
-                PROJECT_DIR, model, api_key_value, progress=lambda msg: add_test_log(f"{tag} {msg}")
-            )
-            add_test_log(f"{tag} API key validated. Starting run.")
-
-            config = TranscriptionConfig(
-                image_folder=image_folder,
-                output_file=markdown_file,
-                prompt_file=PROFILES_DIR,
-                model=model,
-                delay_seconds=2.0,
-                reverse_order=reverse_order,
-                system_prompt=system_prompt,
-                api_key_override=api_key_value,
-                source_extensions=extensions_for_file_type(file_type),
-            )
-            results = run_batch(
-                config,
-                PROJECT_DIR,
-                progress=lambda message, tag=tag: add_test_log(f"{tag} {message}"),
-                cancel_requested=test_stop_event.is_set,
-            )
-            if markdown_file.exists():
-                write_docx(
-                    output_file,
-                    markdown_file.read_text(encoding="utf-8"),
-                    native_language=str(profile.get("native_language", "")),
-                    translation_languages=list(profile.get("translation_languages") or []),
+            try:
+                add_test_log(f"{tag} Checking API key before starting image processing...")
+                validate_api_key_with_retry(
+                    PROJECT_DIR, model, api_key_value, progress=lambda msg: add_test_log(f"{tag} {msg}")
                 )
-            else:
-                add_test_log(f"{tag} Markdown output was not found for Word export: {markdown_file}")
-            failures = count_failures(results)
-            with test_lock:
-                run_state = test_state["runs"].get(run_id)
-                if run_state is not None:
-                    if test_stop_event.is_set():
-                        run_state["summary"] = (
-                            f"Stopped after {len(results)} image(s), {failures} failure(s)."
-                        )
-                    else:
-                        run_state["summary"] = (
-                            f"Processed {len(results)} image(s), {failures} failure(s)."
-                        )
-                    run_state["download"] = str(output_file) if output_file.exists() else ""
-                    run_state["markdown"] = str(markdown_file) if markdown_file.exists() else ""
+                add_test_log(f"{tag} API key validated. Starting run.")
+
+                config = TranscriptionConfig(
+                    image_folder=image_folder,
+                    output_file=markdown_file,
+                    prompt_file=PROFILES_DIR,
+                    model=model,
+                    delay_seconds=2.0,
+                    reverse_order=reverse_order,
+                    system_prompt=system_prompt,
+                    api_key_override=api_key_value,
+                    source_extensions=extensions_for_file_type(file_type),
+                )
+                results = run_batch(
+                    config,
+                    PROJECT_DIR,
+                    progress=lambda message, tag=tag: add_test_log(f"{tag} {message}"),
+                    cancel_requested=test_stop_event.is_set,
+                )
+                if markdown_file.exists():
+                    write_docx(
+                        output_file,
+                        markdown_file.read_text(encoding="utf-8"),
+                        native_language=str(profile.get("native_language", "")),
+                        translation_languages=list(profile.get("translation_languages") or []),
+                        record_type=str(profile.get("record_type", "")),
+                        model=model,
+                        profile_label=str(profile.get("label", "")),
+                    )
+                else:
+                    add_test_log(f"{tag} Markdown output was not found for Word export: {markdown_file}")
+                failures = count_failures(results)
+                with test_lock:
+                    run_state = test_state["runs"].get(run_id)
+                    if run_state is not None:
+                        if test_stop_event.is_set():
+                            run_state["summary"] = (
+                                f"Stopped after {len(results)} image(s), {failures} failure(s)."
+                            )
+                        else:
+                            run_state["summary"] = (
+                                f"Processed {len(results)} image(s), {failures} failure(s)."
+                            )
+                        run_state["download"] = str(output_file) if output_file.exists() else ""
+                        run_state["markdown"] = str(markdown_file) if markdown_file.exists() else ""
+            except Exception as exc:
+                # This run's own failure, isolated per the docstring above:
+                # record it against this run only and continue with whatever
+                # else is still queued, rather than aborting every remaining
+                # run the way one outer try/except used to.
+                failed_run_ids.add(run_id)
+                message = humanize_provider_error(exc, model)
+                add_test_log(f"{tag} Failed: {message}")
+                with test_lock:
+                    run_state = test_state["runs"].get(run_id)
+                    if run_state is not None:
+                        run_state["summary"] = f"Failed: {message}"
 
         with test_lock:
             if test_stop_event.is_set():
@@ -1532,7 +1503,12 @@ def run_test_job(
             else:
                 completed = sum(1 for run in test_state["runs"].values() if run["download"])
                 total = len(test_state["runs"])
-                test_state["summary"] = f"{completed}/{total} run(s) complete."
+                if failed_run_ids:
+                    test_state["summary"] = (
+                        f"{completed}/{total} run(s) complete, {len(failed_run_ids)} failed."
+                    )
+                else:
+                    test_state["summary"] = f"{completed}/{total} run(s) complete."
     except Exception as exc:
         message = humanize_provider_error(exc, model)
         add_test_log(f"Fatal error: {message}")
@@ -1545,6 +1521,22 @@ def run_test_job(
 
 
 class Handler(BaseHTTPRequestHandler):
+    # Nearly every method below wraps its entire body in a single
+    # `try: ... except Exception as exc: self.respond_json({"error": ...})`
+    # (or the redirect-based equivalent for form-POST handlers). This is
+    # audited and deliberate, not an unreviewed catch-all (see CODEX_REVIEW.md
+    # finding L-8 / HUMAN_DECISIONS.md): each of these methods is one HTTP
+    # request's entire processing, and this app has no other layer between a
+    # handler method and the raw socket -- an exception type nobody
+    # anticipated must still turn into a clean, readable error response, not
+    # an unhandled crash of this request's thread or a raw client-visible
+    # 500. Narrowing any of these to specific exception types would make a
+    # genuinely unexpected failure (a library edge case, a bug) surface as a
+    # broken connection instead of the same clear error message every
+    # anticipated failure already gets -- worse for both users and debugging,
+    # not better. A handler-specific comment is added only where the reason
+    # is not this general one (e.g. _cookie_token()'s fail-safe parsing of
+    # untrusted input).
     def version_string(self) -> str:
         # Suppresses the default "BaseHTTP/x.x Python/3.x.x" Server header,
         # which otherwise hands a would-be attacker the exact Python version
@@ -1558,8 +1550,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            # 'unsafe-inline' removed from both script-src and style-src --
+            # see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md. Every
+            # page's <script>/<style> content now loads from /static/*.js
+            # and *.css (or, for genuinely per-request dynamic data, a
+            # <script type="application/json"> data island -- inert to the
+            # browser's JS engine, so script-src never governs it; see
+            # json_data_island_html() in pages/__init__.py). This is a real
+            # second layer of defense now: a future HTML/script-injection
+            # bug (this app has had exactly one, in a profile label once
+            # embedded via bare json.dumps()) can no longer execute as
+            # script just because it lands inside a <script>/<style> tag.
+            "default-src 'self'; script-src 'self'; "
+            "style-src 'self'; img-src 'self' data:; "
             "frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
         )
         # "same-origin", not "no-referrer": per the Fetch spec, a top-level
@@ -1946,7 +1949,28 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self.respond_json({"error": str(exc)}, status=400)
 
+    def _reserve_xls_ai_slot(self) -> bool:
+        """True if this request just reserved the single shared XLS
+        Conversion AI slot (see xls_ai_lock's own comment in app_state.py);
+        False if Parse/Preflight/Detect Languages is already running
+        elsewhere, in which case a clear 409 has already been sent and the
+        caller must return immediately without proceeding."""
+        if xls_ai_lock.acquire(blocking=False):
+            return True
+        self.respond_json(
+            {
+                "error": (
+                    "Another XLS Conversion request (Parse, Preflight, or Detect Languages) is "
+                    "already running -- wait for it to finish before starting another."
+                )
+            },
+            status=409,
+        )
+        return False
+
     def parse_xls_source(self) -> None:
+        if not self._reserve_xls_ai_slot():
+            return
         model = ""  # only meaningful once parsed below; humanize_provider_error() is
         # a no-op passthrough for any exception raised before then, so "" is never shown.
         try:
@@ -1988,8 +2012,12 @@ class Handler(BaseHTTPRequestHandler):
             self.respond_json(result)
         except Exception as exc:
             self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
+        finally:
+            xls_ai_lock.release()
 
     def preflight_xls_source(self) -> None:
+        if not self._reserve_xls_ai_slot():
+            return
         model = ""  # see the matching comment in parse_xls_source() above
         try:
             payload = parse_json_body(self)
@@ -2024,8 +2052,12 @@ class Handler(BaseHTTPRequestHandler):
             self.respond_json(result)
         except Exception as exc:
             self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
+        finally:
+            xls_ai_lock.release()
 
     def detect_xls_languages(self) -> None:
+        if not self._reserve_xls_ai_slot():
+            return
         model = ""  # see the matching comment in parse_xls_source() above
         try:
             payload = parse_json_body(self)
@@ -2037,16 +2069,32 @@ class Handler(BaseHTTPRequestHandler):
             image_range = str(payload.get("image_range", "") or "")
             process_all = payload.get("process_all") is True
             validate_api_key_with_retry(PROJECT_DIR, model, api_key_value, timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS)
+            # validate_api_key_with_retry() above already resolves a blank
+            # api_key_value to a configured .env key internally (see
+            # make_client()'s own fallback, and critique_prompt_gap()'s
+            # identical resolution just above) and validates THAT -- this
+            # mirrors the same resolution so the real detection call below
+            # actually uses the key that just passed validation, instead of
+            # re-checking the original (possibly still blank) pasted value
+            # and rejecting a request that had just succeeded. Without
+            # this, the documented ".env works for Detect Languages"
+            # convenience (README/PRIVACY.md) silently never worked at
+            # all. See CODEX_REVIEW_2.md finding M-3.
+            effective_key = api_key_value or (
+                claude_api_key(PROJECT_DIR) if provider_for_model(model) == "claude" else api_key(PROJECT_DIR)
+            )
             result = detect_languages(
                 text=text,
                 image_range=image_range,
-                api_key=api_key_value,
+                api_key=effective_key,
                 model=model,
                 process_all=process_all,
             )
             self.respond_json(result)
         except Exception as exc:
             self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
+        finally:
+            xls_ai_lock.release()
 
     def combine_xls_languages(self) -> None:
         try:
@@ -2583,24 +2631,31 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             form = parse_post_form(self)
-            api_key_a = pasted_value(form, "api_key_a")
-            api_key_b = pasted_value(form, "api_key_b")
-            if not api_key_a or not api_key_b:
-                raise RuntimeError("Paste an API key for both Model A and Model B before running.")
+            api_key_gemini = pasted_value(form, "api_key_gemini")
+            api_key_claude = pasted_value(form, "api_key_claude")
             file_type = selected_file_type(form)
             preflight_source_file_type(load_source_folder(), file_type)
             batches = resolve_run_batches(form)
-            for batch in batches:
-                if not key_matches_provider(batch["model_a"], api_key_a):
-                    provider = provider_for_model(batch["model_a"]).capitalize()
-                    raise RuntimeError(
-                        f"\"{batch['label']}\": the Model A API key doesn't look like a {provider} key."
-                    )
-                if not key_matches_provider(batch["model_b"], api_key_b):
-                    provider = provider_for_model(batch["model_b"]).capitalize()
-                    raise RuntimeError(
-                        f"\"{batch['label']}\": the Model B API key doesn't look like a {provider} key."
-                    )
+            # Keys are entered per provider, not per A/B slot -- see
+            # required_providers()'s own comment. Only the provider(s) at
+            # least one queued batch actually needs must have a key filled
+            # in; a queue that never uses Claude, say, doesn't need the
+            # Claude field touched at all.
+            needed = required_providers(batches)
+            if "gemini" in needed and not api_key_gemini:
+                raise RuntimeError(
+                    "Paste a Gemini API key -- at least one queued run uses a Gemini model."
+                )
+            if "claude" in needed and not api_key_claude:
+                raise RuntimeError(
+                    "Paste a Claude API key -- at least one queued run uses a Claude model."
+                )
+            if api_key_gemini and key_looks_like_claude(api_key_gemini):
+                raise RuntimeError(
+                    "The Gemini API key field doesn't look like a Gemini key -- it looks like a Claude key instead."
+                )
+            if api_key_claude and not key_looks_like_claude(api_key_claude):
+                raise RuntimeError("The Claude API key doesn't look like a Claude key.")
             profile = resolve_profile_for_run(form)
             profile_id = profile["id"]
         except Exception as exc:
@@ -2619,10 +2674,8 @@ class Handler(BaseHTTPRequestHandler):
         run_specs: list[tuple[str, str, str, str, Path, Path]] = []
         runs_init: dict[str, dict[str, str]] = {}
         for batch in batches:
-            for slot, model, api_key_value in (
-                ("a", batch["model_a"], api_key_a),
-                ("b", batch["model_b"], api_key_b),
-            ):
+            for slot, model in (("a", batch["model_a"]), ("b", batch["model_b"])):
+                api_key_value = api_key_claude if provider_for_model(model) == "claude" else api_key_gemini
                 run_id = f"{batch['batch_id']}-{slot}"
                 label = f"{batch['label']} · Model {slot.upper()}"
                 output_file = test_destination_output_file(profile_id, run_id, model, stem)
@@ -3073,6 +3126,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
         self.send_header("Content-Length", str(len(data)))
+        # Same reasoning as test_download()'s own no-store header just below --
+        # this is generated transcription content, not a stable asset, so a
+        # shared/history-visible browser cache shouldn't retain it past the run.
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
 
@@ -3081,6 +3138,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        # Every dynamic page rendered through this method embeds current run
+        # state and saved profile content (role/reference/output-format text,
+        # lexicons, local file paths) -- no-store keeps a shared machine's
+        # browser cache/history from retaining it, matching the no-store
+        # policy already applied to every JSON/status/download response.
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
 

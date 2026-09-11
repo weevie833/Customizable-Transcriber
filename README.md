@@ -81,7 +81,7 @@ and one of these two ways to supply its key (you don't need both):
   app has an `API key` field you paste into before each run, matching
   whichever model you selected (a Gemini key for a Gemini model, a Claude
   key for a Claude model); it's never written to a file.
-- **Save it once** so you don't have to paste it every time:
+- **Save it once** as a convenience for the small, single-image tools:
 
   ```bash
   cp .env.example .env
@@ -95,6 +95,17 @@ and one of these two ways to supply its key (you don't need both):
   GEMINI_API_KEY=your_api_key_here
   ANTHROPIC_API_KEY=your_api_key_here
   ```
+
+  **This only skips the paste step for the quick, single-image tools** —
+  Prompt Builder's `Preflight Test` and XLS Conversion's `Detect Languages`,
+  both of which make one bounded, low-cost AI call. **The batch tools
+  (Transcribe, Test Mode, and XLS Conversion's Parse/Preflight) always
+  require you to paste the key into the browser, even with a `.env` file
+  present.** That's deliberate, not a bug: pasting the key is this app's
+  "yes, I mean it" confirmation before committing to a run that can process
+  hundreds or thousands of images at real, per-image cost — a saved key you
+  never have to look at again would make it too easy to kick off a large
+  batch without meaning to.
 
 ## Run The Local Web App
 

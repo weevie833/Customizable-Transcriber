@@ -13,8 +13,9 @@ split by concern:
 
 - **`pages/`** — one module per page (`transcribe.py`, `test_mode.py`,
   `prompt_builder.py`, `home.py`, `privacy.py`), each holding the render
-  function for that page. `pages/__init__.py` holds `json_for_inline_script()`
-  and `file_picker_html()`, small helpers more than one page needs.
+  function for that page. `pages/__init__.py` holds `json_for_inline_script()`,
+  `json_data_island_html()`, and `file_picker_html()`, small helpers more
+  than one page needs.
 - **`app_state.py`** — the in-memory run state (`state`/`test_state` and
   their locks/events), the user-facing outputs directory, and app-settings
   persistence. This exists as its own module because both `app.py` (the
@@ -38,6 +39,19 @@ split by concern:
   `pickSourceFolder`, `openOutputsFolder`, and others). Functions whose
   bodies have diverged between the two pages are deliberately left
   page-local, not forced into a shared file.
+- **`static/transcribe.js`/`test-mode.js`/`prompt-builder.js`** and
+  **`static/home.css`/`privacy.css`/`getting-started.css`/`transcribe.css`/
+  `test-mode.css`/`prompt-builder.css`** — each page's own remaining
+  script/styling, previously inline `<script>`/`<style>` blocks in the
+  corresponding `pages/*.py` render function (and, for Getting Started,
+  `app.py`'s `getting_started_page()`). Extracted so the CSP's `script-src`/
+  `style-src` could drop `'unsafe-inline'` — see "Security hardening
+  history" below. Per-request dynamic data (profile lists, run history,
+  Prompt Builder's questionnaire-restore state) that these scripts need is
+  passed via a `<script type="application/json">` "data island"
+  (`json_data_island_html()`) instead of an executable inline assignment —
+  a JSON-typed script element is inert to the browser's JS engine, so
+  `script-src` never governs it, unlike a plain `<script>` block.
 - **`docx_package.py`** — the generic OOXML package-XML functions
   (`content_types_xml()`, `root_rels_xml()`) that every DOCX writer in this
   codebase needs, plus `strip_xml_illegal_chars()` (see "Security hardening
@@ -122,6 +136,17 @@ several defects, all reproduced and fixed:
   the patched release. Dependencies are now audited automatically
   (`pip-audit`, `npm audit`) on a weekly schedule in CI, not just at
   release time.
+- **CSP allowed `unsafe-inline` for scripts and styles.** Existing escaping
+  discipline (`json_for_inline_script()`, `html.escape()`) made this a
+  defense-in-depth gap rather than an active exploit — but this app has had
+  exactly one real script-injection bug before (a profile label once
+  embedded via bare `json.dumps()` instead of the safe pattern), and
+  `unsafe-inline` would have let an equivalent future bug execute anyway.
+  Fixed by moving every page's inline `<script>`/`<style>` content to
+  `/static/*.js`/`*.css` (see "Codebase structure" above), with per-request
+  dynamic data passed via an inert `<script type="application/json">` data
+  island instead of an executable assignment. `script-src`/`style-src` now
+  read plain `'self'`, no exception.
 
 A more recent hardening pass added the same category of defense to XLSX
 uploads accepted by the Index Compare feature (see below): a zip archive's

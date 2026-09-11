@@ -15,7 +15,6 @@ from http.cookiejar import CookieJar
 from xls_conversion.ai_parser import RECORD_TYPES
 from xls_conversion.spreadsheet_export import rows_to_xlsx
 
-import app as ctapp
 import index_compare.scoring as scoring
 
 MATRIMONI = RECORD_TYPES["matrimoni"]

@@ -138,8 +138,7 @@ def test_test_mode_run_redirects_instead_of_rendering_html(live_server, sandboxe
             jar,
             "/test-mode/run",
             {
-                "api_key_a": "fake-key-a",
-                "api_key_b": "fake-key-b",
+                "api_key_gemini": "fake-key-gemini",
                 "profile_id": profile["id"],
                 "profile_action": "use",
                 "order": "oldest",

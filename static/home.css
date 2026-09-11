@@ -1,0 +1,93 @@
+/* Home page ("/") styling, extracted from pages/home.py's inline <style>
+block -- see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md: moving
+inline CSS to a static file is what lets the CSP drop 'unsafe-inline' from
+style-src. Content is unchanged from the inline block it replaced. */
+.panel {
+  background: #ffffff;
+  border: 1px solid #d9d4c8;
+  border-radius: 8px;
+  padding: 24px 28px;
+  margin-bottom: 18px;
+}
+.panel p {
+  margin: 12px 0;
+}
+.hero-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px 24px;
+  margin-bottom: 6px;
+}
+.hero-top h1 {
+  font-size: 24px;
+}
+/* The header's "Home" text is a <p>, not a heading, and is visually
+   hidden (.sr-only) besides -- the hero text below is this page's one
+   real, visible <h1> (see docs/DESIGN.md's "Accessibility" section:
+   two <h1>s gave screen-reader heading navigation two competing
+   "page title" landmarks). */
+.callout {
+  background: #eef4fb;
+  border: 1px solid #cddcee;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-top: 18px;
+}
+.callout p {
+  margin: 0;
+}
+.section-divider {
+  border: none;
+  border-top: 1px solid #d9d4c8;
+  margin: 26px 0 20px;
+}
+.panel h2 {
+  font-size: 19px;
+  margin: 0 0 4px;
+}
+.workflow-steps {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  border-top: 1px solid #d9d4c8;
+}
+.step-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 16px 0;
+  border-bottom: 1px solid #d9d4c8;
+}
+.step-icon {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.step-icon svg {
+  width: 56px;
+  height: 56px;
+  display: block;
+}
+.step-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: 4px;
+}
+.step-text p {
+  margin: 0;
+}
+.step-text .callout {
+  margin-top: 10px;
+}
+@media (max-width: 720px) {
+  main {
+    width: min(100% - 28px, 980px);
+    padding-top: 20px;
+  }
+  .site-header { align-items: stretch; }
+}

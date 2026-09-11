@@ -10,10 +10,11 @@ be caught here."""
 
 from __future__ import annotations
 
-import http.client
 import urllib.error
 import urllib.request
 from http.cookiejar import CookieJar
+
+import app as ctapp
 
 
 def _request(host, port, method, path, headers=None, body=None, cookiejar=None):
@@ -50,6 +51,55 @@ def test_response_headers_are_hardened(live_server):
     assert response.headers.get("Referrer-Policy") == "same-origin"
     assert "ct_token=" in response.headers.get("Set-Cookie", "")
     assert "SameSite=Strict" in response.headers.get("Set-Cookie", "")
+
+
+def test_csp_has_no_unsafe_inline(live_server):
+    """CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md: script-src/style-src
+    used to include 'unsafe-inline', which would let an injected <script>/
+    <style> execute even if a future bug slipped past this app's escaping
+    discipline (json_for_inline_script(), html.escape()). Every page's own
+    script/style now loads from /static/*.js and *.css (or a
+    <script type="application/json"> data island for per-request dynamic
+    data -- inert to the browser's JS engine, so script-src doesn't apply to
+    it), so this can be dropped entirely rather than working around it with
+    nonces."""
+    host, port = live_server
+    response = _request(host, port, "GET", "/", headers={"Host": f"{host}:{port}"})
+    csp = response.headers.get("Content-Security-Policy", "")
+    assert "unsafe-inline" not in csp
+    assert "script-src 'self'" in csp
+    assert "style-src 'self'" in csp
+
+
+def test_dynamic_html_pages_are_not_cacheable(live_server):
+    """CODEX_REVIEW.md finding L-1: dynamic HTML embeds saved profile
+    content and current run state, but historically lacked the same
+    Cache-Control: no-store header every JSON/status/download response
+    already sends -- a shared machine's browser cache/history could retain
+    it past the running session."""
+    host, port = live_server
+    response = _request(host, port, "GET", "/", headers={"Host": f"{host}:{port}"})
+    assert response.status == 200
+    assert response.headers.get("Cache-Control") == "no-store"
+
+
+def test_download_endpoint_is_not_cacheable(live_server, tmp_path):
+    """Same L-1 finding as above, for the primary transcript download route
+    specifically -- it contains generated archival text, not a stable
+    asset."""
+    host, port = live_server
+    output_file = tmp_path / "transcription-test.docx"
+    output_file.write_bytes(b"fake docx bytes")
+    with ctapp.lock:
+        previous = ctapp.state.get("download", "")
+        ctapp.state["download"] = str(output_file)
+    try:
+        response = _request(host, port, "GET", "/download", headers={"Host": f"{host}:{port}"})
+        assert response.status == 200
+        assert response.headers.get("Cache-Control") == "no-store"
+    finally:
+        with ctapp.lock:
+            ctapp.state["download"] = previous
 
 
 def test_server_header_does_not_leak_python_version(live_server):

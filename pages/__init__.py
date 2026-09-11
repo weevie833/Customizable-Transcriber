@@ -40,6 +40,30 @@ def json_for_inline_script(value: object) -> str:
     return json.dumps(value).replace("</", "<\\/")
 
 
+def json_data_island_html(element_id: str, value: object) -> str:
+    """A `<script type="application/json" id="{element_id}">` holding
+    json_for_inline_script()'s escaped output -- server-rendered dynamic
+    data (profile lists, run history, questionnaire state) for an
+    externalized page script to read via
+    `JSON.parse(document.getElementById(element_id).textContent)`, instead
+    of an executable inline `<script>window.X = {...}</script>` assignment.
+
+    Exists so this data can keep reaching the page's own external JS
+    (static/prompt-builder.js, and Transcribe's/Test Mode's own per-page
+    scripts) after CSP's script-src drops 'unsafe-inline' (see
+    CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md): a `type="application/
+    json"` element is inert data as far as the browser's JS engine is
+    concerned -- it's never parsed or executed as script, so CSP's
+    script-src (which only ever governs what can *execute* as script) never
+    applies to it, unlike a plain `<script>` block. The `</script`-breakout
+    risk json_for_inline_script() already guards against is unrelated to
+    that and still fully applies here: the HTML tokenizer looks for that
+    literal byte sequence to end *any* `<script>` element's raw-text
+    content, regardless of its `type` attribute.
+    """
+    return f'<script type="application/json" id="{element_id}">{json_for_inline_script(value)}</script>'
+
+
 def file_picker_html(input_id: str = "", accept: str = "", extra_attrs: str = "") -> str:
     """A <label class="file-picker"> wrapping a visually-hidden <input
     type="file"> plus a translatable "Choose file" button stand-in and a

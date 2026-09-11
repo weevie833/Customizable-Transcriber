@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import pytest
 
+import xls_conversion.ai_parser as ai_parser
 from xls_conversion.ai_parser import (
     MAX_IMAGE_RANGE_SPAN,
     MAX_IMAGES_PER_REQUEST,
+    all_image_numbers_capped,
     parse_image_range,
 )
 
@@ -69,3 +71,63 @@ def test_total_images_cap_across_multiple_parts():
 def test_empty_and_blank_input_returns_empty_list():
     assert parse_image_range("") == []
     assert parse_image_range("   ") == []
+
+
+def _synthetic_transcript(image_count: int) -> str:
+    return "\n\n".join(
+        f"--- START OF RECORD: page_{number}.jpg ---\nEntry text." for number in range(1, image_count + 1)
+    )
+
+
+def test_process_all_within_cap_is_allowed():
+    text = _synthetic_transcript(5)
+    assert all_image_numbers_capped(text) == [f"{n:03d}" for n in range(1, 6)]
+
+
+def test_process_all_over_cap_is_rejected_not_silently_processed():
+    """"Process all" used to derive its image count straight from the
+    document with no ceiling at all, unlike parse_image_range()'s typed-range
+    path -- a genuinely large document could trigger thousands of sequential,
+    billable AI calls in one request with no server-side stop."""
+    text = _synthetic_transcript(MAX_IMAGES_PER_REQUEST + 1)
+    with pytest.raises(RuntimeError):
+        all_image_numbers_capped(text)
+
+
+def test_repeated_marker_numbers_still_hit_the_block_cap(monkeypatch):
+    """CODEX_REVIEW_2.md finding M-2: all_image_numbers_capped() dedupes
+    marker numbers before comparing against the cap, but
+    split_image_blocks() (which parse_generic() actually loops over, one AI
+    call per entry) emits one block per marker OCCURRENCE, not per distinct
+    number. A transcription with the same image number repeated past the
+    cap used to sail through the deduped-numbers check while still driving
+    thousands of AI calls -- parse_generic() must reject this before making
+    any of them, not partway through."""
+    repeated_count = MAX_IMAGES_PER_REQUEST + 1
+    text = "\n\n".join(
+        "--- START OF RECORD: page_001.jpg ---\nEntry text." for _ in range(repeated_count)
+    )
+    # Confirms the premise: the deduped-numbers check alone does NOT catch
+    # this -- every occurrence shares the same number.
+    assert all_image_numbers_capped(text) == ["001"]
+
+    calls = {"n": 0}
+
+    def fake_call_ai(*args, **kwargs):
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(ai_parser, "call_ai", fake_call_ai)
+    with pytest.raises(RuntimeError):
+        ai_parser.parse_generic(
+            config=ai_parser.RECORD_TYPES["battesimi"],
+            text=text,
+            image_range="",
+            image_overrides="",
+            api_key="key",
+            model="gemini-2.5-pro",
+            target_language="English",
+            target_role="",
+            process_all=True,
+        )
+    assert calls["n"] == 0

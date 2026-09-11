@@ -19,6 +19,23 @@
 (function () {
   "use strict";
 
+  // Reads the per-request dynamic data prompt_builder_page() embeds as a
+  // JSON data island (see json_data_island_html() in pages/__init__.py and
+  // CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md) instead of an
+  // executable inline <script> assigning these directly -- needed so this
+  // file keeps working once CSP's script-src drops 'unsafe-inline'.
+  // Assigned to the same window.PB_* names every reader below already
+  // used, so nothing past this point needed to change.
+  (function loadPromptBuilderInitialData() {
+    var el = document.getElementById("prompt-builder-initial-data");
+    var data = el ? JSON.parse(el.textContent) : {};
+    window.PB_CORE_RULES = data.coreRules;
+    window.PB_SAVED_PROFILES = data.savedProfiles;
+    window.PB_RESTORE_ON_ERROR = data.restoreOnError;
+    window.PB_RESTORE_EDIT_ID = data.restoreEditId;
+    window.PB_RESTORE_EDIT_LABEL = data.restoreEditLabel;
+  })();
+
   var RECORD_TYPES = {
     battesimi: { label: "Church Battesimi", nounSingular: "baptism", nounPlural: "baptisms", principal: "the baptized individual", locatorKind: "page", hasMarginalHeadingDefault: true },
     matrimoni: { label: "Church Matrimoni", nounSingular: "marriage", nounPlural: "marriages", principal: "the couple", locatorKind: "page", hasMarginalHeadingDefault: true },

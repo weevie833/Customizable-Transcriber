@@ -48,6 +48,29 @@ jobs:
       - name: Run offline parser regression suite (xls_conversion/tests/)
         run: python xls_conversion/tests/run_parser_test.py
 
+  # Informational only (continue-on-error: true below) -- reports Ruff's
+  # default findings on every push/PR without failing the build. Added per
+  # CODEX_REVIEW.md finding L-8 / HUMAN_DECISIONS.md, specifically to catch
+  # the kind of drift (20 unused imports had accumulated unnoticed) an
+  # earlier review found by running Ruff manually. One run is enough, same
+  # reasoning as dependency-audit below.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (ruff is pinned in requirements-dev.txt)
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Run Ruff (does not fail the build -- see this job's own comment)
+        continue-on-error: true
+        run: python -m ruff check .
+
   # Automates the two manual checks a follow-up code review did
   # by hand ("Runtime Python dependency audit", "Worksheet npm dependency
   # audit"). One run is enough (unlike the `test` job
@@ -64,11 +87,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install dependencies (pip-audit is pinned in requirements-dev.txt)
+        run: python -m pip install -r requirements-dev.txt
+
       - name: Audit Python dependencies (requirements.txt + requirements-dev.txt)
-        run: |
-          python -m pip install pip-audit
-          python -m pip install -r requirements-dev.txt
-          python -m pip_audit -r requirements.txt -r requirements-dev.txt
+        run: python -m pip_audit -r requirements.txt -r requirements-dev.txt
 
       - name: Set up Node
         uses: actions/setup-node@v4

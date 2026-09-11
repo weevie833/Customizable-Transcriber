@@ -26,6 +26,9 @@ get AI-driven normalization, and the shared extraction rules all 5
 non-Battesimi types use — see `RECORD_TYPES` and `GENERAL_EXTRACTION_RULES`
 in `xls_conversion/ai_parser.py`, the source of truth for extraction
 behavior. Three regex parsers (`baptism-parser.js`, `matrimony-parser.js`,
-`morti-parser.js`) also exist under `xls_conversion/`; they are not loaded
-by this page and are exercised only by the offline regression tests under
-`xls_conversion/tests/`.
+`morti-parser.js`) also exist under `xls_conversion/`; none is loaded by
+this page. Only `baptism-parser.js` is exercised by the offline regression
+tests under `xls_conversion/tests/` (`harness.js` loads it directly, and no
+other file references either of the other two) -- `matrimony-parser.js`
+and `morti-parser.js` are unmaintained reference code with no test
+coverage and no execution path anywhere in this app.

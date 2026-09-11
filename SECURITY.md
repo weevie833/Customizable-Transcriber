@@ -39,3 +39,18 @@ very much in scope. Reports assuming a different deployment model (e.g.
 "this would be exploitable if exposed to the internet without a reverse
 proxy") are useful context but not urgent, since that isn't how this app is
 meant to run.
+
+**Explicitly out of scope: another account on the same machine.** The
+CSRF/Host/Origin checks defend against a *different* threat (a malicious
+web page or cross-site script reaching this server through your own
+browser). They are not, and are not intended to be, user authentication —
+any process able to reach `127.0.0.1:<port>` at all (including another OS
+user account on a shared machine) can use the app the same way your own
+browser does: read the current run's output, read/create/edit/delete saved
+profiles, change the selected source folder, and start or stop jobs. This
+app assumes the machine it runs on is single-user (you're the only account
+with a login on it); it is not designed or reviewed for a shared-machine
+deployment, and a report describing that scenario is useful context but not
+treated as a vulnerability in this app as currently designed. If that
+assumption stops holding for your setup, don't run this app on that
+machine.

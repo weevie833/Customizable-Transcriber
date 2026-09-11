@@ -1,0 +1,36 @@
+/* Privacy page ("/privacy") styling, extracted from pages/privacy.py's
+inline <style> block -- see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md.
+Content is unchanged from the inline block it replaced (braces are no
+longer doubled since this isn't inside an f-string anymore). */
+.panel {
+  background: #ffffff;
+  border: 1px solid #d9d4c8;
+  border-radius: 8px;
+  padding: 24px 28px;
+  margin-bottom: 18px;
+}
+.panel h2 {
+  margin-top: 0;
+  font-size: 21px;
+}
+.panel h3 {
+  font-size: 17px;
+  margin-top: 26px;
+}
+.panel p {
+  margin: 12px 0;
+}
+.panel ul, .panel ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+.panel li {
+  margin: 6px 0;
+}
+@media (max-width: 720px) {
+  main {
+    width: min(100% - 28px, 980px);
+    padding-top: 20px;
+  }
+  .site-header { align-items: stretch; }
+}

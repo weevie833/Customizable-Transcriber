@@ -7,12 +7,10 @@ import re
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Callable
 
 import anthropic
 import httpx
 from google import genai
-from google.genai import errors as genai_errors
 from google.genai import types
 from customizable_transcription.core import (
     MAX_TRANSIENT_RETRIES,
@@ -982,6 +980,23 @@ def all_image_numbers(text: str) -> list[str]:
     return list(dict.fromkeys(numbers))
 
 
+def all_image_numbers_capped(text: str) -> list[str]:
+    """Same as all_image_numbers(), but enforces the same MAX_IMAGES_PER_REQUEST
+    ceiling parse_image_range() already applies to a typed range -- "Process all"
+    previously bypassed that cap entirely, since it reads whatever count is
+    actually present in the document instead of a user-typed span. A real
+    register can still legitimately contain more than this many images; that
+    case is a job-sizing/cost decision (batch it, or raise the cap deliberately),
+    not one this cap can silently accommodate by simply not enforcing itself."""
+    images = all_image_numbers(text)
+    if len(images) > MAX_IMAGES_PER_REQUEST:
+        raise RuntimeError(
+            f'"Process all" found {len(images)} images in this transcription, more than the '
+            f"{MAX_IMAGES_PER_REQUEST}-image limit for a single request; select a narrower range instead."
+        )
+    return images
+
+
 def split_image_blocks(
     text: str,
     image_range: str = "",
@@ -1214,7 +1229,7 @@ def preflight_generic(
     filename: str = "",
     record_type: str = "",
 ) -> dict[str, object]:
-    expected_images = all_image_numbers(text) if process_all else parse_image_range(image_range)
+    expected_images = all_image_numbers_capped(text) if process_all else parse_image_range(image_range)
     if not expected_images:
         if process_all:
             raise RuntimeError("No images were found in the uploaded transcription.")
@@ -1492,7 +1507,24 @@ def parse_generic(
     target_role: str,
     process_all: bool = False,
 ) -> dict[str, object]:
+    if process_all:
+        all_image_numbers_capped(text)
     blocks = split_image_blocks(text, image_range, image_overrides, process_all=process_all)
+    # The check above (and parse_image_range()'s own cap on a typed range)
+    # bounds the *distinct* image numbers involved, but split_image_blocks()
+    # emits one block per marker OCCURRENCE, not per distinct number -- a
+    # transcription with the same marker repeated thousands of times (a
+    # malformed or adversarial document) would pass both of those checks
+    # while still producing thousands of blocks here, each triggering its
+    # own AI call in the loop below. See CODEX_REVIEW_2.md finding M-2: this
+    # is the actual unit that drives AI-provider cost/call count, so it's
+    # what the cap must be checked against, not the distinct-number count.
+    if len(blocks) > MAX_IMAGES_PER_REQUEST:
+        raise RuntimeError(
+            f"This request would process {len(blocks)} image blocks, more than the "
+            f"{MAX_IMAGES_PER_REQUEST}-block limit for a single request; select a narrower range or "
+            "check the transcription for repeated/duplicated image markers."
+        )
     system_prompt = config.system_prompt.replace(
         TARGET_RULE_TOKEN, target_rule_sentence(target_language, target_role)
     ).replace(

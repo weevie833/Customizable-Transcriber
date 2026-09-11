@@ -1,0 +1,85 @@
+/* Transcribe page ("/transcribe") styling, extracted from pages/transcribe.py's
+inline <style> block -- see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md.
+Content is unchanged from the inline block it replaced (braces are no
+longer doubled, and the summary::before escape is a single backslash,
+since this isn't inside an f-string anymore). */
+    input[type="file"] {
+      display: none;
+    }
+    .section-divider {
+      border: none;
+      border-top: 1px solid #d9d4c8;
+      margin: 18px 0;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      font-weight: 500;
+    }
+    .check input {
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      border: 1.5px solid #4b5563;
+      border-radius: 2px;
+      background: transparent;
+    }
+    .check input:checked {
+      background: #255c99;
+      border-color: #255c99;
+      box-shadow: inset 0 0 0 3px #fff;
+    }
+    details.manual-override-section {
+      margin: 20px -18px -18px;
+      padding: 14px 18px;
+      border-top: 1px solid #d9d4c8;
+      border-radius: 0 0 8px 8px;
+      background: #f4f5f6;
+    }
+    details.manual-override-section summary {
+      cursor: pointer;
+      list-style: none;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 2px 0;
+    }
+    details.manual-override-section summary::-webkit-details-marker {
+      display: none;
+    }
+    details.manual-override-section summary::before {
+      content: "\25B8";
+      margin-right: 8px;
+      color: #255c99;
+      display: inline-block;
+      transition: transform 0.12s ease;
+    }
+    details.manual-override-section[open] summary::before {
+      transform: rotate(90deg);
+    }
+    details.manual-override-section .profile-work-area {
+      margin: 14px 0 0;
+      padding: 0;
+      border-top: none;
+      border-radius: 0;
+      background: none;
+    }
+    #download-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    @media (max-width: 720px) {
+      main {
+        width: min(100% - 28px, 980px);
+        padding-top: 20px;
+      }
+      .row, .run-options, .profile-select-row, .profile-save-row { grid-template-columns: 1fr; }
+      .path-control-row, .path-manual-row { grid-template-columns: 1fr; }
+      .run-actions { grid-template-columns: 1fr; }
+      .site-header { align-items: stretch; }
+      .run-button-stack button { width: 100%; }
+    }

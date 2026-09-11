@@ -4,9 +4,14 @@ openpyxl==3.1.5
 rapidfuzz==3.14.5
 
 # Not imported directly -- pulled in transitively via google-genai's own
-# google-auth dependency. Pinned here as a floor only, to force a resolver
+# google-auth dependency. Exact-pinned (previously floor-only, >=) to match
+# every other direct dependency in this file -- see CODEX_REVIEW.md finding
+# L-5 / HUMAN_DECISIONS.md. The floor itself was set to force a resolver
 # past two versions with known CVEs (PYSEC-2026-3552, PYSEC-2026-3455/6/7)
-# that were actually installed in this project's own environment when audited.
+# that were actually installed in this project's own environment when
+# audited; pinned exactly at the current latest release of each (confirmed
+# via `pip index versions`) rather than leaving the resolver free to pick
+# up a newer, unreviewed one automatically.
 # See docs/DESIGN.md's "Security hardening history" section.
-cryptography>=50.0.0
-pyasn1>=0.6.4
+cryptography==50.0.1
+pyasn1==0.6.4

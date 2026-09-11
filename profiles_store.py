@@ -32,9 +32,25 @@ import json
 import os
 import platform
 import re
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Guards every profile-store mutation (create/update/delete) against the
+# request-thread concurrency this app's ThreadingHTTPServer makes real, not
+# just theoretical -- see CODEX_REVIEW.md finding M-4. atomic_write_text()
+# already prevents a *corrupt* (truncated/interleaved) file; this lock
+# closes a different gap it doesn't: two near-simultaneous creates each
+# independently probing find_profile_path() for a free id (the "-2"/"-3"
+# auto-suffix loop in save_custom_profile()) could otherwise both see the
+# same id as free and race to write it, silently losing one profile. It
+# does NOT add optimistic conflict detection for two browser tabs
+# genuinely editing the same already-saved profile -- last-writer-wins is
+# preserved there deliberately, since resolving that needs a revision
+# token and a conflict UI, a product decision this fix doesn't make on its
+# own.
+_profile_write_lock = threading.Lock()
 
 
 def safe_filename(value: str) -> str:
@@ -252,6 +268,15 @@ def load_custom_profiles() -> list[dict[str, str]]:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
+            # A file can be syntactically valid JSON (`[]`, `null`, `"x"`, a
+            # bare number) without being a profile object at all -- e.g. a
+            # partially-migrated or externally-synced file. Skip it the same
+            # way an unparseable file above is skipped, rather than passing a
+            # non-dict into normalize_profile_sections()'s dict-only `.get()`
+            # calls, which would raise AttributeError and take down every
+            # profile-dependent page for the sake of one bad file.
+            if not isinstance(data, dict):
+                continue
             data = normalize_profile_sections(data)
             profile_id = str(data.get("id") or path.stem)
             label = str(data.get("label") or profile_id)
@@ -339,35 +364,36 @@ def save_custom_profile(
     if not any((role_context, reference_context, output_format)):
         raise RuntimeError("Paste role, reference, or output-format content before saving a new custom profile.")
 
-    profile_id = profile_id_from_name(label)
-    if not replace_existing:
-        base_id = profile_id
-        counter = 2
-        while find_profile_path(profile_id) is not None:
-            profile_id = f"{base_id}-{counter}"
-            counter += 1
+    with _profile_write_lock:
+        profile_id = profile_id_from_name(label)
+        if not replace_existing:
+            base_id = profile_id
+            counter = 2
+            while find_profile_path(profile_id) is not None:
+                profile_id = f"{base_id}-{counter}"
+                counter += 1
 
-    profile = {
-        "id": profile_id,
-        "label": label,
-        "kind": "custom",
-        "role_context": role_context,
-        "reference_context": reference_context,
-        "output_format": output_format,
-        # Prompt Builder-only for now -- a profile saved from
-        # the Transcribe page's manual free-text editor has neither field set,
-        # which is exactly what tells write_docx() to skip the header box.
-        "native_language": native_language.strip(),
-        "translation_languages": list(translation_languages or []),
-        "record_type": record_type.strip(),
-    }
-    if pb_answers:
-        # Structured Prompt Builder questionnaire state -- see load_custom_profiles()
-        # for why this is kept separate from the three prose fields above.
-        profile["pb_answers"] = pb_answers
-    USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(user_profile_path(profile_id), json.dumps(profile, indent=2) + "\n")
-    return profile
+        profile = {
+            "id": profile_id,
+            "label": label,
+            "kind": "custom",
+            "role_context": role_context,
+            "reference_context": reference_context,
+            "output_format": output_format,
+            # Prompt Builder-only for now -- a profile saved from
+            # the Transcribe page's manual free-text editor has neither field set,
+            # which is exactly what tells write_docx() to skip the header box.
+            "native_language": native_language.strip(),
+            "translation_languages": list(translation_languages or []),
+            "record_type": record_type.strip(),
+        }
+        if pb_answers:
+            # Structured Prompt Builder questionnaire state -- see load_custom_profiles()
+            # for why this is kept separate from the three prose fields above.
+            profile["pb_answers"] = pb_answers
+        USER_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(user_profile_path(profile_id), json.dumps(profile, indent=2) + "\n")
+        return profile
 
 
 def update_full_profile(
@@ -389,42 +415,44 @@ def update_full_profile(
     profile" action once a profile with stored pb_answers has been loaded
     back into the questionnaire; see save_prompt_builder_profile().
     """
-    profile = load_profile(profile_id)
-    if profile["id"] != profile_id:
-        # load_profile() silently falls back to the default profile when the
-        # id isn't found -- without this guard a stale edit_profile_id would
-        # overwrite the wrong file.
-        raise RuntimeError(f'Profile "{profile_id}" no longer exists. Save as a new profile instead.')
-    if not any((role_context, reference_context, output_format)):
-        raise RuntimeError("Paste role, reference, or output-format content before updating a profile.")
+    with _profile_write_lock:
+        profile = load_profile(profile_id)
+        if profile["id"] != profile_id:
+            # load_profile() silently falls back to the default profile when the
+            # id isn't found -- without this guard a stale edit_profile_id would
+            # overwrite the wrong file.
+            raise RuntimeError(f'Profile "{profile_id}" no longer exists. Save as a new profile instead.')
+        if not any((role_context, reference_context, output_format)):
+            raise RuntimeError("Paste role, reference, or output-format content before updating a profile.")
 
-    label = label.strip() or profile["label"]
-    profile["label"] = label
-    profile["role_context"] = role_context
-    profile["reference_context"] = reference_context
-    profile["output_format"] = output_format
-    profile["native_language"] = native_language.strip()
-    profile["translation_languages"] = list(translation_languages or [])
-    profile["record_type"] = record_type.strip()
-    if pb_answers:
-        profile["pb_answers"] = pb_answers
-    write_profile(profile)
-    return profile
+        label = label.strip() or profile["label"]
+        profile["label"] = label
+        profile["role_context"] = role_context
+        profile["reference_context"] = reference_context
+        profile["output_format"] = output_format
+        profile["native_language"] = native_language.strip()
+        profile["translation_languages"] = list(translation_languages or [])
+        profile["record_type"] = record_type.strip()
+        if pb_answers:
+            profile["pb_answers"] = pb_answers
+        write_profile(profile)
+        return profile
 
 
 def update_profile(profile_id: str, role_context: str, reference_context: str, output_format: str) -> dict[str, str]:
-    profile = load_profile(profile_id)
-    if profile["id"] != profile_id:
-        # Same guard as update_full_profile() above, for the same reason:
-        # load_profile() silently falls back to some other real profile
-        # when profile_id isn't found, so without this check a stale/bogus
-        # id would overwrite the wrong file instead of failing loudly.
-        raise RuntimeError(f'Profile "{profile_id}" no longer exists.')
-    profile["role_context"] = role_context
-    profile["reference_context"] = reference_context
-    profile["output_format"] = output_format
-    write_profile(profile)
-    return profile
+    with _profile_write_lock:
+        profile = load_profile(profile_id)
+        if profile["id"] != profile_id:
+            # Same guard as update_full_profile() above, for the same reason:
+            # load_profile() silently falls back to some other real profile
+            # when profile_id isn't found, so without this check a stale/bogus
+            # id would overwrite the wrong file instead of failing loudly.
+            raise RuntimeError(f'Profile "{profile_id}" no longer exists.')
+        profile["role_context"] = role_context
+        profile["reference_context"] = reference_context
+        profile["output_format"] = output_format
+        write_profile(profile)
+        return profile
 
 
 # Import/Export Profiles (Prompt Builder page). The exported file is plain
@@ -520,24 +548,25 @@ def delete_profile(profile_id: str) -> dict[str, str]:
     # actually unlinking the real app_settings.json one directory above
     # USER_PROFILES_DIR. No fallback for a destructive operation: an id that
     # isn't in the real listing is an error, full stop.
-    matches = [profile for profile in load_custom_profiles() if profile["id"] == profile_id]
-    if not matches:
-        raise RuntimeError("Select a valid prompt profile before deleting.")
-    profile = matches[0]
+    with _profile_write_lock:
+        matches = [profile for profile in load_custom_profiles() if profile["id"] == profile_id]
+        if not matches:
+            raise RuntimeError("Select a valid prompt profile before deleting.")
+        profile = matches[0]
 
-    path = find_profile_path(profile_id)
-    if path is None:
-        raise RuntimeError("Select a valid prompt profile before deleting.")
+        path = find_profile_path(profile_id)
+        if path is None:
+            raise RuntimeError("Select a valid prompt profile before deleting.")
 
-    # Never delete a shipped example, even by a valid id that happens to
-    # collide with one -- only a file actually inside USER_PROFILES_DIR is
-    # eligible. Resolved (not string-compared) so a symlink can't escape
-    # this check either.
-    if not path.resolve().is_relative_to(USER_PROFILES_DIR.resolve()):
-        raise RuntimeError("Shipped example profiles can't be deleted.")
+        # Never delete a shipped example, even by a valid id that happens to
+        # collide with one -- only a file actually inside USER_PROFILES_DIR is
+        # eligible. Resolved (not string-compared) so a symlink can't escape
+        # this check either.
+        if not path.resolve().is_relative_to(USER_PROFILES_DIR.resolve()):
+            raise RuntimeError("Shipped example profiles can't be deleted.")
 
-    path.unlink()
-    return profile
+        path.unlink()
+        return profile
 
 
 # The two functions below render profile *display* representations (an

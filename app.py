@@ -473,10 +473,6 @@ class Handler(
             self.compare_report()
             return
 
-        if urllib.parse.urlparse(self.path).path == "/api/index-compare/inspect":
-            self.inspect_index_file()
-            return
-
         if urllib.parse.urlparse(self.path).path == "/api/index-compare/suggest-mapping":
             self.suggest_index_mapping()
             return

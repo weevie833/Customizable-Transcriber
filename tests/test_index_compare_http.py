@@ -97,37 +97,6 @@ def _post_json(host, port, cookiejar, path, payload):
         return exc
 
 
-def test_inspect_auto_detects_an_app_shaped_file(live_server):
-    host, port = live_server
-    jar = CookieJar()
-    _get(host, port, "/", jar)
-
-    xlsx_bytes = _matrimoni_xlsx([_row(page_number="34", groom_given_name="Giuseppe")])
-    response = _post_multipart(
-        host, port, jar, "/api/index-compare/inspect", {}, {"file": ("index.xlsx", xlsx_bytes)}
-    )
-    data = json.loads(response.read())
-    assert data["auto_detected"] is True
-    assert data["record_type"] == "matrimoni"
-
-
-def test_inspect_reports_needs_mapping_for_a_custom_template(live_server):
-    host, port = live_server
-    jar = CookieJar()
-    _get(host, port, "/", jar)
-
-    custom_bytes = rows_to_xlsx(
-        ["", "Groom"], ["Loc", "Name"], ["locator", "name"], [{"locator": "34", "name": "Giuseppe"}], "Custom"
-    )
-    response = _post_multipart(
-        host, port, jar, "/api/index-compare/inspect", {}, {"file": ("custom.xlsx", custom_bytes)}
-    )
-    data = json.loads(response.read())
-    assert data["auto_detected"] is False
-    assert data["worksheets"][0]["name"] == "Custom"
-    assert any(rt["value"] == "matrimoni" for rt in data["record_types"])
-
-
 def test_analyze_end_to_end_accuracy_mode(live_server):
     host, port = live_server
     jar = CookieJar()

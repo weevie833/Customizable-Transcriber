@@ -57,39 +57,6 @@ class IndexCompareHandlerMixin:
             )
             return None
 
-    def inspect_index_file(self) -> None:
-        """Single-file precheck, called client-side right after each file
-        input is chosen (before Run Comparison) -- lets the frontend show a
-        column-mapping step immediately for a file that needs one, instead
-        of the user discovering it only after filling in every other field
-        and clicking Run."""
-        try:
-            files, _fields = parse_multipart_form(self)
-            file_bytes = self._index_compare_file_bytes(files, "file")
-            try:
-                config, rows, sheet_name = resolve_index_file(file_bytes)
-                self.respond_json(
-                    {
-                        "auto_detected": True,
-                        "record_type": config.key,
-                        "sheet_name": sheet_name,
-                        "row_count": len(rows),
-                    }
-                )
-            except NeedsMapping as exc:
-                self.respond_json(
-                    {
-                        "auto_detected": False,
-                        "worksheets": [
-                            {"name": ws.name, "header_row1": ws.header_row1, "header_row2": ws.header_row2}
-                            for ws in exc.worksheets
-                        ],
-                        "record_types": [{"value": key, "label": cfg.label} for key, cfg in RECORD_TYPES.items()],
-                    }
-                )
-        except Exception as exc:
-            self.respond_json({"error": str(exc)}, status=400)
-
     def suggest_index_mapping(self) -> None:
         """Once the frontend knows a file needs mapping and the user has
         picked which of the 6 record types it is, this returns a best-guess

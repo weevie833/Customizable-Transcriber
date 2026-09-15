@@ -42,7 +42,7 @@ def _client_error_400():
 def test_transient_429_is_retried_and_eventually_succeeds(monkeypatch):
     calls = {"n": 0}
 
-    def fake_once(api_key, model, system_prompt, user_message):
+    def fake_once(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] < 3:
             raise _rate_limit_error()
@@ -57,7 +57,7 @@ def test_transient_429_is_retried_and_eventually_succeeds(monkeypatch):
 def test_persistent_429_gives_up_after_max_retries(monkeypatch):
     calls = {"n": 0}
 
-    def fake_once(api_key, model, system_prompt, user_message):
+    def fake_once(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         calls["n"] += 1
         raise _rate_limit_error()
 
@@ -70,7 +70,7 @@ def test_persistent_429_gives_up_after_max_retries(monkeypatch):
 def test_non_transient_error_is_not_retried(monkeypatch):
     calls = {"n": 0}
 
-    def fake_once(api_key, model, system_prompt, user_message):
+    def fake_once(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         calls["n"] += 1
         raise _client_error_400()
 
@@ -103,7 +103,7 @@ def test_parse_generic_one_image_failure_does_not_abort_whole_batch(monkeypatch)
 
     call_count = {"n": 0}
 
-    def fake_call_ai(api_key, model, system_prompt, user_message):
+    def fake_call_ai(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         call_count["n"] += 1
         if call_count["n"] == 1:
             return [{"some_field": "ok"}]

@@ -604,8 +604,22 @@ def _transcribe_image_gemini(
     model: str,
     include_thoughts: bool,
     max_thinking_level: str | None = None,
+    cached_content: str | None = None,
 ) -> str:
-    config_kwargs = {"system_instruction": system_prompt, "temperature": 0}
+    # cached_content is an explicit Gemini context cache's resource name (see
+    # create_gemini_prompt_cache()) holding this exact system_prompt --
+    # passing both cached_content and system_instruction together is
+    # rejected by the API, since the cache already carries the prompt the
+    # caller would otherwise be resending, in full, on every single image in
+    # a run_batch()/parse_generic() loop. A missing/expired/unsupported
+    # cache (cached_content is None) falls back to today's behavior of
+    # sending system_instruction fresh every call -- caching is a cost
+    # optimization the batch must work correctly without, never a
+    # correctness requirement.
+    if cached_content:
+        config_kwargs: dict[str, object] = {"cached_content": cached_content, "temperature": 0}
+    else:
+        config_kwargs = {"system_instruction": system_prompt, "temperature": 0}
 
     if include_thoughts and hasattr(types, "ThinkingConfig"):
         config_kwargs["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
@@ -647,6 +661,7 @@ def _transcribe_image_claude(
     mime_type: str,
     system_prompt: str,
     model: str,
+    use_prompt_cache: bool = False,
 ) -> str:
     encoded = base64.standard_b64encode(data).decode("utf-8")
     block_type = "document" if mime_type == "application/pdf" else "image"
@@ -654,6 +669,17 @@ def _transcribe_image_claude(
         "type": block_type,
         "source": {"type": "base64", "media_type": mime_type, "data": encoded},
     }
+    # Unlike Gemini's cached_content (an object created once and reused by
+    # name), Claude's prompt caching is a per-call flag with no object to
+    # create or clean up -- the API caches this system_prompt on the first
+    # call that sets it and serves later calls with an identical prefix from
+    # cache automatically. Safe to pass on every call in a real batch loop
+    # (run_batch()/parse_generic()); left False for one-off single-image
+    # callers (e.g. Prompt Builder's Preflight Test) that have no repeated
+    # calls to amortize a cache write against.
+    stream_kwargs: dict[str, object] = {}
+    if use_prompt_cache:
+        stream_kwargs["cache_control"] = {"type": "ephemeral"}
     # Streaming, not a plain (non-streaming) messages.create() call. This used
     # to be non-streaming with max_tokens capped at 16000 -- raised once
     # already from 8192 after truncating mid-entry, with a comment noting
@@ -680,6 +706,7 @@ def _transcribe_image_claude(
                 "content": [source_block, {"type": "text", "text": USER_INSTRUCTION}],
             }
         ],
+        **stream_kwargs,
     ) as stream:
         response = stream.get_final_message()
     text = "".join(block.text for block in response.content if block.type == "text")
@@ -695,6 +722,8 @@ def transcribe_image(
     model: str,
     include_thoughts: bool = False,
     max_thinking_level: str | None = None,
+    cached_content: str | None = None,
+    use_prompt_cache: bool = False,
 ) -> str:
     data = image_path.read_bytes()
     # Detected from the file's own leading bytes, not its extension -- same
@@ -716,9 +745,18 @@ def transcribe_image(
         )
     mime_type = FILE_TYPE_MIME[detected_type]
     if client.provider == "claude":
-        return _transcribe_image_claude(client.claude, data, mime_type, system_prompt, model)
+        return _transcribe_image_claude(
+            client.claude, data, mime_type, system_prompt, model, use_prompt_cache
+        )
     return _transcribe_image_gemini(
-        client.gemini, data, mime_type, system_prompt, model, include_thoughts, max_thinking_level
+        client.gemini,
+        data,
+        mime_type,
+        system_prompt,
+        model,
+        include_thoughts,
+        max_thinking_level,
+        cached_content,
     )
 
 
@@ -730,11 +768,76 @@ def transcribe_image_with_retry(
     include_thoughts: bool = False,
     max_thinking_level: str | None = None,
     progress: Callable[[str], None] | None = None,
+    cached_content: str | None = None,
+    use_prompt_cache: bool = False,
 ) -> str:
     return _with_transient_retry(
-        lambda: transcribe_image(client, image_path, system_prompt, model, include_thoughts, max_thinking_level),
+        lambda: transcribe_image(
+            client,
+            image_path,
+            system_prompt,
+            model,
+            include_thoughts,
+            max_thinking_level,
+            cached_content,
+            use_prompt_cache,
+        ),
         progress=progress,
     )
+
+
+# Explicit Gemini context caching for a batch run's fixed system prompt --
+# see _transcribe_image_gemini()'s own cached_content comment for how the
+# per-call side works. This pair owns the cache's lifecycle: create once
+# before a run_batch()/parse_generic()-style loop starts, reuse its name on
+# every call in that loop, delete it once the loop ends. Claude needs
+# neither function -- its own caching is a stateless per-call flag, see
+# _transcribe_image_claude()'s use_prompt_cache.
+def create_gemini_prompt_cache(
+    client: genai.Client,
+    model: str,
+    system_prompt: str,
+    progress: Callable[[str], None] | None = None,
+) -> str | None:
+    """Returns the new cache's resource name on success, or None if caching
+    isn't available right now for this model/prompt (a preview model that
+    doesn't yet support explicit caching, a system_prompt too short to meet
+    the provider's minimum cacheable-token floor, a transient API error,
+    etc.). Callers must treat None as "fall back to sending the system
+    prompt on every call" (today's behavior), never as a fatal error --
+    prompt caching is a cost optimization the batch must keep working
+    correctly without."""
+    try:
+        cache = client.caches.create(
+            model=model,
+            config=types.CreateCachedContentConfig(
+                system_instruction=system_prompt,
+                # 1 hour comfortably covers the gap between consecutive
+                # per-image calls in a real batch; a batch that runs longer
+                # than this still completes correctly -- transcribe_image()
+                # falls back to sending system_prompt directly once the
+                # cache's name stops resolving, it just stops billing at the
+                # cached rate for the remainder.
+                ttl="3600s",
+            ),
+        )
+    except Exception as exc:
+        if progress:
+            progress(f"Prompt caching unavailable for {model} ({exc}); continuing without it.")
+        return None
+    return cache.name
+
+
+def delete_gemini_prompt_cache(client: genai.Client, cache_name: str) -> None:
+    """Best-effort cleanup once a run's loop is done with the cache. Silently
+    ignored on failure (network blip, already expired) -- an unreleased
+    cache still self-expires via its own ttl, so this is tidiness, not a
+    correctness requirement, and must never turn a successful batch run into
+    a reported failure over a cleanup call."""
+    try:
+        client.caches.delete(name=cache_name)
+    except Exception:
+        pass
 
 
 def collapse_source_line_breaks(text: str) -> str:
@@ -796,48 +899,69 @@ def run_batch(
     )
     results: list[ImageResult] = []
 
-    with config.output_file.open("w", encoding="utf-8") as output:
-        output.write(f"# Transcription Output\n\nSource folder: {config.image_folder}\n")
+    # The same system prompt (often several thousand tokens -- worked
+    # examples, a name lexicon, etc.) is resent in full on every single
+    # image in this loop. Claude's caching is a stateless per-call flag, so
+    # it's always requested for a real multi-image run. Gemini needs an
+    # explicit cache object created up front and reused by name; only
+    # created when there's actually more than one image to amortize its
+    # creation cost against, and always cleaned up afterward regardless of
+    # how the loop ends (Stop, an exception, or normal completion).
+    use_prompt_cache = client.provider == "claude" and len(files) > 1
+    gemini_cache_name: str | None = None
+    if client.provider == "gemini" and len(files) > 1:
+        gemini_cache_name = create_gemini_prompt_cache(client.gemini, config.model, prompt, progress=log)
+        if gemini_cache_name:
+            log("Prompt cache created for this run's system prompt.")
 
-        for index, image_path in enumerate(files, start=1):
-            if cancel_requested and cancel_requested():
-                log("Stopped before next image.")
-                break
+    try:
+        with config.output_file.open("w", encoding="utf-8") as output:
+            output.write(f"# Transcription Output\n\nSource folder: {config.image_folder}\n")
 
-            name = display_name(image_path, config.image_folder)
-            log(f"[{index}/{len(files)}] Processing {name}")
-            try:
-                validate_batch_source_file(image_path, config.image_folder)
-                text = transcribe_image_with_retry(
-                    client=client,
-                    image_path=image_path,
-                    system_prompt=prompt,
-                    model=config.model,
-                    include_thoughts=config.include_thoughts,
-                    progress=log,
-                )
-                output.write(render_entry(name, text))
-                output.flush()
-                results.append(ImageResult(name, True, text))
-                log(f"Saved {name}")
-            except Exception as exc:
-                error = f"ERROR: {humanize_provider_error(exc, config.model)}"
-                output.write(render_entry(name, error))
-                output.flush()
-                results.append(ImageResult(name, False, error))
-                log(f"Failed {name}: {humanize_provider_error(exc, config.model)}")
-
-            if config.delay_seconds > 0 and index < len(files):
-                remaining_delay = config.delay_seconds
-                while remaining_delay > 0:
-                    if cancel_requested and cancel_requested():
-                        log("Stopped during delay before next image.")
-                        break
-                    sleep_time = min(0.25, remaining_delay)
-                    time.sleep(sleep_time)
-                    remaining_delay -= sleep_time
+            for index, image_path in enumerate(files, start=1):
                 if cancel_requested and cancel_requested():
+                    log("Stopped before next image.")
                     break
+
+                name = display_name(image_path, config.image_folder)
+                log(f"[{index}/{len(files)}] Processing {name}")
+                try:
+                    validate_batch_source_file(image_path, config.image_folder)
+                    text = transcribe_image_with_retry(
+                        client=client,
+                        image_path=image_path,
+                        system_prompt=prompt,
+                        model=config.model,
+                        include_thoughts=config.include_thoughts,
+                        progress=log,
+                        cached_content=gemini_cache_name,
+                        use_prompt_cache=use_prompt_cache,
+                    )
+                    output.write(render_entry(name, text))
+                    output.flush()
+                    results.append(ImageResult(name, True, text))
+                    log(f"Saved {name}")
+                except Exception as exc:
+                    error = f"ERROR: {humanize_provider_error(exc, config.model)}"
+                    output.write(render_entry(name, error))
+                    output.flush()
+                    results.append(ImageResult(name, False, error))
+                    log(f"Failed {name}: {humanize_provider_error(exc, config.model)}")
+
+                if config.delay_seconds > 0 and index < len(files):
+                    remaining_delay = config.delay_seconds
+                    while remaining_delay > 0:
+                        if cancel_requested and cancel_requested():
+                            log("Stopped during delay before next image.")
+                            break
+                        sleep_time = min(0.25, remaining_delay)
+                        time.sleep(sleep_time)
+                        remaining_delay -= sleep_time
+                    if cancel_requested and cancel_requested():
+                        break
+    finally:
+        if gemini_cache_name:
+            delete_gemini_prompt_cache(client.gemini, gemini_cache_name)
 
     if cancel_requested and cancel_requested():
         log(f"Stopped. Partial output: {config.output_file}")

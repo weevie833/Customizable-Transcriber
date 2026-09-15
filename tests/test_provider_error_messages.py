@@ -147,7 +147,16 @@ def test_transcribe_image_with_retry_retries_then_succeeds(monkeypatch):
     calls = {"n": 0}
     progress_messages = []
 
-    def fake_transcribe_image(client, image_path, system_prompt, model, include_thoughts=False, max_thinking_level=None):
+    def fake_transcribe_image(
+        client,
+        image_path,
+        system_prompt,
+        model,
+        include_thoughts=False,
+        max_thinking_level=None,
+        cached_content=None,
+        use_prompt_cache=False,
+    ):
         calls["n"] += 1
         if calls["n"] < 3:
             raise _gemini_503()
@@ -169,7 +178,16 @@ def test_transcribe_image_with_retry_retries_then_succeeds(monkeypatch):
 def test_transcribe_image_with_retry_gives_up_after_max_retries(monkeypatch):
     calls = {"n": 0}
 
-    def always_fails(client, image_path, system_prompt, model, include_thoughts=False, max_thinking_level=None):
+    def always_fails(
+        client,
+        image_path,
+        system_prompt,
+        model,
+        include_thoughts=False,
+        max_thinking_level=None,
+        cached_content=None,
+        use_prompt_cache=False,
+    ):
         calls["n"] += 1
         raise _gemini_503()
 

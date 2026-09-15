@@ -58,7 +58,7 @@ def test_forward_flagged_merge_replaces_not_appends(monkeypatch):
 
     calls = {"n": 0}
 
-    def fake_call_ai(api_key, model, system_prompt, user_message):
+    def fake_call_ai(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
             return [
@@ -94,7 +94,7 @@ def test_backward_flag_retry_merge_replaces_not_appends(monkeypatch):
 
     calls = {"n": 0}
 
-    def fake_call_ai(api_key, model, system_prompt, user_message):
+    def fake_call_ai(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
             return [{"individual_given_name": "Anna", "notes": ""}]
@@ -120,7 +120,7 @@ def test_backward_flag_retry_empty_keeps_original_extraction(monkeypatch):
 
     calls = {"n": 0}
 
-    def fake_call_ai(api_key, model, system_prompt, user_message):
+    def fake_call_ai(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
             return [{"individual_given_name": "Anna", "notes": ""}]
@@ -142,7 +142,7 @@ def test_backward_flag_retry_exception_keeps_original_extraction(monkeypatch):
 
     calls = {"n": 0}
 
-    def fake_call_ai(api_key, model, system_prompt, user_message):
+    def fake_call_ai(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
             return [{"individual_given_name": "Anna", "notes": ""}]
@@ -165,7 +165,7 @@ def test_forward_flag_unconfirmed_merge_keeps_both_rows(monkeypatch):
 
     calls = {"n": 0}
 
-    def fake_call_ai(api_key, model, system_prompt, user_message):
+    def fake_call_ai(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
             return [
@@ -195,7 +195,7 @@ def test_backward_flag_retry_unconfirmed_merge_keeps_unmerged_extraction(monkeyp
 
     calls = {"n": 0}
 
-    def fake_call_ai(api_key, model, system_prompt, user_message):
+    def fake_call_ai(api_key, model, system_prompt, user_message, *_args, **_kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
             return [{"individual_given_name": "Anna", "notes": ""}]

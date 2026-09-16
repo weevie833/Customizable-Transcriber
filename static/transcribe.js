@@ -262,8 +262,15 @@ exactly where the inline block used to sit. */
         const response = await fetch("/api/offpeak-cost-estimate?" + params.toString(), { cache: "no-store" });
         if (!response.ok) return;
         const data = await response.json();
-        estimateEl.textContent = data.estimate_text || "";
-        estimateEl.hidden = !data.estimate_text;
+        const estimateText = data.estimate_text || "";
+        // Server-assembled text (variable image counts/token totals) --
+        // bypasses i18n.js's DICTIONARY the same way showSettingsAlert()'s
+        // assembled messages do, so it needs tbTranslateStatusText()'s
+        // pattern-matching rather than a raw assignment (see i18n.js's
+        // DYNAMIC_LINE_PATTERNS for the off-peak estimate's own patterns).
+        estimateEl.textContent =
+          typeof window.tbTranslateStatusText === "function" ? window.tbTranslateStatusText(estimateText) : estimateText;
+        estimateEl.hidden = !estimateText;
       } catch (err) {
         // Best-effort only -- the estimate is informational, not load-bearing
         // for the run itself, so a failed fetch just leaves it hidden.

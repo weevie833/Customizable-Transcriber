@@ -112,8 +112,25 @@
     "Delete Profile": "Elimina profilo",
     "Preflight Check": "Controllo preliminare",
     "Confirm and run": "Conferma ed esegui",
+    // Off-Peak Mode (batch_transcription.py/handlers/transcribe_offpeak.py).
+    // "Confirm and Run Now" replaced the old "Confirm and run" label above
+    // on the Transcribe page specifically, to disambiguate it from the new
+    // "Confirm and Run<br>Off-Peak" button next to it -- Test Mode's own
+    // identical button kept the original wording, so that entry above is
+    // still live, just no longer covering Transcribe. The off-peak button's
+    // two lines are two separate DOM text nodes (split by the <br>), so
+    // each needs its own key. "Off-Peak" is deliberately kept as an English
+    // loanword (not translated) rather than given an entry, matching how
+    // the feature is referred to as "Modalità Off-Peak" everywhere else in
+    // this dictionary and in GETTING_STARTED.it.html -- there is no
+    // separate Italian term for it in this app.
+    "Confirm and Run Now": "Conferma ed esegui ora",
+    "Confirm and Run": "Conferma ed esegui",
     "Confirm settings:": "Conferma impostazioni:",
     "Progress:": "Avanzamento:",
+    // updateRunStatus() (static/app-common.js): a third branch alongside
+    // "Progress:"/"Confirm settings:" above, for an off-peak run specifically.
+    "Off-peak progress:": "Avanzamento off-peak:",
     // Settings-alert modal (showSettingsAlert()) titles/messages and the
     // Run button's tooltip (both set via a raw .textContent/.title
     // assignment -- see this file's own top-of-file comment on why these
@@ -162,6 +179,9 @@
     "Output:": "Output:",
 
     // Transcribe page
+    // Off-Peak Mode info-button popup (OFF_PEAK_INFO_TEXT, pages/transcribe.py).
+    "Off-Peak Mode submits your whole run to your provider's batch queue instead of processing images in real time -- typically billed at roughly half the standard per-token rate. The app must stay open and running for the entire job; there is no way to submit it and close the app. The provider processes it on its own schedule, which can take anywhere from a few minutes to several hours -- there is no guaranteed turnaround time. Clicking Stop cancels the batch entirely on the provider's side: any images not yet completed are lost, not paused.":
+      "La Modalità Off-Peak invia l'intera esecuzione alla coda batch del tuo provider invece di elaborare le immagini in tempo reale — di norma fatturata a circa la metà della tariffa standard per token. L'app deve rimanere aperta e in esecuzione per tutta la durata del lavoro; non è possibile inviarlo e poi chiudere l'app. Il provider lo elabora secondo i propri tempi, che possono variare da pochi minuti a diverse ore — non è garantito alcun tempo di consegna. Cliccando su Interrompi, il lotto viene annullato completamente lato provider: le immagini non ancora completate vengono perse, non messe in pausa.",
     "Use the Prompt Builder page to create prompts, or bypass the Prompt Builder and place your prompt in the sections below. Manual prompts cannot be edited in the Prompt Builder.":
       "Usa la pagina Prompt Builder per creare i prompt, oppure aggira il Prompt Builder e inserisci il tuo prompt nelle sezioni qui sotto. I prompt inseriti manualmente non possono essere modificati nel Prompt Builder.",
     "Manual prompts can only be edited here - they cannot be edited in the Prompt Builder.":
@@ -760,6 +780,36 @@
       re: /^The Claude API key doesn't look like a Claude key\.$/,
       it: function () {
         return "La chiave API Claude non sembra una chiave Claude.";
+      },
+    },
+    {
+      // estimate_off_peak_savings() (batch_transcription.py), zero-image case.
+      re: /^Select a source folder to see an off-peak cost estimate\.$/,
+      it: function () {
+        return "Seleziona una cartella di origine per vedere una stima dei costi off-peak.";
+      },
+    },
+    {
+      // estimate_off_peak_savings() (batch_transcription.py), the real
+      // estimate -- assembled from image_count, one of 3 fixed page_layout
+      // notes, and total_tokens, so (like the two patterns above it) this
+      // goes through pattern-matching rather than a single DICTIONARY key.
+      // OFF_PEAK_DISCOUNT_DESCRIPTION is a module-level constant, not a
+      // parameter, so its wording is matched literally rather than captured.
+      re: /^≈([\d,]+) image\(s\) found \((.+)\) → roughly ([\d,]+) image tokens at your selected model's standard detail level\. Off-peak batch processing is typically billed at roughly half the standard per-token rate for both input and output\.$/,
+      it: function (m) {
+        var PAGE_NOTES = {
+          "each image ≈1 register page, per this profile": "ogni immagine ≈1 pagina di registro, secondo questo profilo",
+          "each image ≈2 facing pages, per this profile": "ogni immagine ≈2 pagine affiancate, secondo questo profilo",
+          "page layout not specified in this profile": "impaginazione non specificata in questo profilo",
+        };
+        var pageNoteIt = PAGE_NOTES[m[2]] || m[2];
+        return (
+          "≈" + m[1] + " immagine/i trovate (" + pageNoteIt + ") → circa " + m[3] +
+          " token immagine al livello di dettaglio standard del modello selezionato. L'elaborazione batch " +
+          "off-peak è generalmente fatturata a circa la metà della tariffa standard per token, sia in " +
+          "ingresso che in uscita."
+        );
       },
     },
   ];

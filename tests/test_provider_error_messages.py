@@ -251,3 +251,135 @@ def test_run_batch_writes_humanized_error_for_persistent_transient_failure(tmp_p
     assert not results[0].ok
     assert "not a problem with your API key or this app" in results[0].text
     assert "gemini-3.1-pro-preview" in results[0].text
+
+
+# --- Truncation auto-retry (transcribe_image_with_retry) -------------------
+# See core.py's _TRUNCATION_NOTICE / _gemini_thinking_is_cappable() comments:
+# a gemini-3.x response cut off by MAX_TOKENS is often the model's own
+# (uncapped-by-default, on this real-batch path) thinking budget eating the
+# shared output-token pool, not genuinely-too-long content. These cover the
+# retry-with-capped-thinking behavior transcribe_image_with_retry() now does
+# on top of the existing transient-error retry above.
+
+
+def test_truncated_gemini_response_retries_with_lower_thinking_and_succeeds(monkeypatch):
+    calls = []
+
+    def fake_transcribe_image(
+        client,
+        image_path,
+        system_prompt,
+        model,
+        include_thoughts=False,
+        max_thinking_level=None,
+        cached_content=None,
+        use_prompt_cache=False,
+    ):
+        calls.append(max_thinking_level)
+        if max_thinking_level is None:
+            return "Entry 8:\n\nDate: 10 Julii 1761 [10 July" + core._TRUNCATION_NOTICE
+        return "Entry 8:\n\nDate: 10 Julii 1761 [10 July 1761]. ... full transcription."
+
+    monkeypatch.setattr(core, "transcribe_image", fake_transcribe_image)
+    progress_messages = []
+    result = core.transcribe_image_with_retry(
+        client=core.LLMClient(provider="gemini"),
+        image_path=core.Path("image_194.jpg"),
+        system_prompt="sys",
+        model="gemini-3.1-pro-preview",
+        progress=progress_messages.append,
+    )
+    assert calls == [None, "LOW"]
+    assert result == "Entry 8:\n\nDate: 10 Julii 1761 [10 July 1761]. ... full transcription."
+    assert not result.endswith(core._TRUNCATION_NOTICE)
+    assert any("retrying once with a lower thinking budget" in msg for msg in progress_messages)
+    assert any("finished without truncation" in msg for msg in progress_messages)
+
+
+def test_truncated_gemini_response_keeps_original_if_retry_still_truncated(monkeypatch):
+    calls = []
+
+    def fake_transcribe_image(
+        client,
+        image_path,
+        system_prompt,
+        model,
+        include_thoughts=False,
+        max_thinking_level=None,
+        cached_content=None,
+        use_prompt_cache=False,
+    ):
+        calls.append(max_thinking_level)
+        return "partial text" + core._TRUNCATION_NOTICE
+
+    monkeypatch.setattr(core, "transcribe_image", fake_transcribe_image)
+    progress_messages = []
+    result = core.transcribe_image_with_retry(
+        client=core.LLMClient(provider="gemini"),
+        image_path=core.Path("image_194.jpg"),
+        system_prompt="sys",
+        model="gemini-3.1-pro-preview",
+        progress=progress_messages.append,
+    )
+    assert calls == [None, "LOW"]
+    assert result == "partial text" + core._TRUNCATION_NOTICE_AFTER_RETRY
+    assert any("still hit the output token limit" in msg for msg in progress_messages)
+
+
+def test_truncated_claude_response_is_not_retried(monkeypatch):
+    calls = []
+
+    def fake_transcribe_image(
+        client,
+        image_path,
+        system_prompt,
+        model,
+        include_thoughts=False,
+        max_thinking_level=None,
+        cached_content=None,
+        use_prompt_cache=False,
+    ):
+        calls.append(max_thinking_level)
+        return "partial text" + core._TRUNCATION_NOTICE
+
+    monkeypatch.setattr(core, "transcribe_image", fake_transcribe_image)
+    result = core.transcribe_image_with_retry(
+        client=core.LLMClient(provider="claude"),
+        image_path=core.Path("image_001.jpg"),
+        system_prompt="sys",
+        model="claude-opus-5",
+    )
+    # Claude has no shared thinking/output budget in this code path (see
+    # _transcribe_image_claude()), so a truncated response is never retried.
+    assert calls == [None]
+    assert result == "partial text" + core._TRUNCATION_NOTICE
+
+
+def test_truncated_gemini_25_pro_response_is_not_retried(monkeypatch):
+    """gemini-2.5-pro has no ThinkingLevel to cap (_gemini_thinking_is_cappable()
+    gates on model.startswith("gemini-3")) -- retrying would just spend a
+    second API call for no effect."""
+    calls = []
+
+    def fake_transcribe_image(
+        client,
+        image_path,
+        system_prompt,
+        model,
+        include_thoughts=False,
+        max_thinking_level=None,
+        cached_content=None,
+        use_prompt_cache=False,
+    ):
+        calls.append(max_thinking_level)
+        return "partial text" + core._TRUNCATION_NOTICE
+
+    monkeypatch.setattr(core, "transcribe_image", fake_transcribe_image)
+    result = core.transcribe_image_with_retry(
+        client=core.LLMClient(provider="gemini"),
+        image_path=core.Path("image_001.jpg"),
+        system_prompt="sys",
+        model="gemini-2.5-pro",
+    )
+    assert calls == [None]
+    assert result == "partial text" + core._TRUNCATION_NOTICE

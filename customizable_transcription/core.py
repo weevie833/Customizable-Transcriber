@@ -591,9 +591,33 @@ def humanize_provider_error(exc: Exception, model: str) -> str:
 _TRUNCATION_NOTICE = (
     "\n\n[TRUNCATED: this image's response hit the model's output token limit before "
     "finishing. Everything above is genuine model output, but later entries on this image "
-    "may be missing entirely. Re-run this image on its own, or raise the output token limit "
-    "in customizable_transcription/core.py, to recover the rest.]"
+    "may be missing entirely. Re-run this image on its own to try to recover the rest.]"
 )
+# Appended instead of the generic notice above when transcribe_image_with_retry()
+# already tried and failed to recover the rest itself (see its own comment) --
+# telling the user to just "re-run this image" would be misleading when that's
+# exactly what already happened, automatically, with no improvement.
+_TRUNCATION_NOTICE_AFTER_RETRY = (
+    "\n\n[TRUNCATED: this image's response hit the model's output token limit before "
+    "finishing, even after an automatic retry with a lower thinking budget. Everything "
+    "above is genuine model output, but later entries on this image may be missing "
+    "entirely. This image's content likely genuinely exceeds the model's output "
+    "capacity -- consider splitting it into two images (e.g. by page) and re-running.]"
+)
+
+
+def _gemini_thinking_is_cappable(model: str) -> bool:
+    """True when max_thinking_level actually does something for this model --
+    see _transcribe_image_gemini()'s own thinking_config branch, which this
+    mirrors exactly. Only gemini-3.x models expose ThinkingLevel at all,
+    which matters to transcribe_image_with_retry()'s truncation retry below:
+    no point spending a whole extra API call capping a knob that has no
+    effect for gemini-2.5-pro or Claude."""
+    return (
+        model.startswith("gemini-3")
+        and hasattr(types, "ThinkingConfig")
+        and hasattr(types, "ThinkingLevel")
+    )
 
 
 def _transcribe_image_gemini(
@@ -623,12 +647,7 @@ def _transcribe_image_gemini(
 
     if include_thoughts and hasattr(types, "ThinkingConfig"):
         config_kwargs["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
-    elif (
-        max_thinking_level
-        and model.startswith("gemini-3")
-        and hasattr(types, "ThinkingConfig")
-        and hasattr(types, "ThinkingLevel")
-    ):
+    elif max_thinking_level and _gemini_thinking_is_cappable(model):
         # A real batch run (include_thoughts False, max_thinking_level None)
         # leaves Gemini 3.x's default (uncapped) thinking budget untouched --
         # this only fires for a caller that explicitly asks for a ceiling, e.g.
@@ -771,7 +790,7 @@ def transcribe_image_with_retry(
     cached_content: str | None = None,
     use_prompt_cache: bool = False,
 ) -> str:
-    return _with_transient_retry(
+    text = _with_transient_retry(
         lambda: transcribe_image(
             client,
             image_path,
@@ -784,6 +803,61 @@ def transcribe_image_with_retry(
         ),
         progress=progress,
     )
+    if not text.endswith(_TRUNCATION_NOTICE):
+        return text
+
+    # A truncation notice means finish_reason/stop_reason came back as
+    # MAX_TOKENS (see _transcribe_image_gemini()/_transcribe_image_claude()
+    # above) -- the response was cut off mid-generation, not just genuinely
+    # long. For gemini-3.x specifically, this is very often the model's
+    # *thinking* budget (uncapped by default on this real-batch path -- see
+    # _gemini_thinking_is_cappable()'s own comment) eating most of the
+    # shared output-token pool before it finishes writing the actual
+    # transcription, especially on a dense or two-page source image. Retry
+    # once with thinking capped low, trading some reasoning depth for
+    # headroom to actually finish the response -- worth it since a
+    # completed transcription beats a partial one with entries silently
+    # missing. Not attempted for Claude (no shared thinking/output budget
+    # here -- see _transcribe_image_claude(), which never sets a thinking
+    # config) or for a model that doesn't expose ThinkingLevel at all
+    # (_gemini_thinking_is_cappable()), since capping a knob with no effect
+    # would just spend a second API call for nothing.
+    if (
+        client.provider != "gemini"
+        or not _gemini_thinking_is_cappable(model)
+        or (max_thinking_level or "").upper() in ("LOW", "MINIMAL")
+    ):
+        return text
+
+    if progress:
+        progress(
+            f"{image_path.name}: output was truncated by the model's token limit; "
+            "retrying once with a lower thinking budget to leave more room for the "
+            "transcription itself..."
+        )
+    retry_text = _with_transient_retry(
+        lambda: transcribe_image(
+            client,
+            image_path,
+            system_prompt,
+            model,
+            include_thoughts,
+            "LOW",
+            cached_content,
+            use_prompt_cache,
+        ),
+        progress=progress,
+    )
+    if not retry_text.endswith(_TRUNCATION_NOTICE):
+        if progress:
+            progress(f"{image_path.name}: retry with a lower thinking budget finished without truncation.")
+        return retry_text
+    if progress:
+        progress(
+            f"{image_path.name}: retry with a lower thinking budget still hit the output token "
+            "limit; keeping the original result."
+        )
+    return text[: -len(_TRUNCATION_NOTICE)] + _TRUNCATION_NOTICE_AFTER_RETRY
 
 
 # Explicit Gemini context caching for a batch run's fixed system prompt --

@@ -82,4 +82,5 @@ since this isn't inside an f-string anymore). */
       .run-actions { grid-template-columns: 1fr; }
       .site-header { align-items: stretch; }
       .run-button-stack button { width: 100%; }
+      .offpeak-button-row button { width: 100%; }
     }

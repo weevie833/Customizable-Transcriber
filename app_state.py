@@ -53,6 +53,23 @@ state = {
     "role_context": "",
     "reference_context": "",
     "output_format": "",
+    # Off-Peak Mode (batch_transcription.py) -- unused by a real-time run,
+    # which leaves all four at their defaults below. off_peak is the one
+    # other code reads to decide "is the currently-running job a batch job",
+    # e.g. stop_job()'s cancellation branch and the Progress Console's
+    # "Off-peak progress:" label swap. batch_job_id is this run's own
+    # provider-issued job id/name (opaque string, provider-specific format)
+    # -- never a filename or anything else user-controlled, see
+    # batch_transcription.py's own module docstring on why. batch_counts
+    # mirrors whichever of the two providers' aggregate-progress shapes is
+    # in play (Gemini: successful/failed/incomplete; Anthropic:
+    # succeeded/errored/processing/canceled/expired), plus "total" -- the
+    # Progress Console renders whatever keys are present rather than
+    # assuming one fixed shape.
+    "off_peak": False,
+    "batch_provider": "",
+    "batch_job_id": "",
+    "batch_counts": {},
 }
 lock = threading.Lock()
 stop_event = threading.Event()
@@ -177,6 +194,10 @@ def reset_ui_state() -> None:
         state["role_context"] = ""
         state["reference_context"] = ""
         state["output_format"] = ""
+        state["off_peak"] = False
+        state["batch_provider"] = ""
+        state["batch_job_id"] = ""
+        state["batch_counts"] = {}
     clear_source_folder()
 
 
@@ -205,6 +226,8 @@ def status_payload() -> dict[str, object]:
             "download": bool(state["download"]),
             "completed": bool(state["download"]) and not bool(state["running"]),
             "summary": str(state["summary"]),
+            "off_peak": bool(state["off_peak"]),
+            "batch_counts": dict(state["batch_counts"]),
         }
 
 

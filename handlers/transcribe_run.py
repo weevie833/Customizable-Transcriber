@@ -149,8 +149,17 @@ class TranscribeRunHandlerMixin:
         with lock:
             if state["running"]:
                 stop_event.set()
-                state["summary"] = "Stopping after the current image finishes..."
-                state["log"].append("Stop requested.")
+                if state["off_peak"]:
+                    # No provider network call here -- batch_transcription.py's
+                    # poll loop notices stop_event on its own next tick (at most
+                    # POLL_INTERVAL_SECONDS away) and calls the provider's
+                    # cancel-batch endpoint itself, the same cooperative-
+                    # cancellation shape run_batch() already uses between images.
+                    state["summary"] = "Cancelling off-peak batch..."
+                    state["log"].append("Off-peak cancellation requested.")
+                else:
+                    state["summary"] = "Stopping after the current image finishes..."
+                    state["log"].append("Stop requested.")
                 state["log"] = state["log"][-300:]
             else:
                 state["summary"] = "No transcription is running."

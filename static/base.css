@@ -303,3 +303,58 @@ input[type="radio"]:focus-visible {
   outline: 3px solid rgba(37, 92, 153, 0.32);
   outline-offset: 2px;
 }
+
+/* Small "i" info-button + popup panel, shared by any page loading base.css.
+   A parallel, independently-named copy of Prompt Builder's own
+   .pb-info-wrap/.pb-info-btn/.pb-info-panel (static/prompt-builder.css) --
+   not a move of that one, since Prompt Builder doesn't load base.css/
+   app-common.js at all (its own styling has diverged too far to share past
+   the base tier, see docs/DESIGN.md). Kept as a second, small copy rather
+   than restructuring Prompt Builder's page includes to reach it, so this
+   addition can't affect Prompt Builder's already-working info buttons.
+   info-btn's own JS wiring lives in app-common.js's wireInfoButtons(). */
+.info-wrap {
+  position: relative;
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.info-btn {
+  /* 24x24 hit target -- WCAG 2.2 SC 2.5.8 Target Size (Minimum, AA). */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  background: #5f6b76;
+  color: #fff;
+  font-size: 13px;
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1;
+  vertical-align: middle;
+}
+.info-btn:hover {
+  background: #45505a;
+}
+.info-panel {
+  position: absolute;
+  z-index: 20;
+  top: 30px;
+  left: 0;
+  width: max-content;
+  max-width: 320px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #1f2933;
+  color: #eef2f6;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+@media (max-width: 480px) {
+  .info-panel { max-width: calc(100vw - 60px); }
+}

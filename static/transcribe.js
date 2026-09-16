@@ -24,7 +24,7 @@ exactly where the inline block used to sit. */
       document.getElementById("output").textContent = "Output: " + (status.output || "");
       document.getElementById("log").textContent = translateStatus(status.log || "");
       updateRunButton(status.running);
-      updateRunStatus(status.running);
+      updateRunStatus(status.running, status.off_peak);
       document.getElementById("stop-button").disabled = !status.running;
       updateDownloadControl(status.download);
 
@@ -40,6 +40,7 @@ exactly where the inline block used to sit. */
     const TR_INITIAL_DATA = JSON.parse(document.getElementById("transcribe-initial-data").textContent);
     const profiles = TR_INITIAL_DATA.profiles;
     const running = TR_INITIAL_DATA.running;
+    const initialOffPeak = TR_INITIAL_DATA.off_peak;
     let originalProfileFields = null;
     let runConfirmed = false;
     let preflightComplete = false;
@@ -190,12 +191,14 @@ exactly where the inline block used to sit. */
       const runButton = document.getElementById("run-button");
       if (!runButton) return;
       const confirmButton = document.getElementById("confirm-run-button");
+      const offPeakButton = document.getElementById("confirm-run-offpeak-button");
       const profileSelected = Boolean(document.querySelector('[name="profile_id"]').value);
       const apiKeyEntered = Boolean(document.querySelector('[name="gemini_api_key"]').value.trim());
       const sourceFolderDisplay = document.getElementById("source-folder-display");
       const sourceFolderSelected = Boolean(sourceFolderDisplay && sourceFolderDisplay.dataset.selected === "true");
       runButton.disabled = Boolean(running);
       if (confirmButton && running) confirmButton.disabled = true;
+      if (offPeakButton && running) offPeakButton.disabled = true;
       if (running) {
         runButton.title = "A transcription process is already running.";
       } else if (!sourceFolderSelected) {
@@ -234,11 +237,37 @@ exactly where the inline block used to sit. */
       document.getElementById("confirm-profile").textContent = settings.profileLabel;
       const settingsWrap = document.getElementById("run-confirmation-settings");
       const confirmButton = document.getElementById("confirm-run-button");
+      const offPeakButton = document.getElementById("confirm-run-offpeak-button");
       const runButton = document.getElementById("run-button");
       if (settingsWrap) settingsWrap.hidden = false;
       if (confirmButton) confirmButton.disabled = false;
+      if (offPeakButton) offPeakButton.disabled = false;
       if (runButton) runButton.disabled = true;
       preflightComplete = true;
+      updateOffPeakCostEstimate();
+    }
+
+    async function updateOffPeakCostEstimate() {
+      const estimateEl = document.getElementById("offpeak-cost-estimate");
+      if (!estimateEl) return;
+      const model = document.querySelector('[name="model"]').value;
+      const fileType = document.querySelector('[name="file_type"]:checked');
+      const profileId = document.querySelector('[name="profile_id"]').value;
+      const params = new URLSearchParams({
+        model: model || "",
+        file_type: fileType ? fileType.value : "jpeg",
+        profile_id: profileId || "",
+      });
+      try {
+        const response = await fetch("/api/offpeak-cost-estimate?" + params.toString(), { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        estimateEl.textContent = data.estimate_text || "";
+        estimateEl.hidden = !data.estimate_text;
+      } catch (err) {
+        // Best-effort only -- the estimate is informational, not load-bearing
+        // for the run itself, so a failed fetch just leaves it hidden.
+      }
     }
 
     function setOrderHint() {
@@ -265,12 +294,15 @@ exactly where the inline block used to sit. */
         runPreflightCheck();
         return;
       }
-      if (event.submitter && event.submitter.id === "confirm-run-button" && !preflightComplete) {
+      const isConfirmSubmit = event.submitter && (
+        event.submitter.id === "confirm-run-button" || event.submitter.id === "confirm-run-offpeak-button"
+      );
+      if (isConfirmSubmit && !preflightComplete) {
         event.preventDefault();
         showSettingsAlert("Please run the preflight check before starting transcription.");
         return;
       }
-      if (event.submitter && event.submitter.id === "confirm-run-button") {
+      if (isConfirmSubmit) {
         runConfirmed = false;
         preflightComplete = false;
       }
@@ -369,6 +401,19 @@ exactly where the inline block used to sit. */
           if (runForm) runForm.requestSubmit(confirmRunButton);
         });
       }
+      const confirmOffPeakButton = document.getElementById("confirm-run-offpeak-button");
+      if (confirmOffPeakButton) {
+        confirmOffPeakButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          runConfirmed = true;
+          completionAlertShown = false;
+          // form.requestSubmit(submitter) uses the submitter's own
+          // formaction ("/run-offpeak") rather than the <form>'s default
+          // action -- same <form> as the real-time Now button, just a
+          // different button.
+          if (runForm) runForm.requestSubmit(confirmOffPeakButton);
+        });
+      }
       const downloadLink = document.getElementById("download-link");
       if (downloadLink) {
         downloadLink.addEventListener("click", (event) => {
@@ -409,8 +454,9 @@ exactly where the inline block used to sit. */
         runForm.addEventListener("submit", confirmReset);
       }
       updateRunButton(running);
-      updateRunStatus(running);
+      updateRunStatus(running, initialOffPeak);
       updateDeleteButton(running);
+      if (typeof wireInfoButtons === "function") wireInfoButtons();
       if (running) {
         window.setTimeout(refreshStatus, 1500);
       }

@@ -81,6 +81,12 @@ function resetPreflight() {
   if (confirmButton) confirmButton.disabled = true;
   if (runButton) runButton.disabled = false;
   if (settings) settings.hidden = true;
+  // Off-Peak Mode (Transcribe page only -- guarded lookups, so this is a
+  // no-op on Test Mode, which has neither element).
+  const offPeakButton = document.getElementById("confirm-run-offpeak-button");
+  const costEstimate = document.getElementById("offpeak-cost-estimate");
+  if (offPeakButton) offPeakButton.disabled = true;
+  if (costEstimate) costEstimate.hidden = true;
 }
 
 function applySourceFolder(path) {
@@ -150,7 +156,7 @@ async function setSourceFolderManually() {
   }
 }
 
-function updateRunStatus(running) {
+function updateRunStatus(running, offPeak) {
   const status = document.getElementById("run-status");
   const settings = document.getElementById("run-confirmation-settings");
   const title = document.querySelector("#run-confirmation .run-confirmation-title");
@@ -168,7 +174,7 @@ function updateRunStatus(running) {
     // tbRefreshLanguage() (i18n.js) is exposed for exactly this "content
     // added/changed after the initial pass" case and re-applies whatever
     // language is currently active, including a no-op in English.
-    title.textContent = running ? "Progress:" : "Confirm settings:";
+    title.textContent = running ? (offPeak ? "Off-peak progress:" : "Progress:") : "Confirm settings:";
     if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
   }
 }
@@ -194,4 +200,42 @@ function confirmReset(event) {
   if (!window.confirm("Reset All clears the source folder, run settings, and current output. Continue?")) {
     event.preventDefault();
   }
+}
+
+// ---- Info buttons (the small "i" popups, e.g. Off-Peak Mode's explainer)
+// A parallel copy of prompt-builder.js's own wireInfoButtons()/
+// closeAllInfoPanels(), matched to base.css's .info-btn/.info-panel classes
+// (not Prompt Builder's .pb-info-* ones -- see that CSS's own comment on
+// why this isn't a shared move). Delegated on `document`, so it only needs
+// wiring once regardless of how many info buttons a page renders, or adds
+// later (e.g. a repeatable row).
+
+function closeAllInfoPanels(except) {
+  document.querySelectorAll(".info-panel").forEach(function (panel) {
+    if (panel === except) return;
+    panel.hidden = true;
+    const btn = document.querySelector('.info-btn[aria-controls="' + panel.id + '"]');
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  });
+}
+
+function wireInfoButtons() {
+  document.addEventListener("click", function (event) {
+    const btn = event.target.closest(".info-btn");
+    if (btn) {
+      const panel = document.getElementById(btn.getAttribute("aria-controls"));
+      const wasOpen = panel && !panel.hidden;
+      closeAllInfoPanels();
+      if (panel && !wasOpen) {
+        panel.hidden = false;
+        btn.setAttribute("aria-expanded", "true");
+      }
+      event.preventDefault();
+      return;
+    }
+    if (!event.target.closest(".info-panel")) closeAllInfoPanels();
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") closeAllInfoPanels();
+  });
 }

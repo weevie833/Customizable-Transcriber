@@ -183,7 +183,7 @@ button:not(:disabled):focus-visible, .button-label:focus-visible, .download:focu
 #run-button:not(:disabled):hover {
   background: #176f2c;
 }
-#run-button:disabled, #confirm-run-button:disabled {
+#run-button:disabled, #confirm-run-button:disabled, #confirm-run-offpeak-button:disabled {
   background: #8d99a6;
   color: #eef2f6;
   cursor: not-allowed;
@@ -210,6 +210,24 @@ button:not(:disabled):focus-visible, .button-label:focus-visible, .download:focu
 .run-button-stack button {
   width: 200px;
   margin-top: 0;
+}
+.offpeak-button-row {
+  display: flex;
+  align-items: center;
+}
+.offpeak-button-row button {
+  width: 200px;
+}
+/* The real fix for the info button rendering as a wide dark pill instead
+   of its own small "i" circle, found by live-inspecting computed styles:
+   .run-button-stack button (specificity 0,1,1) matches EVERY <button>
+   descendant regardless of nesting depth, including .info-btn nested two
+   levels down inside .offpeak-button-row -- and that beat .info-btn's own
+   rule (base.css, specificity 0,1,0), forcing it to the same 200px as the
+   real button next to it. This rule (0,1,1,1 -- one more class than the
+   button-stack rule) wins back over it. */
+.run-button-stack .info-btn {
+  width: 24px;
 }
 .run-confirmation {
   display: inline-flex;
@@ -253,7 +271,14 @@ button:not(:disabled):focus-visible, .button-label:focus-visible, .download:focu
   align-items: center;
   color: #4b5563;
 }
-#confirm-run-button {
+#offpeak-cost-estimate {
+  /* A full sentence, not a short "Label: value" item like its three
+     siblings -- forced onto its own line within the wrapping flex row
+     instead of competing for space inline with them. */
+  flex-basis: 100%;
+  display: block;
+}
+#confirm-run-button, #confirm-run-offpeak-button {
   margin-top: 0;
   background: #22863a;
 }

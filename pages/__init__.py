@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 
 FOOTER_HTML = (
@@ -62,6 +63,23 @@ def json_data_island_html(element_id: str, value: object) -> str:
     content, regardless of its `type` attribute.
     """
     return f'<script type="application/json" id="{element_id}">{json_for_inline_script(value)}</script>'
+
+
+def info_button_html(panel_id: str, text: str) -> str:
+    """A small "i" button that toggles a popup panel with plain-language help
+    text -- same shape as Prompt Builder's own pb_info_button_html()
+    (pages/prompt_builder.py), but using .info-btn/.info-panel (base.css)
+    instead of Prompt Builder's own .pb-info-* classes, since Prompt Builder
+    doesn't load base.css/app-common.js at all -- see base.css's own comment
+    on .info-wrap for why this is a parallel copy, not a shared move. Wired
+    generically by app-common.js's wireInfoButtons() (click/Escape/outside-
+    click to close), so this function only has to emit matching markup."""
+    return (
+        f'<span class="info-wrap">'
+        f'<button type="button" class="info-btn" aria-expanded="false" aria-controls="{panel_id}" aria-label="More information">i</button>'
+        f'<span class="info-panel" id="{panel_id}" role="note" hidden>{html.escape(text)}</span>'
+        f'</span>'
+    )
 
 
 def file_picker_html(input_id: str = "", accept: str = "", extra_attrs: str = "") -> str:

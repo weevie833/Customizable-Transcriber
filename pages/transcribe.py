@@ -7,9 +7,19 @@ from __future__ import annotations
 import html
 
 from customizable_transcription.core import MODELS
-from pages import FOOTER_HTML, json_data_island_html
+from pages import FOOTER_HTML, info_button_html, json_data_island_html
 from profiles_store import load_profile, profile_options_html, profiles_for_browser
 from app_state import load_source_folder, lock, state
+
+OFF_PEAK_INFO_TEXT = (
+    "Off-Peak Mode submits your whole run to your provider's batch queue instead of "
+    "processing images in real time -- typically billed at roughly half the standard "
+    "per-token rate. The app must stay open and running for the entire job; there is no "
+    "way to submit it and close the app. The provider processes it on its own schedule, "
+    "which can take anywhere from a few minutes to several hours -- there is no "
+    "guaranteed turnaround time. Clicking Stop cancels the batch entirely on the "
+    "provider's side: any images not yet completed are lost, not paused."
+)
 
 # Only used on this page -- moved here rather than left as an app.py
 # constant, since importing it from app.py would be circular (app.py
@@ -40,6 +50,7 @@ def page() -> str:
         role_context = str(state["role_context"])
         reference_context = str(state["reference_context"])
         output_format = str(state["output_format"])
+        off_peak = bool(state["off_peak"])
 
     if profile_id:
         active_profile = load_profile(profile_id)
@@ -76,8 +87,9 @@ def page() -> str:
     # CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md.
     initial_data_html = json_data_island_html(
         "transcribe-initial-data",
-        {"profiles": profiles_for_browser(), "running": running},
+        {"profiles": profiles_for_browser(), "running": running, "off_peak": off_peak},
     )
+    off_peak_info_html = info_button_html("offpeak-info-panel", OFF_PEAK_INFO_TEXT)
     download_disabled_class = "" if download else " disabled-link"
     download_aria_disabled = "false" if download else "true"
 
@@ -183,7 +195,11 @@ def page() -> str:
     <div class="actions run-actions">
       <div class="run-button-stack">
         <button id="run-button" type="submit" disabled>Preflight Check</button>
-        <button id="confirm-run-button" type="submit" disabled>Confirm and run</button>
+        <button id="confirm-run-button" type="submit" disabled>Confirm and Run Now</button>
+        <span class="offpeak-button-row">
+          <button id="confirm-run-offpeak-button" type="submit" formaction="/run-offpeak" formmethod="post" disabled>Confirm and Run<br>Off-Peak</button>
+          {off_peak_info_html}
+        </span>
       </div>
       <span id="run-confirmation" class="run-confirmation">
         <span class="run-confirmation-title">Confirm settings:</span>
@@ -191,6 +207,7 @@ def page() -> str:
           <span>Order: <strong id="confirm-order"></strong></span>
           <span>File type: <strong id="confirm-file-type"></strong></span>
           <span>Prompt Profile: <strong id="confirm-profile"></strong></span>
+          <span id="offpeak-cost-estimate" hidden></span>
         </span>
         <span id="run-status" class="run-status" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>
       </span>

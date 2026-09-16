@@ -7,7 +7,13 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from customizable_transcription.core import DEFAULT_MODEL, MODELS
+from customizable_transcription.core import (
+    DEFAULT_MODEL,
+    FILE_TYPE_EXTENSIONS,
+    MODELS,
+    count_source_files_by_type,
+)
+from batch_transcription import estimate_off_peak_savings
 from profiles_store import (
     PROFILES_DIR,  # noqa: F401 -- re-exported for test monkeypatching, see comment below
     PROJECT_DIR,
@@ -21,11 +27,13 @@ from profiles_store import (
     # Do not remove as a "dead import" cleanup without patching that fixture.
     USER_PROFILES_DIR,  # noqa: F401 -- re-exported for test monkeypatching, see comment above
     ensure_profiles_dir,
+    load_profile,
     save_custom_profile,
 )
 from app_state import (
     APP_SETTINGS_FILE,
     USER_OUTPUTS_DIR,
+    load_source_folder,
     lock,
     new_test_run_state,  # noqa: F401 -- re-exported; see tests/test_test_mode_key_scoping_and_failure_isolation.py
     state,
@@ -44,6 +52,7 @@ from handlers.xls_conversion import XlsConversionHandlerMixin
 from handlers.index_compare import IndexCompareHandlerMixin
 from handlers.profiles import ProfilesHandlerMixin
 from handlers.transcribe_run import TranscribeRunHandlerMixin
+from handlers.transcribe_offpeak import TranscribeOffPeakHandlerMixin
 from handlers.test_mode_run import TestModeRunHandlerMixin
 from handlers.settings import SettingsHandlerMixin
 
@@ -261,6 +270,7 @@ class Handler(
     IndexCompareHandlerMixin,
     ProfilesHandlerMixin,
     TranscribeRunHandlerMixin,
+    TranscribeOffPeakHandlerMixin,
     TestModeRunHandlerMixin,
     SettingsHandlerMixin,
     BaseHTTPRequestHandler,
@@ -396,6 +406,57 @@ class Handler(
                 {
                     "models": [{"id": model_id, "label": label} for model_id, label in MODELS.items()],
                     "default": DEFAULT_MODEL,
+                }
+            )
+            return
+
+        if parsed.path == "/api/offpeak-cost-estimate":
+            # Read-only. Takes no client-supplied PATH at all -- counts
+            # whatever source folder is already stored server-side (picked
+            # via /api/pick-source-folder or typed into /api/set-source-folder),
+            # never a path the request itself names. `model` and `file_type`
+            # are small, validated enum values, not paths -- reused directly
+            # against MODELS/FILE_TYPE_EXTENSIONS the same way selected_model()/
+            # selected_file_type() already validate them for a real run.
+            # `profile_id` is resolved through load_profile() (server-side,
+            # same as run_off_peak() itself) purely to read pageLayout --
+            # never returned to the client, matching profiles_for_browser()'s
+            # own rule that pb_answers never reaches the browser.
+            query = urllib.parse.parse_qs(parsed.query)
+            model = (query.get("model") or [DEFAULT_MODEL])[0]
+            file_type = (query.get("file_type") or ["jpeg"])[0]
+            profile_id = (query.get("profile_id") or [""])[0]
+            if model not in MODELS or file_type not in FILE_TYPE_EXTENSIONS:
+                self.respond_json({"error": "Invalid model or file type."}, status=400)
+                return
+            folder = load_source_folder()
+            try:
+                # A stored source folder can point at a path that no longer
+                # exists (moved, renamed, on unmounted external media, or a
+                # settings file left over from a different machine) --
+                # count_source_files_by_type() raises FileNotFoundError in
+                # that case. This is a purely informational estimate, not a
+                # precondition for anything, so it degrades to "0 images
+                # found" rather than surfacing an error the user has to act
+                # on -- the real run's own preflight_source_file_type()
+                # still raises its own clear error at submission time either
+                # way, this just must not crash a background estimate fetch.
+                counts = count_source_files_by_type(folder) if folder is not None else {}
+            except OSError:
+                counts = {}
+            image_count = counts.get(file_type, 0)
+            page_layout = ""
+            if profile_id:
+                try:
+                    profile = load_profile(profile_id)
+                    pb_answers = profile.get("pb_answers") or {}
+                    page_layout = str((pb_answers.get("fields") or {}).get("pageLayout", ""))
+                except Exception:
+                    page_layout = ""
+            self.respond_json(
+                {
+                    "image_count": image_count,
+                    "estimate_text": estimate_off_peak_savings(image_count, page_layout, model),
                 }
             )
             return
@@ -551,6 +612,10 @@ class Handler(
 
         if self.path == "/test-mode/queue/remove":
             self.remove_from_queue()
+            return
+
+        if self.path == "/run-offpeak":
+            self.run_off_peak()
             return
 
         if self.path != "/run":

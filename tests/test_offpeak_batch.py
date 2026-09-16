@@ -189,12 +189,95 @@ def test_run_off_peak_job_success_writes_output_and_resets_state(tmp_path, monke
         assert app_state.state["off_peak"] is False
         summary = app_state.state["summary"]
         download = app_state.state["download"]
+        log = app_state.state["log"]
 
     assert "processed 2 image(s), 0 failure(s)" in summary
     assert download == str(docx_file)
     assert docx_file.exists()
     text = markdown_file.read_text(encoding="utf-8")
     assert "Entry A" in text and "Entry B" in text
+
+    # Regression coverage for the real bug: the console log used to only
+    # ever get the initial "submitted" line -- a run that finished cleanly
+    # left it looking exactly like a still-hanging run, with no indication
+    # anything had happened since. There must now be a submitted line, at
+    # least one progress line, and a completion line, each timestamped.
+    assert any("Off-peak batch submitted" in line for line in log)
+    assert any("Off-peak progress:" in line for line in log)
+    assert any("processed 2 image(s), 0 failure(s)" in line for line in log)
+    import re
+
+    assert all(re.match(r"^\[\d{2}:\d{2}:\d{2}\] ", line) for line in log)
+
+
+def test_run_off_peak_job_progress_log_dedups_unchanged_counts(tmp_path, monkeypatch):
+    """A multi-hour job polls every 30s -- if the counts haven't changed
+    since the last poll, that must not append another near-identical
+    progress line (hundreds of them over a real overnight run)."""
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+
+    fake_client = _FakeGeminiClient()
+    monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+
+    poll_calls = {"n": 0}
+
+    def fake_poll(client, job_name):
+        poll_calls["n"] += 1
+        # Same "incomplete" reading three times in a row, then terminal --
+        # only the first "incomplete" poll and the final terminal poll
+        # should produce a progress line.
+        terminal = poll_calls["n"] >= 4
+        state_value = (
+            bt.genai_types.JobState.JOB_STATE_SUCCEEDED if terminal else bt.genai_types.JobState.JOB_STATE_RUNNING
+        )
+        stats = pytypes.SimpleNamespace(
+            successful_count=1 if terminal else 0, failed_count=0, incomplete_count=0 if terminal else 1
+        )
+        dest = (
+            pytypes.SimpleNamespace(
+                inlined_responses=[
+                    pytypes.SimpleNamespace(metadata={"index": "0"}, error=None, response=pytypes.SimpleNamespace(text="Entry A")),
+                ]
+            )
+            if terminal
+            else None
+        )
+        return pytypes.SimpleNamespace(state=state_value, completion_stats=stats, dest=dest)
+
+    monkeypatch.setattr(bt, "poll_gemini_batch", fake_poll)
+
+    with app_state.lock:
+        app_state.state["running"] = True
+        app_state.state["off_peak"] = True
+        # run_off_peak_job() only ever appends to state["log"] -- resetting
+        # it here (the real HTTP handler does this before spawning the job
+        # thread) keeps this test's count assertion scoped to this run, not
+        # polluted by whatever an earlier test in this module left behind.
+        app_state.state["log"] = []
+
+    bt.run_off_peak_job(
+        project_dir=tmp_path,
+        image_folder=source_folder,
+        extensions=frozenset({".jpg", ".jpeg"}),
+        model="gemini-2.5-pro",
+        provider="gemini",
+        system_prompt="system prompt",
+        api_key_override="fake-key",
+        markdown_file=tmp_path / "output.md",
+        docx_file=tmp_path / "output.docx",
+        profile={"label": "Test Profile"},
+    )
+
+    assert poll_calls["n"] == 4
+    with app_state.lock:
+        log = app_state.state["log"]
+    progress_lines = [line for line in log if "Off-peak progress:" in line]
+    # One for the first "incomplete 1" reading, one for the terminal
+    # "succeeded 1" reading -- NOT one per poll (would be 4).
+    assert len(progress_lines) == 2
 
 
 def test_run_off_peak_job_tolerates_a_transient_poll_failure_then_succeeds(tmp_path, monkeypatch):

@@ -37,6 +37,7 @@ new off_peak/batch_provider/batch_job_id/batch_counts fields.
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from pathlib import Path
 
 import anthropic
@@ -135,6 +136,16 @@ POLL_INTERVAL_SECONDS = 30
 # failures tolerated -- generous relative to the blips this is meant to
 # absorb, short relative to a run that can span many hours.
 MAX_CONSECUTIVE_POLL_FAILURES = 20
+
+
+def _log_timestamp() -> str:
+    """A run_batch()-style per-image log line is self-explanatory on its
+    own ("[3/10] Processing x.jpg") because the next line follows within
+    seconds. An off-peak job's log lines can be hours apart with nothing in
+    between, so unlike core.py's real-time log() calls, these are worth a
+    wall-clock timestamp -- otherwise "batch submitted" and "batch
+    completed" read as if they happened back to back."""
+    return datetime.now().strftime("%H:%M:%S")
 
 
 class BatchSubmissionError(RuntimeError):
@@ -392,7 +403,7 @@ def run_off_peak_job(
             state["batch_job_id"] = job_id
             state["batch_counts"] = {"total": len(images)}
             state["log"].append(
-                f"Off-peak batch submitted ({len(images)} image(s), job {job_id}). "
+                f"[{_log_timestamp()}] Off-peak batch submitted ({len(images)} image(s), job {job_id}). "
                 "Processed on the provider's own schedule -- this may take a while."
             )
             state["log"] = state["log"][-300:]
@@ -400,6 +411,7 @@ def run_off_peak_job(
         cancelled = False
         job = None
         consecutive_poll_failures = 0
+        last_logged_counts: dict[str, int] | None = None
         while True:
             if stop_event.is_set():
                 cancelled = True
@@ -408,7 +420,7 @@ def run_off_peak_job(
                 else:
                     cancel_gemini_batch(client, job_id)
                 with lock:
-                    state["log"].append("Off-peak batch cancellation requested.")
+                    state["log"].append(f"[{_log_timestamp()}] Off-peak batch cancellation requested.")
                     state["log"] = state["log"][-300:]
 
             try:
@@ -443,9 +455,9 @@ def run_off_peak_job(
                     ) from exc
                 with lock:
                     state["log"].append(
-                        f"Off-peak status check failed (transient, {consecutive_poll_failures}/"
-                        f"{MAX_CONSECUTIVE_POLL_FAILURES}) -- the batch job itself is unaffected; "
-                        f"retrying in {POLL_INTERVAL_SECONDS}s. ({exc})"
+                        f"[{_log_timestamp()}] Off-peak status check failed (transient, "
+                        f"{consecutive_poll_failures}/{MAX_CONSECUTIVE_POLL_FAILURES}) -- the batch "
+                        f"job itself is unaffected; retrying in {POLL_INTERVAL_SECONDS}s. ({exc})"
                     )
                     state["log"] = state["log"][-300:]
                 time.sleep(POLL_INTERVAL_SECONDS)
@@ -457,6 +469,20 @@ def run_off_peak_job(
             with lock:
                 state["batch_counts"] = counts
                 state["summary"] = "Off-peak: " + ", ".join(f"{k} {v}" for k, v in counts.items())
+                # Log a line only when the counts actually change, not on
+                # every 30-second poll -- a multi-hour job would otherwise
+                # bury the console in hundreds of identical "no change"
+                # lines. Compared against a copy with "total" removed since
+                # that key never changes and would never let this fire on
+                # its own.
+                comparable_counts = {k: v for k, v in counts.items() if k != "total"}
+                if comparable_counts != last_logged_counts:
+                    state["log"].append(
+                        f"[{_log_timestamp()}] Off-peak progress: "
+                        + ", ".join(f"{k} {v}" for k, v in counts.items())
+                    )
+                    state["log"] = state["log"][-300:]
+                    last_logged_counts = comparable_counts
 
             if terminal or cancelled:
                 break
@@ -502,11 +528,13 @@ def run_off_peak_job(
                 state["summary"] = f"Off-peak batch cancelled after {len(image_results)} image(s), {failures} failure(s)."
             else:
                 state["summary"] = f"Off-peak: processed {len(image_results)} image(s), {failures} failure(s)."
+            state["log"].append(f"[{_log_timestamp()}] {state['summary']}")
+            state["log"] = state["log"][-300:]
             state["download"] = str(docx_file) if docx_file.exists() else ""
     except Exception as exc:
         message = humanize_provider_error(exc, model)
         with lock:
-            state["log"].append(f"Fatal error: {message}")
+            state["log"].append(f"[{_log_timestamp()}] Fatal error: {message}")
             state["log"] = state["log"][-300:]
             state["summary"] = f"Fatal error: {message}"
     finally:

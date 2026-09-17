@@ -16,6 +16,7 @@ from customizable_transcription.core import (
     MAX_TRANSIENT_RETRIES,
     RETRY_BASE_DELAY_SECONDS,
     RETRY_MAX_DELAY_SECONDS,
+    _generate_content_with_cache_fallback,
     _is_transient_provider_error,
     create_gemini_prompt_cache,
     delete_gemini_prompt_cache,
@@ -1049,22 +1050,27 @@ def call_gemini_json(
     # cached_content is an explicit Gemini context cache's resource name
     # (see create_gemini_prompt_cache() in core.py) already holding this
     # exact system_prompt -- passing both together is rejected by the API.
-    # Falls back to sending system_prompt fresh (today's behavior) when no
-    # cache was created or it's no longer available.
+    # Builds both variants unconditionally (not just whichever cached_content's
+    # truthiness picks) because a cache that WAS created can still expire or
+    # be deleted server-side mid-batch -- see _generate_content_with_cache_fallback()
+    # (core.py), which retries with config_options_no_cache the moment that
+    # specific failure is detected, rather than only ever falling back when no
+    # cache existed in the first place.
+    config_options: dict[str, object] = {
+        "response_mime_type": "application/json",
+        "max_output_tokens": 8192,
+        "temperature": 0,
+    }
     if cached_content:
-        config_options: dict[str, object] = {
-            "cached_content": cached_content,
-            "response_mime_type": "application/json",
-            "max_output_tokens": 8192,
-            "temperature": 0,
-        }
+        config_options["cached_content"] = cached_content
     else:
-        config_options = {
-            "system_instruction": system_prompt,
-            "response_mime_type": "application/json",
-            "max_output_tokens": 8192,
-            "temperature": 0,
-        }
+        config_options["system_instruction"] = system_prompt
+    config_options_no_cache: dict[str, object] = {
+        "system_instruction": system_prompt,
+        "response_mime_type": "application/json",
+        "max_output_tokens": 8192,
+        "temperature": 0,
+    }
     # Gemini 3.x models think by default, with no cap unless one is set here --
     # for a "Pro" reasoning-tier model that can burn a very long time (and a
     # good chunk of the 8192-token output budget) reasoning before it ever
@@ -1078,14 +1084,21 @@ def call_gemini_json(
     # than guessing at an equivalent budget for a model that wasn't reported
     # as slow.
     if model.startswith("gemini-3") and hasattr(types, "ThinkingConfig"):
-        config_options["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MEDIUM)
+        thinking_config = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MEDIUM)
+        config_options["thinking_config"] = thinking_config
+        config_options_no_cache["thinking_config"] = thinking_config
     started = time.monotonic()
     try:
-        response = client.models.generate_content(
-            model=model,
-            contents=user_message,
-            config=types.GenerateContentConfig(**config_options),
-        )
+        if cached_content:
+            response = _generate_content_with_cache_fallback(
+                client, model, user_message, config_options, config_options_no_cache
+            )
+        else:
+            response = client.models.generate_content(
+                model=model,
+                contents=user_message,
+                config=types.GenerateContentConfig(**config_options),
+            )
     except httpx.TimeoutException as exc:
         elapsed = time.monotonic() - started
         print(f"[xls-conversion] Gemini {model} timed out after {elapsed:.1f}s")

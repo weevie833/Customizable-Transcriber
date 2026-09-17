@@ -477,6 +477,60 @@ def _is_transient_provider_error(exc: Exception) -> bool:
     return False
 
 
+def _is_cached_content_not_found_error(exc: Exception) -> bool:
+    """True when a Gemini call failed because the explicit context cache
+    passed as cached_content (see create_gemini_prompt_cache()) has expired
+    or been deleted server-side -- a real 403 the API returns once the
+    cache's name stops resolving ('CachedContent not found (or permission
+    denied)'), not a genuine API-key permission problem. A batch that runs
+    longer than the cache's 1-hour ttl (run_batch()/parse_generic() reuse one
+    cache's name across every sequential per-image call) will hit this on
+    whichever call is in flight when the cache lapses, and every call after
+    it unless the caller recovers. Distinguished from any other 403 (a
+    genuinely revoked/invalid API key, for instance) so only this specific,
+    recoverable case triggers the no-cache fallback in
+    _generate_content_with_cache_fallback() below -- a real permission error
+    should still surface as a hard failure, not be silently retried."""
+    return isinstance(exc, genai_errors.APIError) and exc.code == 403 and "cachedcontent" in str(exc).lower()
+
+
+def _generate_content_with_cache_fallback(
+    client: genai.Client,
+    model: str,
+    contents: object,
+    config_with_cache: dict[str, object],
+    config_without_cache: dict[str, object],
+) -> object:
+    """Shared by _transcribe_image_gemini() and xls_conversion/ai_parser.py's
+    call_gemini_json() -- both build two variants of the same call's config
+    (one referencing an explicit prompt cache, one sending the system prompt
+    fresh) and only differ in exactly which config keys they set. Tries the
+    cache first (cheaper); on the specific "cache no longer exists" error,
+    retries the same call once with the prompt sent fresh instead of letting
+    a mid-batch cache expiry fail this call (and, without this, every
+    subsequent call in the same loop, since callers otherwise keep reusing
+    the same now-dead cache name). Any other exception -- including a
+    second failure on the fallback attempt itself -- propagates normally.
+    Prints unconditionally (not gated behind a progress callback) rather than
+    threading one through transcribe_image()/transcribe_image_with_retry()
+    just for this rare event -- matches the existing unconditional
+    print(f"[xls-conversion] ...") diagnostics in call_gemini_json() below."""
+    try:
+        return client.models.generate_content(
+            model=model, contents=contents, config=types.GenerateContentConfig(**config_with_cache)
+        )
+    except Exception as exc:
+        if not _is_cached_content_not_found_error(exc):
+            raise
+        print(
+            f"[gemini-cache] Prompt cache no longer available ({exc}); "
+            "retrying this request with the system prompt sent directly."
+        )
+        return client.models.generate_content(
+            model=model, contents=contents, config=types.GenerateContentConfig(**config_without_cache)
+        )
+
+
 def _provider_error_status(exc: Exception) -> int | None:
     if isinstance(exc, anthropic.APIStatusError):
         return exc.status_code
@@ -639,14 +693,21 @@ def _transcribe_image_gemini(
     # cache (cached_content is None) falls back to today's behavior of
     # sending system_instruction fresh every call -- caching is a cost
     # optimization the batch must work correctly without, never a
-    # correctness requirement.
-    if cached_content:
-        config_kwargs: dict[str, object] = {"cached_content": cached_content, "temperature": 0}
-    else:
-        config_kwargs = {"system_instruction": system_prompt, "temperature": 0}
+    # correctness requirement. A cache that WAS created but has since expired
+    # or been deleted server-side (cached_content is still a truthy name, but
+    # no longer resolves) is handled by _generate_content_with_cache_fallback()
+    # below, not by this branch -- that's a mid-call failure, not something
+    # knowable from cached_content's value alone.
+    config_kwargs: dict[str, object] = {"cached_content": cached_content} if cached_content else {
+        "system_instruction": system_prompt
+    }
+    config_kwargs["temperature"] = 0
+    config_kwargs_no_cache: dict[str, object] = {"system_instruction": system_prompt, "temperature": 0}
 
     if include_thoughts and hasattr(types, "ThinkingConfig"):
-        config_kwargs["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
+        thinking_config = types.ThinkingConfig(include_thoughts=True)
+        config_kwargs["thinking_config"] = thinking_config
+        config_kwargs_no_cache["thinking_config"] = thinking_config
     elif max_thinking_level and _gemini_thinking_is_cappable(model):
         # A real batch run (include_thoughts False, max_thinking_level None)
         # leaves Gemini 3.x's default (uncapped) thinking budget untouched --
@@ -657,16 +718,19 @@ def _transcribe_image_gemini(
         # xls_conversion/ai_parser.py for the same cap on its own calls.
         level = getattr(types.ThinkingLevel, max_thinking_level, None)
         if level is not None:
-            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=level)
+            thinking_config = types.ThinkingConfig(thinking_level=level)
+            config_kwargs["thinking_config"] = thinking_config
+            config_kwargs_no_cache["thinking_config"] = thinking_config
 
-    response = client.models.generate_content(
-        model=model,
-        contents=[
-            types.Part.from_bytes(data=data, mime_type=mime_type),
-            USER_INSTRUCTION,
-        ],
-        config=types.GenerateContentConfig(**config_kwargs),
-    )
+    contents = [types.Part.from_bytes(data=data, mime_type=mime_type), USER_INSTRUCTION]
+    if cached_content:
+        response = _generate_content_with_cache_fallback(
+            client, model, contents, config_kwargs, config_kwargs_no_cache
+        )
+    else:
+        response = client.models.generate_content(
+            model=model, contents=contents, config=types.GenerateContentConfig(**config_kwargs)
+        )
     text = response.text or ""
     candidates = getattr(response, "candidates", None) or []
     if candidates and getattr(candidates[0], "finish_reason", None) == types.FinishReason.MAX_TOKENS:

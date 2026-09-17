@@ -475,6 +475,41 @@
     return selectedCount || requiredLanguageCount(selectedOutputMode());
   }
 
+  // Rough, unmeasured per-call latency bounds for one AI extraction request
+  // (one image block) -- turns the AI-call estimate below into a ballpark
+  // wall-clock time. parse_generic()/preflight_generic() (xls_conversion/
+  // ai_parser.py) call the provider once per image block, sequentially and
+  // synchronously within a single request (continuation-merge logic needs
+  // each block's result before starting the next), so wall-clock time scales
+  // linearly with call count -- but real per-call latency varies a lot by
+  // model, page length, and transient-error retries, hence a range rather
+  // than a single number. Split by phase because the two prompts ask the
+  // model for very different amounts of work per call, not just a different
+  // system prompt: preflight_prompt_for() (ai_parser.py) asks only for entry
+  // boundaries plus a yes/no "is the target-language material present" and a
+  // short verbatim evidence string, while conversion's system_prompt asks for
+  // the full record-type field schema (names, dates, Latin declension
+  // resolution, lexicon matching, etc.) -- more output tokens, generally more
+  // latency per call. Neither range is calibrated against real timing data;
+  // revisit if this app ever logs actual elapsed-time-per-call.
+  const PREFLIGHT_SECONDS_PER_CALL_LOW = 6;
+  const PREFLIGHT_SECONDS_PER_CALL_HIGH = 15;
+  const CONVERSION_SECONDS_PER_CALL_LOW = 10;
+  const CONVERSION_SECONDS_PER_CALL_HIGH = 25;
+
+  function formatEstimatedDuration(totalCalls, phase) {
+    const [secondsLow, secondsHigh] =
+      phase === "preflight"
+        ? [PREFLIGHT_SECONDS_PER_CALL_LOW, PREFLIGHT_SECONDS_PER_CALL_HIGH]
+        : [CONVERSION_SECONDS_PER_CALL_LOW, CONVERSION_SECONDS_PER_CALL_HIGH];
+    const lowMinutes = (totalCalls * secondsLow) / 60;
+    const highMinutes = (totalCalls * secondsHigh) / 60;
+    if (highMinutes < 1) return "under a minute";
+    const low = Math.max(1, Math.round(lowMinutes));
+    const high = Math.max(low, Math.round(highMinutes));
+    return low === high ? `~${low} min` : `~${low}-${high} min`;
+  }
+
   function updateScopeEstimate() {
     const imageCount = estimateImageCount();
     if (!imageCount) {
@@ -483,7 +518,10 @@
     }
     const languageCount = currentLanguageCountForEstimate();
     const totalCalls = imageCount * languageCount;
-    scopeEstimateEl.textContent = `Estimated: ~${imageCount} image(s) × ${languageCount} language(s) = ~${totalCalls} AI calls for preflight, and again for conversion.`;
+    scopeEstimateEl.textContent =
+      `Estimated: ~${imageCount} image(s) × ${languageCount} language(s) = ~${totalCalls} AI calls ` +
+      `for preflight (${formatEstimatedDuration(totalCalls, "preflight")}), and again for conversion ` +
+      `(${formatEstimatedDuration(totalCalls, "conversion")}).`;
   }
 
   function isLargeRun() {
@@ -496,9 +534,10 @@
     if (!isLargeRun()) return true;
     const imageCount = estimateImageCount();
     const languageCount = currentLanguageCountForEstimate();
+    const totalCalls = imageCount * languageCount;
     return window.confirm(
       `This will process approximately ${imageCount} image(s) × ${languageCount} language(s) = ` +
-        `~${imageCount * languageCount} AI calls for ${actionLabel}. Continue?`
+        `~${totalCalls} AI calls (${formatEstimatedDuration(totalCalls, actionLabel)}) for ${actionLabel}. Continue?`
     );
   }
 

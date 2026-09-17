@@ -1468,7 +1468,25 @@ def normalize_rows(
         if "image_number" in row and not row["image_number"]:
             row["image_number"] = image_number
         if "image_link" in row:
-            row["image_link"] = ""
+            # The 3 civil record types have no separate Image # column (see
+            # this module's own "civil records have no Image #" reasoning
+            # elsewhere) -- their real index template's "Link to Image"
+            # column has never had the app populate an actual link (the AI
+            # is told image_link is always "", and always was), so it sat
+            # permanently blank. Repurposed, at the user's request, to carry
+            # the block's own image number instead -- the one piece of
+            # information a human reviewer needs to find the source image
+            # for manual review, which this column otherwise gave no way to
+            # do. Deliberately the deterministic image_number this function
+            # already receives, not anything the AI wrote to this field, for
+            # the same reason image_number itself (above) is backfilled from
+            # here rather than trusted from the model. A user who wants an
+            # actual hyperlink can still add one by hand afterward -- this
+            # only fills a column that was otherwise always empty. Church
+            # types (battesimi/matrimoni/morti) already expose the image
+            # number in their own real "Image #" column, so image_link stays
+            # "" for them, unchanged.
+            row["image_link"] = image_number if config.key.startswith("civil_") else ""
         # crossed_out isn't one of the visible output columns (config.fields)
         # for any record type -- it drives XLSX strikethrough formatting only
         # (rows_to_xlsx_multi(), spreadsheet_export.py), never a spreadsheet

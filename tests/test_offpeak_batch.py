@@ -134,10 +134,63 @@ def test_submit_claude_batch_tags_each_request_with_custom_id(tmp_path):
     assert requests[0]["params"]["system"] == "system prompt"
 
 
+# --- reverse_order (CODEX_REVIEW.md finding M-1) ---------------------------
+
+
+def test_validated_images_honors_reverse_order(tmp_path):
+    folder = tmp_path / "source"
+    folder.mkdir()
+    _write_jpeg(folder / "a.jpg")
+    _write_jpeg(folder / "b.jpg")
+
+    oldest_first = bt.validated_images(folder, frozenset({".jpg"}))
+    newest_first = bt.validated_images(folder, frozenset({".jpg"}), reverse_order=True)
+
+    assert [p.name for p in oldest_first] == ["a.jpg", "b.jpg"]
+    assert [p.name for p in newest_first] == ["b.jpg", "a.jpg"]
+
+
+# --- aggregate batch-capacity caps (CODEX_REVIEW.md finding M-2) -----------
+
+
+def test_validated_images_rejects_over_item_count_cap(tmp_path, monkeypatch):
+    folder = tmp_path / "source"
+    folder.mkdir()
+    _write_jpeg(folder / "a.jpg")
+    monkeypatch.setattr(bt, "MAX_BATCH_IMAGE_COUNT", 1)
+    _write_jpeg(folder / "b.jpg")  # 2 files, over the (patched) 1-image cap
+
+    with pytest.raises(bt.BatchSubmissionError, match="over the 1-image limit"):
+        bt.validated_images(folder, frozenset({".jpg"}))
+
+
+def test_validated_images_rejects_over_aggregate_byte_cap(tmp_path, monkeypatch):
+    folder = tmp_path / "source"
+    folder.mkdir()
+    _write_jpeg(folder / "a.jpg")  # 20 bytes, see _write_jpeg()
+    _write_jpeg(folder / "b.jpg")
+    monkeypatch.setattr(bt, "MAX_BATCH_AGGREGATE_BYTES", 25)  # a.jpg alone fits; both don't
+
+    with pytest.raises(bt.BatchSubmissionError, match="over the aggregate limit"):
+        bt.validated_images(folder, frozenset({".jpg"}))
+
+
+def test_validated_images_accepts_a_batch_within_both_caps(tmp_path):
+    folder = tmp_path / "source"
+    folder.mkdir()
+    _write_jpeg(folder / "a.jpg")
+    _write_jpeg(folder / "b.jpg")
+
+    # Defaults are generous (1000 images / ~2GB) -- two tiny fixture files
+    # must pass through untouched.
+    images = bt.validated_images(folder, frozenset({".jpg"}))
+    assert [p.name for p in images] == ["a.jpg", "b.jpg"]
+
+
 # --- run_off_peak_job() end to end (Gemini) --------------------------------
 
 
-def test_run_off_peak_job_success_writes_output_and_resets_state(tmp_path, monkeypatch):
+def test_run_off_peak_job_success_writes_output_and_resets_state(tmp_path, monkeypatch, sandboxed_user_data):
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     _write_jpeg(source_folder / "a.jpg")
@@ -197,6 +250,10 @@ def test_run_off_peak_job_success_writes_output_and_resets_state(tmp_path, monke
     text = markdown_file.read_text(encoding="utf-8")
     assert "Entry A" in text and "Entry B" in text
 
+    # CODEX_REVIEW.md finding H-1: a fully-resolved job leaves nothing
+    # behind to (falsely) recover after a restart.
+    assert app_state.read_off_peak_job_state() is None
+
     # Regression coverage for the real bug: the console log used to only
     # ever get the initial "submitted" line -- a run that finished cleanly
     # left it looking exactly like a still-hanging run, with no indication
@@ -210,7 +267,57 @@ def test_run_off_peak_job_success_writes_output_and_resets_state(tmp_path, monke
     assert all(re.match(r"^\[\d{2}:\d{2}:\d{2}\] ", line) for line in log)
 
 
-def test_run_off_peak_job_progress_log_dedups_unchanged_counts(tmp_path, monkeypatch):
+def test_run_off_peak_job_persists_running_state_before_the_first_poll(tmp_path, monkeypatch, sandboxed_user_data):
+    """CODEX_REVIEW.md finding H-1: the job's non-secret identity must be on
+    disk (for restart recovery) as soon as it exists, not only once it
+    resolves -- checked from inside the very first poll call, i.e. before
+    the job has had any chance to finish."""
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+
+    monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: _FakeGeminiClient())
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+
+    seen_mid_run: dict[str, object] = {}
+
+    def fake_poll(client, job_name):
+        if not seen_mid_run:
+            seen_mid_run.update(app_state.read_off_peak_job_state() or {})
+        return pytypes.SimpleNamespace(
+            state=bt.genai_types.JobState.JOB_STATE_SUCCEEDED,
+            completion_stats=pytypes.SimpleNamespace(successful_count=1, failed_count=0, incomplete_count=0),
+            dest=pytypes.SimpleNamespace(inlined_responses=[]),
+        )
+
+    monkeypatch.setattr(bt, "poll_gemini_batch", fake_poll)
+
+    with app_state.lock:
+        app_state.state["running"] = True
+        app_state.state["off_peak"] = True
+
+    bt.run_off_peak_job(
+        project_dir=tmp_path,
+        image_folder=source_folder,
+        extensions=frozenset({".jpg", ".jpeg"}),
+        model="gemini-2.5-pro",
+        provider="gemini",
+        system_prompt="system prompt",
+        api_key_override="fake-key",
+        markdown_file=tmp_path / "output.md",
+        docx_file=tmp_path / "output.docx",
+        profile={"label": "Test Profile"},
+    )
+
+    assert seen_mid_run == {
+        "provider": "gemini", "model": "gemini-2.5-pro", "job_id": "batches/fake123",
+        "submitted_at": seen_mid_run.get("submitted_at"), "status": "running",
+    }
+    assert seen_mid_run.get("submitted_at")  # non-empty ISO timestamp
+    assert "api_key" not in seen_mid_run and "fake-key" not in str(seen_mid_run)
+
+
+def test_run_off_peak_job_progress_log_dedups_unchanged_counts(tmp_path, monkeypatch, sandboxed_user_data):
     """A multi-hour job polls every 30s -- if the counts haven't changed
     since the last poll, that must not append another near-identical
     progress line (hundreds of them over a real overnight run)."""
@@ -280,7 +387,7 @@ def test_run_off_peak_job_progress_log_dedups_unchanged_counts(tmp_path, monkeyp
     assert len(progress_lines) == 2
 
 
-def test_run_off_peak_job_tolerates_a_transient_poll_failure_then_succeeds(tmp_path, monkeypatch):
+def test_run_off_peak_job_tolerates_a_transient_poll_failure_then_succeeds(tmp_path, monkeypatch, sandboxed_user_data):
     """Regression test for the overnight-run bug: a single transient error
     from a *status check* used to abort the whole job even though the job
     itself was healthy. A poll that fails twice with a transient 503, then
@@ -338,7 +445,7 @@ def test_run_off_peak_job_tolerates_a_transient_poll_failure_then_succeeds(tmp_p
         assert "processed 1 image(s), 0 failure(s)" in summary
 
 
-def test_run_off_peak_job_gives_up_after_sustained_poll_failures(tmp_path, monkeypatch):
+def test_run_off_peak_job_gives_up_after_sustained_poll_failures(tmp_path, monkeypatch, sandboxed_user_data):
     """A poll that NEVER recovers must still eventually give up (not poll
     forever with no way for the user to know) -- and the resulting fatal
     message must accurately describe what happened, unlike the real
@@ -388,10 +495,20 @@ def test_run_off_peak_job_gives_up_after_sustained_poll_failures(tmp_path, monke
     assert "already retried 3 times" not in summary  # the misleading text from the real incident
 
 
-def test_run_off_peak_job_cancellation_survives_a_poll_failure(tmp_path, monkeypatch):
-    """Stop was already requested (cancel_gemini_batch() already called,
-    best-effort) -- a poll failure racing right after that shouldn't be
-    reported as a fatal error on top of an already-intentional stop."""
+# --- honest cancellation confirmation (CODEX_REVIEW.md finding H-1) --------
+#
+# The single test that used to live here, test_run_off_peak_job_cancellation_
+# survives_a_poll_failure, is gone -- it asserted the exact bug H-1 flagged:
+# "One test deliberately treats a post-cancel poll failure as successful
+# local completion" (CODEX_REVIEW.md finding L-1). A poll failure racing
+# right after Stop says nothing about whether the provider actually stopped
+# the job; the two tests below replace it with the corrected, honest
+# behavior -- a transient failure is retried like any other (and confirms
+# normally once polling recovers), and a cancellation that genuinely never
+# confirms is reported as unconfirmed, never as a false "cancelled" success.
+
+
+def test_run_off_peak_job_cancellation_tolerates_a_transient_poll_failure_then_confirms(tmp_path, monkeypatch, sandboxed_user_data):
     from google.genai import errors as genai_errors
 
     source_folder = tmp_path / "source"
@@ -402,13 +519,22 @@ def test_run_off_peak_job_cancellation_survives_a_poll_failure(tmp_path, monkeyp
     monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: fake_client)
     monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
 
+    poll_calls = {"n": 0}
+
+    def fake_poll(client, job_name):
+        poll_calls["n"] += 1
+        if poll_calls["n"] <= 2:
+            raise genai_errors.APIError(503, {"error": {"message": "unavailable"}})
+        return pytypes.SimpleNamespace(
+            state=bt.genai_types.JobState.JOB_STATE_CANCELLED,
+            completion_stats=pytypes.SimpleNamespace(successful_count=0, failed_count=0, incomplete_count=1),
+            dest=None,
+        )
+
+    monkeypatch.setattr(bt, "poll_gemini_batch", fake_poll)
+
     app_state.stop_event.set()
     try:
-        def poll_fails_once_cancelled(client, job_name):
-            raise genai_errors.APIError(503, {"error": {"message": "unavailable"}})
-
-        monkeypatch.setattr(bt, "poll_gemini_batch", poll_fails_once_cancelled)
-
         with app_state.lock:
             app_state.state["running"] = True
             app_state.state["off_peak"] = True
@@ -426,16 +552,147 @@ def test_run_off_peak_job_cancellation_survives_a_poll_failure(tmp_path, monkeyp
             profile={"label": "Test Profile"},
         )
 
-        assert fake_client.batches.cancelled == ["batches/fake123"]
+        assert poll_calls["n"] == 3  # 2 transient failures tolerated, 3rd confirms
         with app_state.lock:
             assert app_state.state["running"] is False
             summary = app_state.state["summary"]
         assert not summary.startswith("Fatal error")
+        assert "Off-peak batch cancelled" in summary
     finally:
         app_state.stop_event.clear()
 
 
-def test_run_off_peak_job_cancellation_calls_provider_cancel(tmp_path, monkeypatch):
+def test_run_off_peak_job_cancellation_that_never_confirms_is_not_reported_as_success(tmp_path, monkeypatch, sandboxed_user_data):
+    """The exact false-success shape H-1 flagged: cancellation was
+    requested, but every status check after that fails -- this app truly
+    cannot confirm the provider ever stopped the job, so it must say so
+    (or, as here, eventually give up watching) rather than silently
+    reporting "cancelled" as if it were confirmed."""
+    from google.genai import errors as genai_errors
+
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+
+    fake_client = _FakeGeminiClient()
+    monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+
+    def always_fails(client, job_name):
+        raise genai_errors.APIError(503, {"error": {"message": "unavailable"}})
+
+    monkeypatch.setattr(bt, "poll_gemini_batch", always_fails)
+
+    app_state.stop_event.set()
+    try:
+        with app_state.lock:
+            app_state.state["running"] = True
+            app_state.state["off_peak"] = True
+
+        bt.run_off_peak_job(
+            project_dir=tmp_path,
+            image_folder=source_folder,
+            extensions=frozenset({".jpg", ".jpeg"}),
+            model="gemini-2.5-pro",
+            provider="gemini",
+            system_prompt="system prompt",
+            api_key_override="fake-key",
+            markdown_file=tmp_path / "output.md",
+            docx_file=tmp_path / "output.docx",
+            profile={"label": "Test Profile"},
+        )
+
+        with app_state.lock:
+            assert app_state.state["running"] is False
+            summary = app_state.state["summary"]
+        # The old bug's exact shape: reporting a clean "cancelled" success
+        # while nothing was ever actually confirmed.
+        assert summary != "Off-peak batch cancelled after 0 image(s), 0 failure(s)."
+        assert summary.startswith("Fatal error")
+        assert "batches/fake123" in summary
+        assert "never able to confirm" in summary
+
+        job_state = app_state.read_off_peak_job_state()
+        assert job_state is not None
+        assert job_state["status"] == "status_unknown"
+        assert job_state["job_id"] == "batches/fake123"
+    finally:
+        app_state.stop_event.clear()
+
+
+def test_run_off_peak_job_reports_unconfirmed_when_cancellation_never_reaches_a_terminal_state(
+    tmp_path, monkeypatch, sandboxed_user_data
+):
+    """Distinct from the "polls keep failing" test above: here every poll
+    *succeeds*, but the job simply never reports a terminal state within
+    the confirmation window -- e.g. the provider's cancel silently no-opped
+    and the job just keeps running. Must give up and say so honestly
+    (bt.CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS), not wait forever and
+    not report a false "cancelled" success either."""
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+
+    monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: _FakeGeminiClient())
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+
+    # A fake monotonic clock, advancing one POLL_INTERVAL_SECONDS per call --
+    # time.sleep() is stubbed out above, so a real clock would never move
+    # far enough (in test time) to cross the confirmation deadline.
+    clock = {"t": 0.0}
+
+    def fake_monotonic():
+        clock["t"] += bt.POLL_INTERVAL_SECONDS
+        return clock["t"]
+
+    monkeypatch.setattr(bt.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(
+        bt,
+        "poll_gemini_batch",
+        lambda client, job_name: pytypes.SimpleNamespace(
+            state=bt.genai_types.JobState.JOB_STATE_RUNNING,
+            completion_stats=pytypes.SimpleNamespace(successful_count=0, failed_count=0, incomplete_count=1),
+            dest=None,
+        ),
+    )
+
+    app_state.stop_event.set()
+    try:
+        with app_state.lock:
+            app_state.state["running"] = True
+            app_state.state["off_peak"] = True
+
+        bt.run_off_peak_job(
+            project_dir=tmp_path,
+            image_folder=source_folder,
+            extensions=frozenset({".jpg", ".jpeg"}),
+            model="gemini-2.5-pro",
+            provider="gemini",
+            system_prompt="system prompt",
+            api_key_override="fake-key",
+            markdown_file=tmp_path / "output.md",
+            docx_file=tmp_path / "output.docx",
+            profile={"label": "Test Profile"},
+        )
+
+        with app_state.lock:
+            assert app_state.state["running"] is False
+            summary = app_state.state["summary"]
+            download = app_state.state["download"]
+        assert not summary.startswith("Fatal error")
+        assert "could not be confirmed" in summary
+        assert "may still be running (and billing)" in summary
+        assert "batches/fake123" in summary
+        assert download == ""  # nothing terminal to collect results from
+
+        job_state = app_state.read_off_peak_job_state()
+        assert job_state is not None
+        assert job_state["status"] == "status_unknown"
+    finally:
+        app_state.stop_event.clear()
+
+
+def test_run_off_peak_job_cancellation_calls_provider_cancel(tmp_path, monkeypatch, sandboxed_user_data):
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     _write_jpeg(source_folder / "a.jpg")
@@ -477,6 +734,312 @@ def test_run_off_peak_job_cancellation_calls_provider_cancel(tmp_path, monkeypat
             assert app_state.state["running"] is False
     finally:
         app_state.stop_event.clear()
+
+
+def test_run_off_peak_job_reports_honestly_when_it_finishes_before_cancellation_takes_effect(
+    tmp_path, monkeypatch, sandboxed_user_data
+):
+    """CODEX_REVIEW.md finding H-1: Stop was pressed, but the provider's own
+    terminal state is SUCCEEDED, not CANCELLED -- the job simply finished
+    before the cancel request took effect. Real, complete results exist;
+    reporting this as "cancelled" would be just as dishonest as the
+    original false-success bug, in the opposite direction."""
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+
+    monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: _FakeGeminiClient())
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(
+        bt,
+        "poll_gemini_batch",
+        lambda client, job_name: pytypes.SimpleNamespace(
+            state=bt.genai_types.JobState.JOB_STATE_SUCCEEDED,
+            completion_stats=pytypes.SimpleNamespace(successful_count=1, failed_count=0, incomplete_count=0),
+            dest=pytypes.SimpleNamespace(
+                inlined_responses=[
+                    pytypes.SimpleNamespace(
+                        metadata={"index": "0"}, error=None, response=pytypes.SimpleNamespace(text="Entry A")
+                    ),
+                ]
+            ),
+        ),
+    )
+
+    app_state.stop_event.set()
+    try:
+        with app_state.lock:
+            app_state.state["running"] = True
+            app_state.state["off_peak"] = True
+
+        bt.run_off_peak_job(
+            project_dir=tmp_path,
+            image_folder=source_folder,
+            extensions=frozenset({".jpg", ".jpeg"}),
+            model="gemini-2.5-pro",
+            provider="gemini",
+            system_prompt="system prompt",
+            api_key_override="fake-key",
+            markdown_file=tmp_path / "output.md",
+            docx_file=tmp_path / "output.docx",
+            profile={"label": "Test Profile"},
+        )
+
+        with app_state.lock:
+            summary = app_state.state["summary"]
+            download = app_state.state["download"]
+        assert "cancelled" not in summary.lower()
+        assert "finished processing before cancellation took effect" in summary
+        assert "1 image(s), 0 failure(s)" in summary
+        assert download  # real results were still written
+        assert app_state.read_off_peak_job_state() is None  # fully resolved
+    finally:
+        app_state.stop_event.clear()
+
+
+def test_run_off_peak_job_honors_newest_first_order(tmp_path, monkeypatch, sandboxed_user_data):
+    """Regression test for CODEX_REVIEW.md finding M-1: the confirmation UI
+    can promise "Newest-to-oldest" while the batch was always submitted (and
+    its output therefore written) oldest-to-newest, because the selected
+    order was validated and stored but never threaded through to the job."""
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+    _write_jpeg(source_folder / "b.jpg")
+
+    monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: _FakeGeminiClient())
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+
+    submitted_names: list[str] = []
+    real_submit = bt.submit_gemini_batch
+
+    def spying_submit(client, model, system_prompt, images):
+        submitted_names.extend(path.name for path in images)
+        return real_submit(client, model, system_prompt, images)
+
+    monkeypatch.setattr(bt, "submit_gemini_batch", spying_submit)
+    monkeypatch.setattr(
+        bt,
+        "poll_gemini_batch",
+        lambda client, job_name: pytypes.SimpleNamespace(
+            state=bt.genai_types.JobState.JOB_STATE_SUCCEEDED,
+            completion_stats=pytypes.SimpleNamespace(successful_count=2, failed_count=0, incomplete_count=0),
+            dest=pytypes.SimpleNamespace(inlined_responses=[]),
+        ),
+    )
+
+    with app_state.lock:
+        app_state.state["running"] = True
+        app_state.state["off_peak"] = True
+
+    bt.run_off_peak_job(
+        project_dir=tmp_path,
+        image_folder=source_folder,
+        extensions=frozenset({".jpg", ".jpeg"}),
+        model="gemini-2.5-pro",
+        provider="gemini",
+        system_prompt="system prompt",
+        api_key_override="fake-key",
+        markdown_file=tmp_path / "output.md",
+        docx_file=tmp_path / "output.docx",
+        profile={"label": "Test Profile"},
+        reverse_order=True,
+    )
+
+    assert submitted_names == ["b.jpg", "a.jpg"]
+
+
+# --- explicit provider timeouts (CODEX_REVIEW.md finding M-3) --------------
+
+
+def test_run_off_peak_job_uses_explicit_heavy_and_light_gemini_timeouts(tmp_path, monkeypatch, sandboxed_user_data):
+    """Before this, submission/status/cancel all shared one client built
+    with no explicit timeout at all, so a network stall anywhere could hang
+    indefinitely and delay Stop (which this loop only checks between
+    polls). Submission/results now get a generous bound; polling/cancel get
+    a much shorter one so a hang is caught quickly."""
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+
+    created_timeouts_ms: list[int] = []
+
+    def fake_client_factory(**kwargs):
+        created_timeouts_ms.append(kwargs["http_options"].timeout)
+        return _FakeGeminiClient()
+
+    monkeypatch.setattr(bt.genai, "Client", fake_client_factory)
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(
+        bt,
+        "poll_gemini_batch",
+        lambda client, job_name: pytypes.SimpleNamespace(
+            state=bt.genai_types.JobState.JOB_STATE_SUCCEEDED,
+            completion_stats=pytypes.SimpleNamespace(successful_count=1, failed_count=0, incomplete_count=0),
+            dest=pytypes.SimpleNamespace(inlined_responses=[]),
+        ),
+    )
+
+    with app_state.lock:
+        app_state.state["running"] = True
+        app_state.state["off_peak"] = True
+
+    bt.run_off_peak_job(
+        project_dir=tmp_path,
+        image_folder=source_folder,
+        extensions=frozenset({".jpg", ".jpeg"}),
+        model="gemini-2.5-pro",
+        provider="gemini",
+        system_prompt="system prompt",
+        api_key_override="fake-key",
+        markdown_file=tmp_path / "output.md",
+        docx_file=tmp_path / "output.docx",
+        profile={"label": "Test Profile"},
+    )
+
+    # Two clients constructed: one heavy (submit/collect), one light (poll/cancel).
+    assert created_timeouts_ms == [
+        bt.BATCH_SUBMIT_TIMEOUT_SECONDS * 1000,
+        bt.BATCH_STATUS_TIMEOUT_SECONDS * 1000,
+    ]
+
+
+def test_run_off_peak_job_submission_timeout_produces_a_clear_error(tmp_path, monkeypatch, sandboxed_user_data):
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+
+    monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: _FakeGeminiClient())
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+
+    def raise_timeout(client, model, system_prompt, images):
+        raise bt.httpx.TimeoutException("connect timed out")
+
+    monkeypatch.setattr(bt, "submit_gemini_batch", raise_timeout)
+
+    with app_state.lock:
+        app_state.state["running"] = True
+        app_state.state["off_peak"] = True
+
+    bt.run_off_peak_job(
+        project_dir=tmp_path,
+        image_folder=source_folder,
+        extensions=frozenset({".jpg", ".jpeg"}),
+        model="gemini-2.5-pro",
+        provider="gemini",
+        system_prompt="system prompt",
+        api_key_override="fake-key",
+        markdown_file=tmp_path / "output.md",
+        docx_file=tmp_path / "output.docx",
+        profile={"label": "Test Profile"},
+    )
+
+    with app_state.lock:
+        summary = app_state.state["summary"]
+    assert summary.startswith("Fatal error")
+    assert "did not finish within" in summary
+    assert str(bt.BATCH_SUBMIT_TIMEOUT_SECONDS) in summary
+
+
+def test_run_off_peak_job_tolerates_a_gemini_poll_timeout(tmp_path, monkeypatch, sandboxed_user_data):
+    """Regression test for CODEX_REVIEW.md finding M-3: Gemini's SDK lets a
+    timeout escape as a bare httpx.TimeoutException rather than wrapping it
+    in genai_errors.APIError (confirmed: xls_conversion/ai_parser.py and
+    handlers/profiles.py already catch httpx.TimeoutException directly for
+    the same reason), so before _is_transient_poll_error() existed, a
+    single poll timeout aborted the whole job instead of being retried the
+    same way every other transient status-check failure already is."""
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+
+    monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: _FakeGeminiClient())
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+
+    poll_calls = {"n": 0}
+
+    def fake_poll(client, job_name):
+        poll_calls["n"] += 1
+        if poll_calls["n"] <= 2:
+            raise bt.httpx.TimeoutException("read timed out")
+        dest = pytypes.SimpleNamespace(
+            inlined_responses=[
+                pytypes.SimpleNamespace(metadata={"index": "0"}, error=None, response=pytypes.SimpleNamespace(text="Entry A")),
+            ]
+        )
+        stats = pytypes.SimpleNamespace(successful_count=1, failed_count=0, incomplete_count=0)
+        return pytypes.SimpleNamespace(state=bt.genai_types.JobState.JOB_STATE_SUCCEEDED, completion_stats=stats, dest=dest)
+
+    monkeypatch.setattr(bt, "poll_gemini_batch", fake_poll)
+
+    with app_state.lock:
+        app_state.state["running"] = True
+        app_state.state["off_peak"] = True
+
+    bt.run_off_peak_job(
+        project_dir=tmp_path,
+        image_folder=source_folder,
+        extensions=frozenset({".jpg", ".jpeg"}),
+        model="gemini-2.5-pro",
+        provider="gemini",
+        system_prompt="system prompt",
+        api_key_override="fake-key",
+        markdown_file=tmp_path / "output.md",
+        docx_file=tmp_path / "output.docx",
+        profile={"label": "Test Profile"},
+    )
+
+    assert poll_calls["n"] == 3  # 2 timeouts tolerated, 3rd succeeds
+    with app_state.lock:
+        summary = app_state.state["summary"]
+    assert not summary.startswith("Fatal error")
+    assert "processed 1 image(s), 0 failure(s)" in summary
+
+
+def test_run_off_peak_job_collect_results_timeout_produces_a_clear_error(tmp_path, monkeypatch, sandboxed_user_data):
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+
+    monkeypatch.setattr(bt.anthropic, "Anthropic", lambda **kwargs: _FakeClaudeClient())
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(
+        bt,
+        "poll_claude_batch",
+        lambda client, batch_id: pytypes.SimpleNamespace(
+            processing_status="ended",
+            request_counts=pytypes.SimpleNamespace(
+                succeeded=1, errored=0, processing=0, canceled=0, expired=0
+            ),
+        ),
+    )
+
+    def raise_timeout(client, batch_id):
+        raise bt.httpx.TimeoutException("read timed out")
+
+    monkeypatch.setattr(bt, "collect_claude_batch_results", raise_timeout)
+
+    with app_state.lock:
+        app_state.state["running"] = True
+        app_state.state["off_peak"] = True
+
+    bt.run_off_peak_job(
+        project_dir=tmp_path,
+        image_folder=source_folder,
+        extensions=frozenset({".jpg", ".jpeg"}),
+        model="claude-sonnet-5",
+        provider="claude",
+        system_prompt="system prompt",
+        api_key_override="fake-key",
+        markdown_file=tmp_path / "output.md",
+        docx_file=tmp_path / "output.docx",
+        profile={"label": "Test Profile"},
+    )
+
+    with app_state.lock:
+        summary = app_state.state["summary"]
+    assert summary.startswith("Fatal error")
+    assert "downloading its results did not finish" in summary
 
 
 # --- /api/offpeak-cost-estimate (HTTP layer) -------------------------------
@@ -581,6 +1144,58 @@ def test_run_offpeak_spawns_a_job_and_reserves_the_shared_run_slot(live_server, 
     assert len(job_calls) == 1
     assert job_calls[0]["provider"] == "gemini"
     assert job_calls[0]["image_folder"] == source_folder
+    assert job_calls[0]["reverse_order"] is False
+
+    time.sleep(0.2)
+    with ctapp.lock:
+        ctapp.state["running"] = False
+
+
+def test_run_offpeak_forwards_newest_first_order_to_the_job(live_server, sandboxed_user_data, tmp_path, monkeypatch):
+    """Regression test for CODEX_REVIEW.md finding M-1 at the HTTP layer:
+    the /run-offpeak handler validated and stored the selected order in
+    state, but never passed it to the background job -- see
+    test_run_off_peak_job_honors_newest_first_order for the job-level half
+    of this same fix."""
+    host, port = live_server
+    source_folder = tmp_path / "source"
+    source_folder.mkdir()
+    _write_jpeg(source_folder / "a.jpg")
+    monkeypatch.setattr(offpeak_handlers, "load_source_folder", lambda: source_folder)
+
+    profile = ctapp.save_custom_profile("Off-Peak Order Test Profile", "role", "reference", "format")
+
+    job_started = threading.Event()
+    job_calls = []
+
+    def fake_run_off_peak_job(**kwargs):
+        job_calls.append(kwargs)
+        job_started.set()
+        with app_state.lock:
+            app_state.state["running"] = False
+            app_state.state["off_peak"] = False
+
+    monkeypatch.setattr(offpeak_handlers, "run_off_peak_job", fake_run_off_peak_job)
+
+    with ctapp.lock:
+        ctapp.state["running"] = False
+
+    jar = CookieJar()
+    _get(host, port, "/", jar)
+    response = _post(
+        host, port, jar, "/run-offpeak",
+        {
+            "gemini_api_key": "fake-key",
+            "profile_id": profile["id"],
+            "profile_action": "use",
+            "order": "newest",
+            "file_type": "jpeg",
+        },
+    )
+    assert response.status == 200
+
+    assert job_started.wait(timeout=2)
+    assert job_calls[0]["reverse_order"] is True
 
     time.sleep(0.2)
     with ctapp.lock:

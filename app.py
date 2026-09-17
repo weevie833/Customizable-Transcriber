@@ -37,6 +37,7 @@ from app_state import (
     lock,
     new_test_run_state,  # noqa: F401 -- re-exported; see tests/test_test_mode_key_scoping_and_failure_isolation.py
     state,
+    surface_stale_off_peak_job,
     test_lock,
     test_state,
 )
@@ -715,6 +716,7 @@ def main() -> None:
     migrate_legacy_outputs_and_settings()
     with lock:
         state["profile_id"] = ""
+    surface_stale_off_peak_job()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Customizable Transcription Interface running at http://{HOST}:{PORT}")
     server.serve_forever()

@@ -328,3 +328,71 @@ def test_call_claude_json_omits_cache_control_by_default(monkeypatch):
     ai_parser.call_claude_json("key", "claude-sonnet-5", "system prompt", "user")
 
     assert "cache_control" not in captured
+
+
+# --- xls_conversion/ai_parser.py: cache cleanup survives a mid-loop failure ----
+# CODEX_REVIEW.md finding L-2: parse_generic()/preflight_generic() only
+# deleted their Gemini prompt cache *after* their loop -- an exception raised
+# partway through skipped that cleanup call entirely, leaking the cache until
+# its own 1-hour ttl expired. Both loops now run inside try/finally.
+
+
+def test_preflight_generic_deletes_gemini_cache_even_when_the_loop_raises(monkeypatch):
+    fake_client = _FakeGeminiClient()
+    monkeypatch.setattr(ai_parser.genai, "Client", lambda **kwargs: fake_client)
+    # A non-dict payload trips preflight_generic()'s "invalid preflight
+    # response" check on the very first requested image.
+    monkeypatch.setattr(ai_parser, "call_ai_json", lambda *a, **k: "not a dict")
+
+    text = (
+        "--- START OF RECORD: image_001.jpg ---\n\nfirst block\n\n"
+        "--- START OF RECORD: image_002.jpg ---\n\nsecond block\n"
+    )
+
+    with pytest.raises(RuntimeError, match="invalid preflight response"):
+        ai_parser.preflight_generic(
+            text=text,
+            image_range="",
+            api_key="key",
+            model="gemini-2.5-pro",
+            target_language="English",
+            target_role="",
+            process_all=True,
+        )
+
+    assert fake_client.caches.deleted_names == ["cachedContents/fake123"]
+
+
+def test_parse_generic_deletes_gemini_cache_even_when_the_first_image_raises(monkeypatch):
+    """parse_generic()'s own comment used to justify skipping try/finally by
+    naming this exact scenario ("an index==0 failure re-raises out of this
+    function before reaching it") as an accepted, minor cost -- confirming
+    it was a real gap worth closing, not just a hypothetical one."""
+    fake_client = _FakeGeminiClient()
+    monkeypatch.setattr(ai_parser.genai, "Client", lambda **kwargs: fake_client)
+
+    config = ai_parser.RECORD_TYPES["battesimi"]
+    text = (
+        "--- START OF RECORD: image_001.jpg ---\n\nfirst block\n\n"
+        "--- START OF RECORD: image_002.jpg ---\n\nsecond block\n"
+    )
+
+    def fake_call_ai(api_key, model, system_prompt, user_message, *_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ai_parser, "call_ai", fake_call_ai)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        ai_parser.parse_generic(
+            config=config,
+            text=text,
+            image_range="",
+            image_overrides="",
+            api_key="key",
+            model="gemini-2.5-pro",
+            target_language="English",
+            target_role="",
+            process_all=True,
+        )
+
+    assert fake_client.caches.deleted_names == ["cachedContents/fake123"]

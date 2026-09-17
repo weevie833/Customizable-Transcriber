@@ -27,11 +27,18 @@ positional index has no user-controlled content in it at all. A local list
 maps index -> filename for matching results back up once the batch
 completes.
 
-No job state is ever written to disk -- restarting the app abandons any
-in-flight off-peak job (a deliberate v1 scope decision agreed with the
-user, not an oversight). Everything here lives in app_state.state for
-exactly as long as the process does; see that module's own comment on the
-new off_peak/batch_provider/batch_job_id/batch_counts fields.
+Everything here lives in app_state.state for exactly as long as the process
+does -- see that module's own comment on the off_peak/batch_provider/
+batch_job_id/batch_counts fields -- EXCEPT the small amount of non-secret
+job metadata (provider, model, job id, submission time, status) mirrored to
+app_state.OFF_PEAK_JOB_FILE at each stage of a job's lifecycle. That was a
+deliberate v1 scope decision to write nothing at all (see CODEX_REVIEW.md
+finding H-1 / HUMAN_DECISIONS.md HD-1 for why it was revisited): a batch job
+can run for hours, and a Stop request that the provider never actually
+confirmed -- or an app restart/crash mid-batch -- used to leave no trace
+anywhere that a real, possibly still-running (and still billing) provider
+job existed. The API key itself is never written to this file, or anywhere
+else this app persists to disk.
 """
 
 from __future__ import annotations
@@ -41,11 +48,19 @@ from datetime import datetime
 from pathlib import Path
 
 import anthropic
+import httpx
 from google import genai
 from google.genai import types as genai_types
 
-from app_state import lock, state, stop_event
+from app_state import (
+    clear_off_peak_job_state,
+    lock,
+    state,
+    stop_event,
+    write_off_peak_job_state,
+)
 from customizable_transcription.core import (
+    BATCH_REQUEST_TIMEOUT_SECONDS,
     FILE_TYPE_MIME,
     USER_INSTRUCTION,
     ImageResult,
@@ -126,16 +141,76 @@ POLL_INTERVAL_SECONDS = 30
 # whether the actual batch job is healthy. Confirmed the hard way: an
 # overnight run's job reached JOB_STATE_SUCCEEDED hours after this loop had
 # already aborted on a single failed poll and reported the whole run as a
-# fatal error, with no way left to reconnect to it (see the module
-# docstring's "no job state on disk" note -- v1 has no persisted job id to
-# recover from once this function returns). Tolerating a bounded run of
-# consecutive transient poll failures before giving up avoids throwing away
-# an otherwise-healthy multi-hour job over one bad status check, while still
+# fatal error. The job id is now persisted (see app_state.OFF_PEAK_JOB_FILE)
+# so it survives that failure for manual provider-console recovery, but this
+# app still has no way to *reconnect and keep watching* it automatically --
+# see the module docstring. Tolerating a bounded run of consecutive
+# transient poll failures before giving up avoids throwing away an
+# otherwise-healthy multi-hour job over one bad status check, while still
 # surfacing a real, sustained outage rather than polling silently forever.
 # 20 x POLL_INTERVAL_SECONDS(30s) = 10 minutes of continuous transient
 # failures tolerated -- generous relative to the blips this is meant to
-# absorb, short relative to a run that can span many hours.
+# absorb, short relative to a run that can span many hours. Deliberately the
+# same duration as CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS below -- both
+# are "how long is it reasonable to keep trying before telling the user we
+# genuinely don't know" bounds, just triggered by different conditions (a
+# run of failures here; simply never reaching a terminal state there).
 MAX_CONSECUTIVE_POLL_FAILURES = 20
+
+# How long to keep polling after Stop is pressed before giving up on
+# confirmation and reporting the cancellation as unconfirmed rather than
+# claiming success -- see CODEX_REVIEW.md finding H-1 / HUMAN_DECISIONS.md
+# HD-1. Before this, the poll loop broke out the instant `cancelled` was
+# set, regardless of whether the very next status check (or even a FAILED
+# status check) actually confirmed the provider had stopped the job -- a
+# false "cancelled" could be reported while the job kept running, and
+# possibly billing, on the provider's own servers.
+CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS = 600
+
+# Explicit, bounded timeouts for every provider call this module makes --
+# see CODEX_REVIEW.md finding M-3 / HUMAN_DECISIONS.md. Before this, both
+# SDK clients were constructed with no timeout at all, so a network stall
+# during submission, polling, cancellation, or result retrieval could hang
+# indefinitely (the SDK's own default, if any, was never a deliberate choice
+# this app made). Two tiers, not one uniform value:
+#
+# - Submission (uploads every image's full bytes in one request) and result
+#   collection (downloads every response) are genuinely heavy transfers --
+#   they get the same generous bound run_batch()'s own real-time per-image
+#   calls already use (BATCH_REQUEST_TIMEOUT_SECONDS).
+# - Status polling and cancellation are small, fixed-size requests. A much
+#   shorter bound catches a hung connection quickly instead of waiting up to
+#   10 minutes for what should be a sub-second round trip, and keeps Stop
+#   (which this loop only checks between polls) responsive. Comfortably
+#   above POLL_INTERVAL_SECONDS so a normal poll is never mistaken for a
+#   timeout.
+BATCH_SUBMIT_TIMEOUT_SECONDS = BATCH_REQUEST_TIMEOUT_SECONDS
+BATCH_STATUS_TIMEOUT_SECONDS = 60
+
+
+def _gemini_client(key: str, timeout_seconds: float) -> genai.Client:
+    return genai.Client(
+        api_key=key, http_options=genai_types.HttpOptions(timeout=int(timeout_seconds * 1000))
+    )
+
+
+def _claude_client(key: str, timeout_seconds: float) -> anthropic.Anthropic:
+    return anthropic.Anthropic(api_key=key, timeout=timeout_seconds)
+
+
+def _is_transient_poll_error(exc: Exception) -> bool:
+    """_is_transient_provider_error() plus a network-level timeout. Gemini's
+    SDK lets httpx.TimeoutException propagate raw rather than wrapping it in
+    its own error type (confirmed: xls_conversion/ai_parser.py and
+    handlers/profiles.py already catch httpx.TimeoutException directly for
+    the same reason), so relying on _is_transient_provider_error() alone
+    here would treat a single Gemini status-check timeout as fatal while an
+    equivalent Claude timeout -- wrapped in anthropic.APITimeoutError, a
+    subclass of APIConnectionError -- already gets this loop's normal
+    bounded retry-and-backoff treatment. A timed-out status *check* says
+    nothing about the batch job itself, same reasoning as every other
+    transient error this loop already tolerates."""
+    return _is_transient_provider_error(exc) or isinstance(exc, httpx.TimeoutException)
 
 
 def _log_timestamp() -> str:
@@ -157,14 +232,65 @@ class BatchSubmissionError(RuntimeError):
     recorded in the per-image results instead."""
 
 
-def validated_images(image_folder: Path, extensions) -> list[Path]:
+# Aggregate batch-capacity caps -- see CODEX_REVIEW.md finding M-2 /
+# HUMAN_DECISIONS.md HD-2. MAX_BATCH_IMAGE_BYTES (core.py) already bounds
+# any *one* source file, but nothing bounded the batch as a whole: Gemini's
+# submit_gemini_batch() keeps every image's raw bytes in one in-memory
+# request list, and Claude's submit_claude_batch() additionally base64-
+# encodes each one (~1.33x expansion) and keeps that expanded string too --
+# a folder of many individually-valid files could still exhaust host memory
+# before a single byte ever reaches the provider. Both caps are enforced by
+# validated_images() below, before any file's contents are read (a
+# Path.stat() call reads only metadata) -- a batch that exceeds either is
+# rejected outright with a clear count/size, same as a single oversized file
+# already is.
+#
+# These are directional defaults, not measured against this app's own real
+# workloads -- reasonable starting points for a local single-user tool with
+# a typical consumer-machine memory budget (a few GB free), not a precise
+# capacity plan. Worth revisiting with real numbers (largest legitimate
+# batch size, minimum target host memory) if they turn out to be too tight
+# or too loose in practice.
+MAX_BATCH_IMAGE_COUNT = 1000
+# Expressed as a raw-bytes ceiling on the SUM of every source file's own
+# size -- Claude's base64 expansion (~1.33x) on top of this is accepted as
+# the cost of using that provider, not built into the number itself, so
+# both providers are held to the same real "how many original-file bytes
+# can this batch contain" limit.
+MAX_BATCH_AGGREGATE_BYTES = 2_000_000_000  # ~2GB of combined raw source-file bytes
+
+
+def validated_images(image_folder: Path, extensions, reverse_order: bool = False) -> list[Path]:
     """Same discovery + per-file validation run_batch() already applies to
     every image before sending it anywhere -- reused here rather than
     duplicated, so a batch job gets identical symlink/size/type protection
-    to a real-time run, not a parallel and potentially weaker check."""
-    files = source_files(image_folder, extensions)
+    to a real-time run, not a parallel and potentially weaker check.
+    reverse_order threads through to source_files() the same "newest first"
+    switch the real-time /run path already honors -- see CODEX_REVIEW.md
+    finding M-1 / run_off_peak_job()'s own reverse_order parameter.
+
+    Also enforces MAX_BATCH_IMAGE_COUNT/MAX_BATCH_AGGREGATE_BYTES (M-2,
+    above) -- item count is checked first, cheaply, before touching the
+    filesystem at all; the aggregate-byte running total is accumulated
+    alongside the existing per-file validate_batch_source_file() calls
+    (which already stat() every file) rather than statting each file twice."""
+    files = source_files(image_folder, extensions, reverse_order=reverse_order)
+    if len(files) > MAX_BATCH_IMAGE_COUNT:
+        raise BatchSubmissionError(
+            f"This folder has {len(files):,} source image(s), over the {MAX_BATCH_IMAGE_COUNT:,}-image "
+            "limit for a single off-peak batch. Split it into smaller batches (e.g. by sub-folder or "
+            "date range) and run each one separately."
+        )
+    total_bytes = 0
     for path in files:
         validate_batch_source_file(path, image_folder)
+        total_bytes += path.stat().st_size
+        if total_bytes > MAX_BATCH_AGGREGATE_BYTES:
+            raise BatchSubmissionError(
+                f"This folder's source images total over {MAX_BATCH_AGGREGATE_BYTES / 1_000_000:,.0f} MB "
+                "combined, over the aggregate limit for a single off-peak batch. Split it into smaller "
+                "batches (e.g. by sub-folder or date range) and run each one separately."
+            )
     return files
 
 
@@ -364,6 +490,19 @@ def collect_claude_batch_results(client: anthropic.Anthropic, batch_id: str) -> 
 # Provider-agnostic job orchestration
 # ---------------------------------------------------------------------------
 
+def _batch_was_cancelled(provider: str, job) -> bool:
+    """Whether a job's own terminal state actually reflects cancellation --
+    not just that Stop was pressed at some point during the run. The
+    provider can finish a job's remaining items before a cancel request
+    takes effect, which is a legitimate "it just finished anyway" outcome,
+    not a cancellation, and deserves an honest message rather than a
+    blanket "cancelled" label regardless of what actually happened. See
+    CODEX_REVIEW.md finding H-1."""
+    if provider == "claude":
+        return bool(claude_batch_counts(job).get("canceled"))
+    return job.state == genai_types.JobState.JOB_STATE_CANCELLED
+
+
 def run_off_peak_job(
     *,
     project_dir: Path,
@@ -376,28 +515,54 @@ def run_off_peak_job(
     markdown_file: Path,
     docx_file: Path,
     profile: dict[str, object],
+    reverse_order: bool = False,
 ) -> None:
     """The off-peak counterpart to run_support.py's run_job() -- same
     responsibility (produce the final .md/.docx and update state on
     completion), different mechanism for getting each image transcribed
     (one provider batch job instead of run_batch()'s synchronous per-image
     loop). Always run on a background thread by the caller (see
-    handlers/transcribe_offpeak.py), matching run_job()'s own contract."""
+    handlers/transcribe_offpeak.py), matching run_job()'s own contract.
+    reverse_order mirrors run_job()'s own TranscriptionConfig.reverse_order --
+    see CODEX_REVIEW.md finding M-1: the confirmation UI promises a
+    newest-to-oldest run will honor that order, so the submitted batch's
+    request order (and therefore the output's entry order) must match it."""
+    job_id: str | None = None
+    submitted_at_iso = ""
     try:
-        images = validated_images(image_folder, extensions)
+        images = validated_images(image_folder, extensions, reverse_order=reverse_order)
         if not images:
             raise BatchSubmissionError("No source images were found in the selected folder.")
         names = [display_name(path, image_folder) for path in images]
 
         if provider == "claude":
             key = (api_key_override or "").strip() or claude_api_key(project_dir)
-            client = anthropic.Anthropic(api_key=key)
-            job_id = submit_claude_batch(client, model, system_prompt, images)
+            heavy_client = _claude_client(key, BATCH_SUBMIT_TIMEOUT_SECONDS)
+            light_client = _claude_client(key, BATCH_STATUS_TIMEOUT_SECONDS)
         else:
             key = (api_key_override or "").strip() or api_key(project_dir)
-            client = genai.Client(api_key=key)
-            job_id = submit_gemini_batch(client, model, system_prompt, images)
+            heavy_client = _gemini_client(key, BATCH_SUBMIT_TIMEOUT_SECONDS)
+            light_client = _gemini_client(key, BATCH_STATUS_TIMEOUT_SECONDS)
 
+        submit_started = time.monotonic()
+        try:
+            if provider == "claude":
+                job_id = submit_claude_batch(heavy_client, model, system_prompt, images)
+            else:
+                job_id = submit_gemini_batch(heavy_client, model, system_prompt, images)
+        except httpx.TimeoutException as exc:
+            elapsed = time.monotonic() - submit_started
+            raise BatchSubmissionError(
+                f"Submitting the off-peak batch ({len(images)} image(s)) did not finish within "
+                f"{BATCH_SUBMIT_TIMEOUT_SECONDS}s (waited {elapsed:.0f}s) -- the connection stalled "
+                "while uploading. Try again, or with a smaller batch."
+            ) from exc
+
+        submitted_at_iso = datetime.now().isoformat(timespec="seconds")
+        write_off_peak_job_state(
+            provider=provider, model=model, job_id=job_id,
+            submitted_at=submitted_at_iso, status="running",
+        )
         with lock:
             state["batch_provider"] = provider
             state["batch_job_id"] = job_id
@@ -409,47 +574,69 @@ def run_off_peak_job(
             state["log"] = state["log"][-300:]
 
         cancelled = False
+        cancel_requested_at: float | None = None
+        cancellation_unconfirmed = False
         job = None
         consecutive_poll_failures = 0
         last_logged_counts: dict[str, int] | None = None
         while True:
             if stop_event.is_set():
-                cancelled = True
+                if not cancelled:
+                    cancelled = True
+                    cancel_requested_at = time.monotonic()
+                    write_off_peak_job_state(
+                        provider=provider, model=model, job_id=job_id,
+                        submitted_at=submitted_at_iso, status="cancellation_requested",
+                    )
+                    with lock:
+                        state["log"].append(
+                            f"[{_log_timestamp()}] Off-peak batch cancellation requested -- waiting "
+                            "for the provider to confirm before reporting an outcome."
+                        )
+                        state["log"] = state["log"][-300:]
                 if provider == "claude":
-                    cancel_claude_batch(client, job_id)
+                    cancel_claude_batch(light_client, job_id)
                 else:
-                    cancel_gemini_batch(client, job_id)
-                with lock:
-                    state["log"].append(f"[{_log_timestamp()}] Off-peak batch cancellation requested.")
-                    state["log"] = state["log"][-300:]
+                    cancel_gemini_batch(light_client, job_id)
 
             try:
                 if provider == "claude":
-                    job = poll_claude_batch(client, job_id)
+                    job = poll_claude_batch(light_client, job_id)
                     terminal = claude_batch_is_terminal(job)
                     counts = claude_batch_counts(job)
                 else:
-                    job = poll_gemini_batch(client, job_id)
+                    job = poll_gemini_batch(light_client, job_id)
                     terminal = gemini_batch_is_terminal(job)
                     counts = gemini_batch_counts(job)
             except Exception as exc:
-                if cancelled:
-                    # Stop was already requested and cancel_*_batch() above is
-                    # already best-effort -- a poll failure at this point isn't
-                    # worth reporting as a fatal error, just stop watching.
-                    break
-                if not _is_transient_provider_error(exc):
+                # Deliberately no "if cancelled: treat this as done" shortcut
+                # here (there used to be one) -- see CODEX_REVIEW.md finding
+                # H-1: a poll failure right after Stop says nothing about
+                # whether the provider actually stopped the job, so it goes
+                # through the exact same bounded transient-retry treatment as
+                # any other poll failure. The cancellation-confirmation
+                # deadline below (checked after a *successful* poll) is what
+                # eventually gives up on a cancellation that truly never
+                # confirms; this path gives up (the same way an uncancelled
+                # run already does) only after sustained, repeated failures.
+                if not _is_transient_poll_error(exc):
                     raise
                 consecutive_poll_failures += 1
                 if consecutive_poll_failures > MAX_CONSECUTIVE_POLL_FAILURES:
                     minutes = consecutive_poll_failures * POLL_INTERVAL_SECONDS // 60
+                    cancel_note = (
+                        " You requested cancellation, but this app was never able to confirm it took "
+                        "effect."
+                        if cancelled
+                        else ""
+                    )
                     raise RuntimeError(
                         f"Couldn't check your off-peak batch job's status for about {minutes} minutes "
                         f"({consecutive_poll_failures} consecutive temporary provider errors) -- "
-                        f"giving up on watching it. This does NOT necessarily mean the job itself "
-                        f"failed: a status check failing says nothing about the job, which keeps "
-                        f"running on the provider's own servers regardless. Job id: {job_id}. This "
-                        "app has no way to reconnect to an already-submitted job, so check the "
+                        f"giving up on watching it.{cancel_note} This does NOT necessarily mean the "
+                        f"job itself failed: a status check failing says nothing about the job, which "
+                        f"keeps running on the provider's own servers regardless. Job id: {job_id}. "
+                        "This app has no way to reconnect to an already-submitted job, so check the "
                         "provider's own console/dashboard for its outcome. "
                         f"(Last error: {exc})"
                     ) from exc
@@ -484,19 +671,62 @@ def run_off_peak_job(
                     state["log"] = state["log"][-300:]
                     last_logged_counts = comparable_counts
 
-            if terminal or cancelled:
+            if terminal:
+                break
+            if (
+                cancelled
+                and cancel_requested_at is not None
+                and time.monotonic() - cancel_requested_at > CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS
+            ):
+                cancellation_unconfirmed = True
                 break
             time.sleep(POLL_INTERVAL_SECONDS)
 
+        if cancellation_unconfirmed:
+            # Never reached a terminal state within the confirmation window
+            # -- see CODEX_REVIEW.md finding H-1. This is the fix's whole
+            # point: report honestly that we don't know, rather than saying
+            # "cancelled" just because Stop was pressed. Nothing terminal
+            # means nothing to collect results from, so this ends the run
+            # here rather than falling through to output-writing below.
+            minutes = CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS // 60
+            write_off_peak_job_state(
+                provider=provider, model=model, job_id=job_id,
+                submitted_at=submitted_at_iso, status="status_unknown",
+            )
+            with lock:
+                state["summary"] = (
+                    f"Off-peak batch cancellation could not be confirmed after {minutes} minutes -- "
+                    f"job {job_id} ({provider}) may still be running (and billing) on the provider's "
+                    "own servers. This app has no way to force-stop it from here: check the "
+                    "provider's own console/dashboard for its actual status. This job's id is saved "
+                    "and will be shown again the next time this app starts, until you dismiss it "
+                    "(Reset All)."
+                )
+                state["log"].append(f"[{_log_timestamp()}] {state['summary']}")
+                state["log"] = state["log"][-300:]
+                state["download"] = ""
+            return
+
+        # The loop only ever breaks (as opposed to raising) via `if
+        # terminal: break` above, so `job` is guaranteed to be the
+        # just-polled, terminal job object at this point -- there is no
+        # "cancelled before a single poll succeeded" case left to handle
+        # separately (there used to be one; see CODEX_REVIEW.md finding H-1
+        # for why that path could report a false "cancelled" too).
         if provider == "claude":
-            results = collect_claude_batch_results(client, job_id)
-        elif job is not None:
-            results = collect_gemini_batch_results(job)
+            try:
+                results = collect_claude_batch_results(heavy_client, job_id)
+            except httpx.TimeoutException as exc:
+                raise RuntimeError(
+                    f"The off-peak batch (job {job_id}) reached a terminal state on the provider's "
+                    f"side, but downloading its results did not finish within "
+                    f"{BATCH_SUBMIT_TIMEOUT_SECONDS}s -- the connection stalled. The job itself is "
+                    "unaffected; check the provider's own console, or try again to re-download the "
+                    "results."
+                ) from exc
         else:
-            # Cancelled before a single poll ever succeeded (the "cancelled,
-            # then a poll failure" branch above breaks with job still None)
-            # -- nothing to read results from, same as any other empty batch.
-            results = {}
+            results = collect_gemini_batch_results(job)
 
         image_results: list[ImageResult] = []
         with markdown_file.open("w", encoding="utf-8") as output:
@@ -523,16 +753,35 @@ def run_off_peak_job(
             )
 
         failures = count_failures(image_results)
+        really_cancelled = cancelled and _batch_was_cancelled(provider, job)
         with lock:
-            if cancelled:
+            if really_cancelled:
                 state["summary"] = f"Off-peak batch cancelled after {len(image_results)} image(s), {failures} failure(s)."
+            elif cancelled:
+                # Stop was requested, but the job's own terminal state
+                # doesn't actually show a cancellation -- it finished
+                # (successfully or not) before the cancel request took
+                # effect. Results are fully real either way; only the
+                # wording changes, so this isn't reported as a cancellation
+                # that didn't happen. See CODEX_REVIEW.md finding H-1.
+                state["summary"] = (
+                    f"Off-peak batch finished processing before cancellation took effect: "
+                    f"{len(image_results)} image(s), {failures} failure(s)."
+                )
             else:
                 state["summary"] = f"Off-peak: processed {len(image_results)} image(s), {failures} failure(s)."
             state["log"].append(f"[{_log_timestamp()}] {state['summary']}")
             state["log"] = state["log"][-300:]
             state["download"] = str(docx_file) if docx_file.exists() else ""
+        # Fully resolved -- nothing left to recover after a restart.
+        clear_off_peak_job_state()
     except Exception as exc:
         message = humanize_provider_error(exc, model)
+        if job_id:
+            write_off_peak_job_state(
+                provider=provider, model=model, job_id=job_id,
+                submitted_at=submitted_at_iso, status="status_unknown",
+            )
         with lock:
             state["log"].append(f"[{_log_timestamp()}] Fatal error: {message}")
             state["log"] = state["log"][-300:]

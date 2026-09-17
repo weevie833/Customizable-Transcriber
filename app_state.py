@@ -38,6 +38,16 @@ USER_OUTPUTS_DIR = USER_DATA_DIR / "outputs"
 # same folder-replace-safety reason -- a full folder replace would otherwise
 # reset it silently instead of just failing to find it.
 APP_SETTINGS_FILE = USER_DATA_DIR / "app_settings.json"
+# Non-secret metadata (provider, model, job id, submission time, status) for
+# whatever Off-Peak batch job is currently in flight -- see CODEX_REVIEW.md
+# finding H-1 / HUMAN_DECISIONS.md HD-1. batch_transcription.py writes this
+# at each stage of a job's lifecycle and deletes it once the job is fully
+# resolved, so a job that's still unconfirmed (or that the app never got to
+# resolve at all, because it crashed or was closed) leaves a real, visible
+# trace after a restart -- see surface_stale_off_peak_job() below -- instead
+# of silently vanishing along with the in-memory `state` dict above. The API
+# key is never written here, or anywhere else this app persists to disk.
+OFF_PEAK_JOB_FILE = USER_DATA_DIR / "off_peak_job.json"
 
 state = {
     "running": False,
@@ -179,6 +189,66 @@ def clear_source_folder() -> None:
         APP_SETTINGS_FILE.unlink(missing_ok=True)
 
 
+def write_off_peak_job_state(**fields: object) -> None:
+    """Best-effort persistence of non-secret off-peak batch job metadata --
+    see OFF_PEAK_JOB_FILE's own comment above. Never fatal to the run itself
+    if the write fails (a full disk, a permissions problem): losing this
+    file only means a crash won't be recoverable, not that the in-flight
+    job breaks, matching delete_gemini_prompt_cache()'s own best-effort
+    philosophy (core.py)."""
+    try:
+        atomic_write_text(OFF_PEAK_JOB_FILE, json.dumps(fields, indent=2) + "\n")
+    except OSError:
+        pass
+
+
+def clear_off_peak_job_state() -> None:
+    try:
+        OFF_PEAK_JOB_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def read_off_peak_job_state() -> dict[str, object] | None:
+    if not OFF_PEAK_JOB_FILE.exists():
+        return None
+    try:
+        data = json.loads(OFF_PEAK_JOB_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def surface_stale_off_peak_job() -> None:
+    """Called once at app startup (main(), before serving any request). If
+    an off-peak job's persisted state file survived a restart -- Stop was
+    requested but never confirmed, or the app was closed/crashed mid-batch
+    -- this app has no way to resume watching it automatically (see
+    CODEX_REVIEW.md finding H-1 / HUMAN_DECISIONS.md HD-1: automatic
+    reconnect-and-resume was explicitly scoped out in favor of this, a real
+    but manual recovery path -- the job still needs a live API key to poll,
+    which this app never persists). Surfacing it into the ordinary log/
+    summary is enough to make sure it's never silently forgotten. Dismissed
+    the same way any other leftover run state is, via Reset All -- see
+    reset_ui_state()'s own call to clear_off_peak_job_state() below."""
+    job = read_off_peak_job_state()
+    if not job:
+        return
+    message = (
+        "An off-peak batch job from a previous session may still be unresolved: "
+        f"provider {job.get('provider', 'unknown')}, model {job.get('model', 'unknown')}, "
+        f"job id {job.get('job_id', 'unknown')}, submitted {job.get('submitted_at', 'an unknown time')}, "
+        f"last known status \"{job.get('status', 'unknown')}\". This app cannot resume watching it "
+        "automatically after a restart -- check the provider's own console/dashboard for its actual "
+        "status. Once resolved there, click Reset All to dismiss this notice."
+    )
+    with lock:
+        state["log"].append(message)
+        state["log"] = state["log"][-300:]
+        if not state["summary"]:
+            state["summary"] = message
+
+
 def reset_ui_state() -> None:
     with lock:
         state["running"] = False
@@ -199,6 +269,7 @@ def reset_ui_state() -> None:
         state["batch_job_id"] = ""
         state["batch_counts"] = {}
     clear_source_folder()
+    clear_off_peak_job_state()
 
 
 def reset_test_ui_state() -> None:

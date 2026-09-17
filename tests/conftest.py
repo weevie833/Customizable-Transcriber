@@ -71,6 +71,7 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     profiles_dir = user_data_dir / "profiles"
     outputs_dir = user_data_dir / "outputs"
     settings_file = user_data_dir / "app_settings.json"
+    off_peak_job_file = user_data_dir / "off_peak_job.json"
 
     # PROFILES_DIR (the read-only shipped-examples directory) is also
     # sandboxed, even though nothing ever writes to it, so tests don't
@@ -99,6 +100,15 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     monkeypatch.setattr(app_state, "APP_SETTINGS_FILE", settings_file)
     monkeypatch.setattr(ctapp, "USER_OUTPUTS_DIR", outputs_dir)
     monkeypatch.setattr(ctapp, "APP_SETTINGS_FILE", settings_file)
+    # OFF_PEAK_JOB_FILE (see CODEX_REVIEW.md finding H-1) is also defined in
+    # app_state.py, and read_off_peak_job_state()/write_off_peak_job_state()/
+    # clear_off_peak_job_state()/surface_stale_off_peak_job() are all
+    # DEFINED there too -- unlike USER_OUTPUTS_DIR above, no other module
+    # captures this Path as a raw value (batch_transcription.py and app.py
+    # only import the *functions*, which always read their own defining
+    # module's globals -- see this fixture's own docstring on why that's
+    # safe), so patching app_state's copy alone is enough.
+    monkeypatch.setattr(app_state, "OFF_PEAK_JOB_FILE", off_peak_job_file)
     # USER_OUTPUTS_DIR specifically is also captured by value (not read via a
     # function call back into app_state) in run_support.py -- run_job()/
     # run_test_job()/destination_output_file()/test_destination_output_file()

@@ -296,12 +296,14 @@
     var volumeRange = pbVal("volumeRange");
     var handDescriptor = isCivil ? "" : pbVal("handDescriptor");
     var pageLayout = pbVal("pageLayout");
+    var pageLayoutOther = pbVal("pageLayoutOther");
     // Page-numbering scheme is hidden for civil types too -- civil acts are
     // always located by "Act <act number>:" (see RECORD_TYPES' locatorKind
     // above), never by page number, so this field has no effect on them.
     var pageNumberScheme = isCivil ? "" : pbVal("pageNumberScheme");
     var pageNumberCorner = pbVal("pageNumberCorner");
     var monthConvention = pbVal("monthConvention");
+    var monthConventionOther = pbVal("monthConventionOther");
     var hourConvention = pbVal("hourConvention");
     var relativeDateTerms = pbChecked("relativeDateTerms").concat(pbSimpleValues("pb-relativedate-rows"));
     var latinDeclension = document.querySelector('[name="latinDeclension"]');
@@ -338,8 +340,24 @@
       layoutLines.push("Each image shows two facing pages. Read the LEFT page top to bottom first, then the RIGHT page.");
     } else if (pageLayout === "one_page") {
       layoutLines.push("Each image shows one page of the register.");
-    } else if (pageLayout) {
-      layoutLines.push(pageLayout);
+    } else if (pageLayout === "other" && pageLayoutOther) {
+      // "Other" with nothing typed contributes no line at all -- this used to
+      // push the raw select value, so the generated prompt literally said
+      // "other".
+      layoutLines.push(pageLayoutOther);
+    }
+    // Only meaningful for two facing pages -- the checkbox is hidden for any
+    // other layout (see updateOtherFieldVisibility()), and ignored here too so
+    // a stale checked box can't leak into a one-page-per-image prompt.
+    var spansImagesBox = document.querySelector('[name="entriesSpanFacingImages"]');
+    if (pageLayout === "two_facing" && spansImagesBox && spansImagesBox.checked) {
+      layoutLines.push(
+        "In this register an entry usually begins on the RIGHT page of an image and finishes on the LEFT page of the NEXT image. " +
+        "The text at the top of a left page is therefore normally the end of the previous image's last entry -- its closing paragraph, witness names, or signatures -- not a new entry: " +
+        "treat it as a continuation and add the note \"Entry appears to continue from the previous image.\" " +
+        "Only text that opens with its own beginning (an act or entry number, a printed heading, an opening date) starts a new entry. " +
+        "A left page is the reverse side of the leaf shown on the previous image's right page, so faint ink from that other side may show through the paper: ignore it, and never transcribe show-through text as an entry."
+      );
     }
     if (pageNumberScheme === "none") {
       layoutLines.push("This register has no visible page numbers.");
@@ -418,9 +436,22 @@
         // near the closing/signatures, as running text -- not a separate
         // column. Same inline-vs-margin handling as the birth act's baptism
         // note above.
-        parts.push(
-          "This marriage act may include a note about the church wedding that finalized it (officiant, parish, date). If that note appears as part of the running text, transcribe it as continuous running text along with the rest of the entry -- do not break it into a separate block. If instead it is written in the margin, prefix that portion with `[marginal]` before transcribing it, still inline within the same running text."
-        );
+        var hasChurchWeddingColumn = document.querySelector('[name="' + typeField("hasChurchWeddingColumn") + '"]');
+        if (hasChurchWeddingColumn && hasChurchWeddingColumn.checked) {
+          // Confirmed against a real 1823 Napoli register: a printed two-
+          // column form, the marriage promise on the left and a right-hand
+          // column in which the parish confirms the church ceremony. Handled
+          // inline via `[marginal]` (the unchecked branch below), the column
+          // got spliced into the middle of the act's body wherever the page
+          // broke off -- the body's real continuation was on the next image.
+          parts.push(
+            "This register prints a two-column form: the marriage promise on the left, and a separately headed column on the right in which the parish priest confirms that the church wedding took place (the parish, the date, the witnesses to that ceremony, and the civil officer's filing note). Transcribe the right column's content as its own \"Church Wedding Record\" block, kept fully separate from the main act -- never insert it into the act's running text, even where the act's text breaks off at the bottom of the page and the column continues beside it. The witnesses named in this column attended the church wedding; they are not additional witnesses to the marriage promise recorded in the act itself."
+          );
+        } else {
+          parts.push(
+            "This marriage act may include a note about the church wedding that finalized it (officiant, parish, date). If that note appears as part of the running text, transcribe it as continuous running text along with the rest of the entry -- do not break it into a separate block. If instead it is written in the margin, prefix that portion with `[marginal]` before transcribing it, still inline within the same running text."
+          );
+        }
       }
     }
 
@@ -436,8 +467,8 @@
         "",
         "`ejusdem` (\"of the same\") means the month named in the most recent preceding entry. Resolve it and record the resolved date."
       );
-    } else if (monthConvention && monthConvention !== "standard") {
-      calendarLines.push("# CALENDAR AND TIME CONVENTIONS", "", monthConvention);
+    } else if (monthConvention === "other" && monthConventionOther) {
+      calendarLines.push("# CALENDAR AND TIME CONVENTIONS", "", monthConventionOther);
     }
     if (hourConvention === "italian_hours") {
       calendarLines.push(
@@ -667,6 +698,25 @@
         blockLines.push("", "    Baptism Record: <verbatim transcription of the register's baptism-administration column -- optional, omit if this entry has none>");
       }
     }
+    if (selectedRecordType() === "civil_marriage") {
+      var hasChurchWeddingBlock = document.querySelector('[name="' + typeField("hasChurchWeddingColumn") + '"]');
+      if (hasChurchWeddingBlock && hasChurchWeddingBlock.checked) {
+        blockLines.push("", "    Church Wedding Record: <verbatim transcription of the register's right-hand church-wedding column -- optional, omit if this entry has none>");
+        langs.forEach(function (lang) {
+          blockLines.push("", "    Church Wedding Record (" + lang + " translation): <the " + lang + " translation of that column, as ONE unbroken line -- omit if the block above is omitted>");
+        });
+      }
+    }
+    // An entry that only continues the previous image's has no opening date
+    // of its own. Without this, a real Napoli marriage run gave every such
+    // fragment a Date inferred from the neighbouring entry and a translation
+    // opening with a date the fragment never states ("On the [blank] day of
+    // [blank] 1823.") -- the fixed date-opener rule below collided with the
+    // continuation rule above.
+    blockLines.push(
+      "",
+      "A continuation fragment -- an entry that carries the note \"Entry appears to continue from the previous image.\" -- has no opening date of its own. Leave out its `Date:` block entirely: do not infer a date from adjacent entries and do not write a placeholder such as `[blank]`."
+    );
     parts.push(blockLines.join("\n"));
 
     // Civil-only: a register's opening/title page (province, comune, and
@@ -735,6 +785,7 @@
           phrasingLines.push("Open every Italian translation with the date, for example \"Il giorno 23 di settembre 1752.\" Always state the year, even when inferred.", "");
         }
       });
+      phrasingLines.push("This opening applies to a complete entry only. The translation of a continuation fragment (see BLOCK STRUCTURE) has no date to state, so it begins directly with the translated text.", "");
       var expandAbbrev = document.querySelector('[name="translateExpandAbbreviations"]');
       if (expandAbbrev && expandAbbrev.checked) {
         phrasingLines.push("Expand every abbreviation in the translation to its full form -- do not carry an abbreviated form over into translated text.", "");
@@ -763,7 +814,7 @@
       "1. Every block separated by a blank line; " + language + (langs.length ? " and " + langs.join("/") : "") + " each on one line.",
     ];
     var next = 2;
-    if (langs.indexOf("English") !== -1) { checklist.push(next + ". Every English translation opens with \"On the Nth day of <Month> <year>.\""); next++; }
+    if (langs.indexOf("English") !== -1) { checklist.push(next + ". Every English translation opens with \"On the Nth day of <Month> <year>.\" (except a continuation fragment, which has no date of its own)."); next++; }
     checklist.push(next + ". No JSON, no code fences, no START OF RECORD line, no text outside the blocks.");
     parts.push(checklist.join("\n"));
 
@@ -867,7 +918,22 @@
     updateMarginalHeadingVisibility();
     updateRecordTypeLanguageDefault();
     updateLanguageDefaults();
+    updateOtherFieldVisibility();
     updateTranslationVisibility();
+  }
+
+  // The "Other" choice on Page layout and Month-abbreviation convention each
+  // reveal a text box for describing it (a bare "Other" used to add nothing
+  // but the literal word "other" to the prompt). The "entries continue onto
+  // the next image" checkbox only makes sense for two facing pages.
+  function updateOtherFieldVisibility() {
+    var layoutOtherRow = document.getElementById("pb-page-layout-other-row");
+    if (layoutOtherRow) layoutOtherRow.hidden = pbVal("pageLayout") !== "other";
+    var monthOtherRow = document.getElementById("pb-month-convention-other-row");
+    var monthField = document.getElementById("pb-latin-month-field");
+    if (monthOtherRow) monthOtherRow.hidden = pbVal("monthConvention") !== "other" || !!(monthField && monthField.hidden);
+    var spanRow = document.getElementById("pb-span-images-row");
+    if (spanRow) spanRow.hidden = pbVal("pageLayout") !== "two_facing";
   }
 
   // Church records default to Latin, civil records to Italian -- a starting
@@ -923,6 +989,7 @@
     if (declensionRow) declensionRow.hidden = !isLatin;
     var monthField = document.getElementById("pb-latin-month-field");
     if (monthField) monthField.hidden = !isLatin;
+    updateOtherFieldVisibility();
     pbRefresh();
   }
 
@@ -1725,10 +1792,10 @@
     document.getElementById("pb-questionnaire-form").addEventListener("input", function (event) {
       if (event.target.name === "recordType") { updateRecordTypeVisibility(); return; }
       if (event.target.name === "language") { event.target.dataset.touched = "1"; updateLanguageDefaults(); return; }
-      if (event.target.name === "pageNumberScheme") { updateRecordTypeVisibility(); return; }
+      if (event.target.name === "pageNumberScheme" || event.target.name === "pageLayout") { updateRecordTypeVisibility(); return; }
       if (event.target.classList.contains("pb-marginal-toggle")) { updateMarginalHeadingVisibility(); pbRefresh(); return; }
       if (event.target.name === "translateEnglish" || event.target.name === "translateItalian") { updateTranslationVisibility(); return; }
-      if (event.target.name === "monthConvention") { event.target.dataset.touched = "1"; }
+      if (event.target.name === "monthConvention") { event.target.dataset.touched = "1"; updateRecordTypeVisibility(); return; }
       pbRefresh();
     });
 

@@ -103,6 +103,14 @@ PB_ADDITIONAL_RULES_INFO_TEXT = (
     "an error versus expected grammar. Most profiles won't need this; it exists for the occasional rule that's "
     "specific to your source and not covered by a preset elsewhere on this page."
 )
+PB_SPAN_IMAGES_INFO_TEXT = (
+    "Some registers are photographed so that each entry begins on the right-hand page of one image and finishes "
+    "on the left-hand page of the next image (the back of the same leaf). If yours does, check this box. The AI "
+    "will treat the text at the top of a left page as the end of the previous image's last entry -- not a new "
+    "entry -- and will ignore faint ink showing through from the other side of the leaf. Only applies when the "
+    "page layout is two facing pages."
+)
+
 PB_HONORIFICS_INFO_TEXT = (
     "This is about how a person's title gets written in a translation when they're named in a role -- a "
     "godparent, a witness, an informant. A \"role clause\" is the little phrase that introduces that person "
@@ -166,6 +174,28 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
         "block, kept separate from the main act -- rather than treating it as a note folded into the body or "
         "written in the margin, which is how baptism information is handled when this box is left unchecked."
     )
+    # Civil Marriage only, confirmed against a real 1823 Napoli register: the
+    # act is printed as a two-column form, the marriage promise on the left and
+    # a separate right-hand column in which the parish confirms the church
+    # ceremony took place (parish, date, its own witnesses, and the officer's
+    # filing note). Left unchecked, that text is handled by the inline
+    # `[marginal]` rule instead, which splices it into the middle of the act's
+    # body wherever the page happens to break.
+    church_wedding_column_info = (
+        "Some civil marriage registers print a two-column form: the marriage promise on the left, and a separate "
+        "column on the right in which the parish priest confirms the church wedding took place, with its own date "
+        "and witnesses. If your register does this, check the box. The AI will transcribe that column as its own "
+        "\"Church Wedding Record\" block, kept separate from the main act -- rather than inserting it into the "
+        "middle of the act's text, which is what happens when this box is left unchecked and the column is treated "
+        "as a margin note. Witnesses named in that column attended the church wedding; they are not additional "
+        "witnesses to the civil marriage promise."
+    )
+    church_wedding_column_html = ""
+    if type_key == "civil_marriage":
+        church_wedding_column_html = f"""
+        <div class="pb-inline-row">
+          <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasChurchWeddingColumn"> This register has a separate right-hand column recording the parish's confirmation of the church wedding</label>{pb_info_button_html(f"pb-info-churchweddingcolumn-{type_key}", church_wedding_column_info)}
+        </div>"""
     baptism_column_html = ""
     if type_key == "civil_birth":
         baptism_column_html = f"""
@@ -179,7 +209,7 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
             <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="printed_form" checked> Printed form with handwritten entries filled in</label>
             <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="handwritten"> Entirely handwritten — no printed form on the page</label>
           </div>
-        </fieldset>{baptism_column_html}
+        </fieldset>{baptism_column_html}{church_wedding_column_html}
       </div>"""
 
 
@@ -470,6 +500,15 @@ def prompt_builder_page(
         </label>
       </div>
 
+      <div id="pb-page-layout-other-row" hidden>
+        <label>Describe the page layout
+          <input type="text" name="pageLayoutOther" placeholder="e.g. one long page per image, read top to bottom">
+        </label>
+      </div>
+      <div class="pb-inline-row" id="pb-span-images-row">
+        <label class="pb-checkbox"><input type="checkbox" name="entriesSpanFacingImages"> Entries start on the right page of an image and continue on the left page of the next image</label>{pb_info_button_html("pb-info-span-images", PB_SPAN_IMAGES_INFO_TEXT)}
+      </div>
+
       <div class="pb-field-grid">
         <div id="pb-church-only-pagenumberscheme">
         <label>Page-numbering scheme
@@ -491,6 +530,11 @@ def prompt_builder_page(
           </select>
         </label>
         </div>
+      </div>
+      <div id="pb-month-convention-other-row" hidden>
+        <label>Describe the month-abbreviation convention
+          <input type="text" name="monthConventionOther" placeholder="e.g. months abbreviated to their first three letters, with Xbre for December">
+        </label>
       </div>
       <div id="pb-page-number-corner-row">
         <label>Where are the page numbers?

@@ -746,6 +746,7 @@ FIELD LANGUAGE:
 NOTES:
 - Notes should capture prior marriages/widowhood, publication of banns, witnesses if named (civil acts often name witnesses without a dedicated column — record them here), consent given by parents for a minor, and any other exceptional circumstances.
 - Do not record the time/hour of the declaration or ceremony in notes -- it is not useful for indexing purposes; a researcher who needs it can consult the transcript directly.
+- The source may contain a separate "Church Wedding Record" block: the parish priest's confirmation, printed in its own column, that the church ceremony took place. It is not part of the civil act's body. Use it only for a concise note of the parish and church-wedding date; the witnesses it names attended the church ceremony, so do not list them as witnesses to the civil marriage. marriage_year, marriage_month, and marriage_day always come from the civil act's own date, never from this block.
 - Keep notes concise and separate distinct notes with semicolons.
 """
 )

@@ -1,14 +1,13 @@
 // Generates the Prompt Builder worksheet DOCX files -- the 3 church record
-// types (TYPES) plus, so far, one civil record type (CIVIL_TYPES.civil_death)
-// -- one per record type per language. Civil types use their own
+// types (TYPES) plus the 3 civil record types (CIVIL_TYPES) -- one per record
+// type per language. Civil types use their own
 // section1Civil()/section2Civil()/section3Civil() builders instead of
 // section1()/section2()/section3(), since the live app itself asks a
 // genuinely different Section 1/2/3 field set for a civil_* record type (no
 // Era/Institution/Hand descriptor/Page-numbering scheme, a Page format radio
 // instead, English-only translation, Latin-specific vocabulary hidden by
 // default) -- see updateRecordTypeVisibility()/updateLanguageDefaults() in
-// static/prompt-builder.js. civil_birth and civil_marriage aren't built yet;
-// see the CIVIL_TYPES comment below for what's missing.
+// static/prompt-builder.js.
 //
 // Usage:
 //   npm install                       (once, installs the `docx` package)
@@ -92,8 +91,14 @@ function strings(lang) {
 
     pageLayoutLabel: it ? "Impaginazione della pagina" : "Page layout",
     pageLayoutOptions: it
-      ? ["Una pagina per immagine", "Due pagine affiancate, lette da sinistra a destra (impostazione predefinita dell'app)", "Altro"]
-      : ["One page per image", "Two facing pages, read left then right (app default)", "Other"],
+      ? ["Una pagina per immagine", "Due pagine affiancate, lette da sinistra a destra (impostazione predefinita dell'app)", "Altro: descrivi _______________________"]
+      : ["One page per image", "Two facing pages, read left then right (app default)", "Other: describe _______________________"],
+    spanImagesItem: it
+      ? "Le voci iniziano sulla pagina destra di un'immagine e continuano sulla pagina sinistra dell'immagine successiva"
+      : "Entries start on the right page of an image and continue on the left page of the next image",
+    spanImagesInfo: it
+      ? "Alcuni registri sono fotografati in modo che ogni voce inizi sulla pagina di destra di un'immagine e finisca sulla pagina di sinistra dell'immagine successiva (il retro della stessa carta). Se il tuo registro è così, seleziona questa casella. L'IA tratterà il testo in cima a una pagina di sinistra come la fine dell'ultima voce dell'immagine precedente — non come una nuova voce — e ignorerà l'inchiostro tenue che traspare dall'altro lato della carta. Si applica solo quando l'impaginazione è a due pagine affiancate."
+      : "Some registers are photographed so that each entry begins on the right-hand page of one image and finishes on the left-hand page of the next image (the back of the same leaf). If yours does, check this box. The AI will treat the text at the top of a left page as the end of the previous image's last entry -- not a new entry -- and will ignore faint ink showing through from the other side of the leaf. Only applies when the page layout is two facing pages.",
 
     pageNumberSchemeLabel: it ? "Schema di numerazione delle pagine" : "Page-numbering scheme",
     pageNumberSchemeOptions: it
@@ -113,8 +118,8 @@ function strings(lang) {
 
     monthLabel: it ? "Convenzione delle abbreviazioni dei mesi" : "Month-abbreviation convention",
     monthOptions: it
-      ? ["Conteggio latino da marzo, 7bris-10bris = sett.-dic. (impostazione predefinita dell'app)", "Nomi standard dei mesi", "Altro"]
-      : ["Latin March-counting, 7bris-10bris = Sept-Dec (app default)", "Standard month names", "Other"],
+      ? ["Conteggio latino da marzo, 7bris-10bris = sett.-dic. (impostazione predefinita dell'app)", "Nomi standard dei mesi", "Altro: descrivi _______________________"]
+      : ["Latin March-counting, 7bris-10bris = Sept-Dec (app default)", "Standard month names", "Other: describe _______________________"],
 
     hourLabel: it ? "Convenzione oraria" : "Hour convention",
     hourOptions: it
@@ -301,6 +306,20 @@ function strings(lang) {
     civilPageFormatInfo: it
       ? "I registri civili di questo periodo si presentano in due forme visivamente diverse: una narrazione interamente manoscritta (comune prima dell'adozione dei moduli prestampati nazionali), oppure un modulo prestampato con la formula legale fissa già presente sulla pagina e solo i nomi, le date e gli altri dettagli compilati a mano. Se il tuo registro è un modulo prestampato, l'IA viene istruita ad aspettarsi due grafie diverse sulla stessa pagina — il testo prestampato e la scrittura a mano del funzionario — e a dare priorità di accuratezza alle parti compilate a mano, poiché è lì che si trovano i nomi e le date rilevanti per l'indicizzazione."
       : "Civil registers from this period take two visibly different forms: an entirely handwritten narrative (common before national printed templates were adopted), or a printed form with the fixed legal wording already on the page and only the names, dates, and other specifics filled in by hand. If your register is a printed form, the AI is told to expect two different scripts on the same page -- the printed boilerplate and the clerk's handwriting -- and to weigh transcription accuracy toward the handwritten fill-ins, since that is where the names and dates that matter for indexing are recorded.",
+
+    baptismColumnItem: it
+      ? "Questo registro ha una colonna separata che registra quando il bambino è stato battezzato"
+      : "This register has a separate column recording when the child was baptized",
+    baptismColumnInfo: it
+      ? "Alcuni registri civili di nascita stampano un vero e proprio modulo a due colonne: l'atto di nascita a sinistra e, a destra, una colonna con intestazione propria che registra quando la chiesa ha amministrato il battesimo, con lo stesso numero di atto. Se il tuo registro fa questo, seleziona la casella. L'IA trascriverà quella colonna come un blocco \"Baptism Record\" a sé stante, separato dall'atto principale — anziché trattarla come una nota inserita nel corpo o scritta a margine, che è il modo in cui le informazioni sul battesimo vengono gestite quando questa casella resta deselezionata."
+      : "Some civil birth registers print a genuine two-column form: the birth act on the left, and a separately headed column on the right recording when the church administered baptism, sharing the same act number. If your register does this, check the box. The AI will transcribe that column as its own \"Baptism Record\" block, kept separate from the main act -- rather than treating it as a note folded into the body or written in the margin, which is how baptism information is handled when this box is left unchecked.",
+
+    churchWeddingColumnItem: it
+      ? "Questo registro ha una colonna separata a destra che registra la conferma della parrocchia del matrimonio religioso"
+      : "This register has a separate right-hand column recording the parish's confirmation of the church wedding",
+    churchWeddingColumnInfo: it
+      ? "Alcuni registri civili di matrimonio stampano un modulo a due colonne: la promessa di matrimonio a sinistra e, a destra, una colonna separata in cui il parroco conferma che il matrimonio religioso ha avuto luogo, con la propria data e i propri testimoni. Se il tuo registro fa questo, seleziona la casella. L'IA trascriverà quella colonna come un blocco \"Church Wedding Record\" a sé stante, separato dall'atto principale — anziché inserirla nel mezzo del testo dell'atto, cosa che accade quando questa casella resta deselezionata e la colonna viene trattata come una nota a margine. I testimoni nominati in quella colonna hanno assistito al matrimonio religioso; non sono testimoni aggiuntivi della promessa di matrimonio civile."
+      : "Some civil marriage registers print a two-column form: the marriage promise on the left, and a separate column on the right in which the parish priest confirms the church wedding took place, with its own date and witnesses. If your register does this, check the box. The AI will transcribe that column as its own \"Church Wedding Record\" block, kept separate from the main act -- rather than inserting it into the middle of the act's text, which is what happens when this box is left unchecked and the column is treated as a margin note. Witnesses named in that column attended the church wedding; they are not additional witnesses to the civil marriage promise.",
 
     civilTranslationNote: it
       ? "opzionale — lascia la casella deselezionata per un output di sola trascrizione, senza alcuna traduzione"
@@ -503,6 +522,8 @@ function section1(S, recordLabel) {
 
     fieldLabel(S.pageLayoutLabel),
     ...choiceList(S.pageLayoutOptions),
+    soloCheckbox(S, S.spanImagesItem),
+    infoNote(S, S.spanImagesInfo),
 
     fieldLabel(S.pageNumberSchemeLabel),
     ...choiceList(S.pageNumberSchemeOptions),
@@ -569,6 +590,8 @@ function section1Civil(S, recordLabel) {
 
     fieldLabel(S.pageLayoutLabel),
     ...choiceList(S.pageLayoutOptions),
+    soloCheckbox(S, S.spanImagesItem),
+    infoNote(S, S.spanImagesInfo),
 
     fieldLabel(S.hourLabel),
     ...choiceList(S.hourOptions),
@@ -603,6 +626,15 @@ function section2Civil(S, type) {
   out.push(fieldLabel(S.civilPageFormatLabel));
   out.push(infoNote(S, S.civilPageFormatInfo));
   out.push(...choiceList(S.civilPageFormatOptions));
+
+  if (type.hasBaptismColumn) {
+    out.push(soloCheckbox(S, S.baptismColumnItem));
+    out.push(infoNote(S, S.baptismColumnInfo));
+  }
+  if (type.hasChurchWeddingColumn) {
+    out.push(soloCheckbox(S, S.churchWeddingColumnItem));
+    out.push(infoNote(S, S.churchWeddingColumnInfo));
+  }
 
   out.push(fieldLabel(S.roleVocabLabel(type.label), { note: S.roleVocabNote }));
   out.push(infoNote(S, S.roleVocabInfo));
@@ -880,18 +912,80 @@ const TYPES = {
 
 // ---------- record type configs (civil) ----------
 // Field content (marginalPlaceholder, formulaFields' English placeholder
-// text, roleVocab) mirrors PROMPT_BUILDER_RECORD_TYPES["civil_death"] in
+// text, roleVocab) mirrors PROMPT_BUILDER_RECORD_TYPES[...] in
 // prompt_builder_content.py verbatim -- keep the two in sync if that config
-// changes. Only Civil Death is built for now (see main() below); civil_birth
-// and civil_marriage aren't added yet -- civil_birth in particular also has
-// the "baptism column" field pb_civil_fields_html() adds only for that type,
-// which section2Civil() doesn't yet know how to render.
+// changes. `label` matches the app's own record-type dropdown ("Civil
+// Battesimi"/"Civil Matrimoni"/"Civil Morti"), not the older Civil
+// Birth/Marriage/Death names. Civil Birth alone also asks the "baptism
+// column" question (hasBaptismColumn) and Civil Matrimoni alone asks the
+// "church wedding column" question (hasChurchWeddingColumn) -- the two
+// per-type fields pb_civil_fields_html() adds.
 
 const CIVIL_TYPES = {
+  civil_birth: {
+    fileSlug: "prompt-builder-worksheet-civil-battesimi",
+    fileSlugIt: "generatore-di-prompt-battesimi-civili",
+    label: { en: "Civil Battesimi", it: "Battesimi civili" },
+    hasMarginalHeadingDefault: false,
+    hasBaptismColumn: true,
+    marginalPlaceholder: "Numero [Act #]\n[Child's given name] [Child's surname]",
+    formulaFields: {
+      en: [
+        { label: "Act formula", placeholder: "the declaration formula: \"[DECLARANT] presented a child born of [FATHER] and [MOTHER] ... to whom was given the name [CHILD]\"", optional: false },
+        { label: "Witness formula", placeholder: "how witnesses are introduced, e.g. \"alla presenza di [WITNESS1] d'anni [AGE] di professione [OCCUPATION] domiciliato in [TOWN], e di [WITNESS2] d'anni [AGE] di professione [OCCUPATION] domiciliato in [TOWN]\"", optional: true },
+      ],
+      it: [
+        { label: "Formula dell'atto", placeholder: "the declaration formula: \"[DECLARANT] presented a child born of [FATHER] and [MOTHER] ... to whom was given the name [CHILD]\"", optional: false },
+        { label: "Formula dei testimoni", placeholder: "how witnesses are introduced, e.g. \"alla presenza di [WITNESS1] d'anni [AGE] di professione [OCCUPATION] domiciliato in [TOWN], e di [WITNESS2] d'anni [AGE] di professione [OCCUPATION] domiciliato in [TOWN]\"", optional: true },
+      ],
+    },
+    roleVocab: {
+      en: [
+        "The declarant's name, age, occupation, and domicile appear right after the opening clause, before the birth is described",
+        "Grandfather names are sometimes given for both parents",
+        "Don = courtesy title for clergy or gentry",
+        "Master = courtesy title for a young or unmarried man",
+      ],
+      it: [
+        "Il nome, l'età, la professione e il domicilio del dichiarante compaiono subito dopo la formula di apertura, prima della descrizione della nascita",
+        "I nomi dei nonni sono talvolta indicati per entrambi i genitori",
+        "Don = titolo di cortesia per clero o nobiltà",
+        "Master = titolo di cortesia per un uomo giovane o non sposato",
+      ],
+    },
+  },
+  civil_marriage: {
+    fileSlug: "prompt-builder-worksheet-civil-matrimoni",
+    fileSlugIt: "generatore-di-prompt-matrimoni-civili",
+    label: { en: "Civil Matrimoni", it: "Matrimoni civili" },
+    hasMarginalHeadingDefault: false,
+    hasChurchWeddingColumn: true,
+    marginalPlaceholder: "Numero [Act #]\n[Groom's name] e [Bride's name]",
+    formulaFields: {
+      en: [
+        { label: "Act formula", placeholder: "the declaration formula for the civil marriage act", optional: false },
+        { label: "Witness formula", placeholder: "how witnesses are introduced, e.g. \"in presenza di [WITNESS1] d'anni [AGE] di professione [OCCUPATION] domiciliato in [TOWN], di [WITNESS2] d'anni [AGE]...\" -- civil marriage acts commonly name four", optional: true },
+      ],
+      it: [
+        { label: "Formula dell'atto", placeholder: "the declaration formula for the civil marriage act", optional: false },
+        { label: "Formula dei testimoni", placeholder: "how witnesses are introduced, e.g. \"in presenza di [WITNESS1] d'anni [AGE] di professione [OCCUPATION] domiciliato in [TOWN], di [WITNESS2] d'anni [AGE]...\" -- civil marriage acts commonly name four", optional: true },
+      ],
+    },
+    roleVocab: {
+      en: [
+        "Age and occupation are commonly stated for both spouses",
+        "Witnesses are often named in the running text",
+      ],
+      it: [
+        "Età e occupazione sono comunemente indicate per entrambi gli sposi",
+        "I testimoni sono spesso nominati nel testo",
+      ],
+    },
+  },
   civil_death: {
-    fileSlug: "prompt-builder-worksheet-civil-death",
-    fileSlugIt: "generatore-di-prompt-morte-civile",
-    label: { en: "Civil Death", it: "Morte civile" },
+    fileSlug: "prompt-builder-worksheet-civil-morti",
+    fileSlugIt: "generatore-di-prompt-morti-civili",
+    label: { en: "Civil Morti", it: "Morti civili" },
     hasMarginalHeadingDefault: false,
     marginalPlaceholder: "Numero [Act #]\n[Deceased's name]",
     formulaFields: {
@@ -935,6 +1029,8 @@ function buildDoc(lang, type, isCivil = false) {
   const typeForSection2 = {
     label: recordLabel,
     hasMarginalHeadingDefault: type.hasMarginalHeadingDefault,
+    hasBaptismColumn: !!type.hasBaptismColumn,
+    hasChurchWeddingColumn: !!type.hasChurchWeddingColumn,
     marginalPlaceholder: type.marginalPlaceholder,
     formulaFields: type.formulaFields[lang],
     roleVocab: type.roleVocab[lang],

@@ -746,7 +746,7 @@ FIELD LANGUAGE:
 NOTES:
 - Notes should capture prior marriages/widowhood, publication of banns, witnesses if named (civil acts often name witnesses without a dedicated column — record them here), consent given by parents for a minor, and any other exceptional circumstances.
 - Do not record the time/hour of the declaration or ceremony in notes -- it is not useful for indexing purposes; a researcher who needs it can consult the transcript directly.
-- The source may contain a separate "Church Wedding Record" block: the parish priest's confirmation, printed in its own column, that the church ceremony took place. It is not part of the civil act's body. Use it only for a concise note of the parish and church-wedding date; the witnesses it names attended the church ceremony, so do not list them as witnesses to the civil marriage. marriage_year, marriage_month, and marriage_day always come from the civil act's own date, never from this block.
+- Never record the church wedding in notes -- not its parish, its date, or its witnesses -- whether it appears as a separate "Church Wedding Record" block or as running or `[marginal]` text inside the act. It is the parish's own confirmation, not part of the civil act, and a researcher who wants it can consult the transcript. marriage_year, marriage_month, and marriage_day always come from the civil act's own date, never from the church wedding.
 - Keep notes concise and separate distinct notes with semicolons.
 """
 )
@@ -1450,6 +1450,34 @@ def crossed_out_note(target_language: str) -> str:
     return CROSSED_OUT_NOTE_TRANSLATIONS.get(target_language.strip().lower(), CROSSED_OUT_NOTE)
 
 
+# Added to the last row of a run when its entry runs onto an image that isn't
+# part of this conversion, so a reviewer knows its closing content (witnesses,
+# signatures) is missing. Same target-language handling as CROSSED_OUT_NOTE.
+OPEN_ENTRY_NOTE = "Entry continues on the next image (not included in this conversion)."
+OPEN_ENTRY_NOTE_TRANSLATIONS = {
+    "italian": "La voce prosegue nell'immagine successiva (non inclusa in questa conversione).",
+}
+
+
+def open_entry_note(target_language: str) -> str:
+    return OPEN_ENTRY_NOTE_TRANSLATIONS.get(target_language.strip().lower(), OPEN_ENTRY_NOTE)
+
+
+def block_ends_with_open_entry(block_text: str) -> bool:
+    """True when the LAST entry of a transcription block carries the fixed
+    "Entry appears to continue on the next image." Notes line. Only the last
+    Notes line counts, and only if the last transcription label comes right
+    after it -- so a stray flag on an earlier entry can't mark the block."""
+    lines = block_text.split("\n")
+    notes_at = [i for i, line in enumerate(lines) if re.match(r"^\s*Notes\s*:", line, re.IGNORECASE)]
+    labels_at = [i for i, line in enumerate(lines) if _TRANSCRIPTION_LABEL_RE.match(line)]
+    if not notes_at or not labels_at:
+        return False
+    last_notes = notes_at[-1]
+    following = [i for i in labels_at if i > last_notes]
+    return bool(following) and following[0] == labels_at[-1] and _says_continues_on_next(lines[last_notes])
+
+
 # Non-English gender labels normalize_rows() writes into config.gender_fields
 # -- same reasoning and same "falls back to English" default as
 # CROSSED_OUT_NOTE_TRANSLATIONS above.
@@ -1476,6 +1504,12 @@ def normalize_rows(
         }
         if "image_number" in row and not row["image_number"]:
             row["image_number"] = image_number
+        # Occupations are copied from the English translation, whose casing
+        # varies run to run ("buyer" next to "Haberdasher") -- start each with
+        # a capital, leave the rest as written (it may hold a proper noun).
+        for field_name in config.fields:
+            if field_name.endswith("occupation") and row[field_name]:
+                row[field_name] = row[field_name][0].upper() + row[field_name][1:]
         if "image_link" in row:
             # The 3 civil record types have no separate Image # column (see
             # this module's own "civil records have no Image #" reasoning
@@ -1584,8 +1618,75 @@ def _confirms_continuation_merge(row: dict[str, str]) -> bool:
     (correctly or falsely) but whose resulting first row does not confirm
     a merge is treated as unconfirmed, so the previous row is kept intact
     instead of being silently discarded."""
-    notes = str(row.get("notes") or "").lower()
-    return "continu" in notes and "previous image" in notes
+    return _says_continues_from_previous(str(row.get("notes") or ""))
+
+
+# "...continue(s/d) (from) the previous image" and its forward twin. Matched
+# loosely on the stem plus "previous/preceding/prior image|page" (and "next
+# image|page") because the extraction model routinely paraphrases the exact
+# wording -- a real Napoli marriage run came back with "Entry continues from
+# previous page", which the old literal "previous image" test rejected, leaving
+# an orphaned blank row for a split act.
+_PREVIOUS_IMAGE_RE = re.compile(r"\b(?:previous|preceding|prior)\s+(?:image|page)\b", re.IGNORECASE)
+_NEXT_IMAGE_RE = re.compile(r"\bnext\s+(?:image|page)\b", re.IGNORECASE)
+
+
+def _says_continues_from_previous(text: str) -> bool:
+    return "continu" in text.lower() and bool(_PREVIOUS_IMAGE_RE.search(text))
+
+
+def _says_continues_on_next(text: str) -> bool:
+    return "continu" in text.lower() and bool(_NEXT_IMAGE_RE.search(text))
+
+
+_TRANSCRIPTION_LABEL_RE = re.compile(r"^\s*(?:.+?\s+Transcription|Trascrizione in .+?)\s*:", re.IGNORECASE)
+
+
+def split_leading_continuation(block_text: str) -> tuple[str | None, str]:
+    """Deterministically separate a transcription block's opening continuation
+    fragment from the entries after it.
+
+    The transcription prompt marks an entry that picks up from the previous
+    image with a fixed Notes line ("Entry appears to continue from the previous
+    image.") and, for such a fragment, no Date line. When the first entry of a
+    block carries that note, returns (fragment_text, remainder_text): the
+    fragment is everything up to the next entry's `Date:` line, the remainder
+    is that entry onward (each keeps the block's `--- START OF RECORD ---`
+    header line so the image reference survives). Returns (None, block_text)
+    when the block doesn't open with a flagged fragment.
+
+    This exists because handing the whole block to the extraction model with
+    the previous row as merge context proved unreliable when the block also
+    holds a fresh act: the model sometimes dropped the fragment, or wrote its
+    own paraphrase of the note (defeating the confirmation check), leaving the
+    fragment's content out of the spreadsheet or as a blank duplicate row."""
+    lines = block_text.split("\n")
+    header = ""
+    start = 0
+    if lines and lines[0].lstrip().startswith("--- START OF RECORD"):
+        header = lines[0]
+        start = 1
+    transcription_at = None
+    flagged = False
+    for offset in range(start, len(lines)):
+        line = lines[offset]
+        if _TRANSCRIPTION_LABEL_RE.match(line):
+            transcription_at = offset
+            break
+        if re.match(r"^\s*Notes\s*:", line, re.IGNORECASE) and _says_continues_from_previous(line):
+            flagged = True
+    if not flagged or transcription_at is None:
+        return None, block_text
+    remainder_at = None
+    for offset in range(transcription_at + 1, len(lines)):
+        if re.match(r"^\s*Date\s*:", lines[offset], re.IGNORECASE):
+            remainder_at = offset
+            break
+    if remainder_at is None:
+        return block_text, ""
+    fragment = "\n".join(lines[:remainder_at]).strip()
+    remainder = "\n".join(([header] if header else []) + lines[remainder_at:]).strip()
+    return fragment, remainder
 
 
 def parse_generic(
@@ -1715,6 +1816,53 @@ def parse_generic(
             image_number = block["image_number"]
             previous_context = ""
             forward_flagged = False
+            block_text = block["text"]
+            fragment_handled = False
+
+            # A block that opens with a flagged continuation fragment is split
+            # in two (see split_leading_continuation()): the fragment is merged
+            # into the previous row in a call of its own, then the rest of the
+            # block is extracted normally. Independent of whether the previous
+            # row's own notes kept its "continues on the next image" flag --
+            # the transcription's fixed Notes line is the source of truth, not
+            # what the extraction model chose to carry into a notes cell.
+            fragment_text, remainder_text = split_leading_continuation(block_text) if rows else (None, block_text)
+            if fragment_text is not None:
+                merge_problem = ""
+                fragment_rows: list[dict[str, str]] = []
+                try:
+                    fragment_records = call_ai(
+                        api_key, model, system_prompt,
+                        build_user_message(image_number, continuation_context_for(rows[-1]), fragment_text),
+                        gemini_cache_name, use_prompt_cache,
+                    )
+                    fragment_rows = normalize_rows(config, fragment_records, image_number, normalize_language)
+                    if not fragment_rows:
+                        merge_problem = "the AI returned no rows"
+                except Exception as exc:
+                    merge_problem = str(exc)
+                if not fragment_rows:
+                    exceptions.append(
+                        f"Image {image_number or 'unknown'}: continuation merge failed ({merge_problem}); "
+                        "extracting the whole block without merging."
+                    )
+                else:
+                    previous_row = rows.pop()
+                    merged_row = fragment_rows[0]
+                    merged_row["_source_images"] = (
+                        previous_row.get("_source_images") or [previous_row.get("_image_number", "")]
+                    ) + [image_number]
+                    # The act starts on the departure image, so that is the
+                    # image a reviewer needs to open -- keep its locator.
+                    for locator in ("image_link", "image_number"):
+                        if previous_row.get(locator) and locator in merged_row:
+                            merged_row[locator] = previous_row[locator]
+                    rows.append(merged_row)
+                    rows.extend(fragment_rows[1:])
+                    fragment_handled = True
+                    block_text = remainder_text
+                    if not block_text.strip():
+                        continue
             if rows:
                 previous = rows[-1]
                 carry_forward = {name: previous.get(name, "") for name in config.carry_forward_fields}
@@ -1736,10 +1884,10 @@ def parse_generic(
                 # still match if the model doesn't reproduce the instructed
                 # wording verbatim.
                 previous_notes = str(previous.get("notes") or "").lower()
-                if "continu" in previous_notes and "next image" in previous_notes:
+                if not fragment_handled and _says_continues_on_next(previous_notes):
                     forward_flagged = True
                     previous_context += continuation_context_for(previous)
-            user_message = build_user_message(image_number, previous_context, block["text"])
+            user_message = build_user_message(image_number, previous_context, block_text)
             try:
                 records = call_ai(
                     api_key, model, system_prompt, user_message, gemini_cache_name, use_prompt_cache
@@ -1788,7 +1936,7 @@ def parse_generic(
             # says it continues a prior one, re-extract this block with the same
             # full-previous-row context the forward path uses, so the model
             # performs the merge instead of leaving two rows for one record.
-            if not forward_flagged and rows and normalized and _confirms_continuation_merge(normalized[0]):
+            if not fragment_handled and not forward_flagged and rows and normalized and _confirms_continuation_merge(normalized[0]):
                 retry_context = continuation_context_for(rows[-1])
                 retry_message = build_user_message(image_number, retry_context, block["text"])
                 try:
@@ -1854,6 +2002,29 @@ def parse_generic(
     )
     expected_images = all_image_numbers(text) if process_all else parse_image_range(image_range)
     missing_images = [image for image in expected_images if image not in set(found_images)]
+    # An entry still open at the end of the run (its continuation is on an image
+    # outside this conversion) gets an explicit flag: the extraction model
+    # tends to drop the source's "continues on the next image" note from the
+    # row, leaving nothing to say its witnesses and closing are missing.
+    if rows and blocks and block_ends_with_open_entry(blocks[-1]["text"]):
+        last_row = rows[-1]
+        if "notes" in last_row:
+            kept = [
+                clause for clause in re.split(r"\s*;\s*", str(last_row["notes"]))
+                if clause and not _says_continues_on_next(clause)
+            ]
+            last_row["notes"] = "; ".join(kept + [open_entry_note(target_language)])
+    # A merged row has already absorbed its continuation, so a note saying it
+    # "continued from the previous image" is bookkeeping, not information -- it
+    # only clutters the index. (An unmerged row keeps its note: there it warns
+    # that part of an entry is missing.)
+    for row in rows:
+        if len(row.get("_source_images") or []) > 1 and row.get("notes"):
+            kept = [
+                clause for clause in re.split(r"\s*;\s*", str(row["notes"]))
+                if clause and not _says_continues_from_previous(clause)
+            ]
+            row["notes"] = "; ".join(kept)
     clean_rows = [
         {key: value for key, value in row.items() if not key.startswith("_")} for row in rows
     ]

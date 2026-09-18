@@ -79,7 +79,9 @@ def test_forward_flagged_merge_replaces_not_appends(monkeypatch):
 
     assert calls["n"] == 2
     assert len(result["rows"]) == 1
-    assert result["rows"][0]["notes"] == "continued from previous image."
+    # The merge note is bookkeeping once the merge succeeded -- stripped from
+    # the exported row so it doesn't clutter the index.
+    assert result["rows"][0]["notes"] == ""
     # Both source images still count as found, even though only one row
     # survives the merge.
     assert result["missing_images"] == []
@@ -110,7 +112,7 @@ def test_backward_flag_retry_merge_replaces_not_appends(monkeypatch):
 
     assert calls["n"] == 3
     assert len(result["rows"]) == 1
-    assert result["rows"][0]["notes"] == "continued from previous image; merged."
+    assert result["rows"][0]["notes"] == "merged."
     assert result["missing_images"] == []
 
 

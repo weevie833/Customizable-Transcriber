@@ -84,6 +84,10 @@
       "",
       "- Transcribe exactly what is on the page. Preserve archaic and non-standard spelling, inconsistent capitalization, and scribal error. Do not silently correct the scribe.",
     ];
+    // Narrow columns and margin notes break words across lines with a trailing
+    // hyphen. A real Napoli marriage run rejoined them in two acts but kept
+    // "ottocen- toventitre" (hyphen plus a space) in a third.
+    lines.push("- When a word is split across two lines by a hyphen at the end of a line, rejoin it as one word with no hyphen and no space (`ottocen-` at the end of one line and `toventitre` at the start of the next is written `ottocentoventitre`). Only a hyphen that falls at a line break is removed this way; a hyphen inside a word within a line is part of the text and stays.");
     if (hasTranslation) {
       lines.push("- Preserve abbreviations exactly as written in the transcription. Do NOT insert bracketed expansions into the transcription itself. Expand them only in the " + translationWord + ".");
       lines.push("- Retain source-language name forms in the " + translationWord + " too -- do not anglicize, modernize, or translate a personal name to an English or Italian equivalent.");

@@ -232,10 +232,47 @@
   // (which feeds every example into the real system prompt) and Preflight
   // Test's example picker (runPreflightTest()/wirePreflightTest()), so both
   // always agree on what "the examples" are.
+  // Each row is a main entry plus two optional parts: the Church Wedding
+  // Record column (civil_marriage with that checkbox on -- read as empty
+  // otherwise, same leak-proofing as the other per-type fields) and the
+  // Continuation that picks up at the top of the next image.
+  function churchWeddingColumnActive() {
+    if (selectedRecordType() !== "civil_marriage") return false;
+    var box = document.querySelector('[name="' + typeField("hasChurchWeddingColumn") + '"]');
+    return !!(box && box.checked);
+  }
+
   function pbExampleEntries() {
-    return pbRows("pb-example-rows", ["pb-example-label", "pb-example-text"])
-      .map(function (row) { return { label: row[0], text: row[1] }; })
+    var weddingActive = churchWeddingColumnActive();
+    return pbRows("pb-example-rows", ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation"])
+      .map(function (row) {
+        return { label: row[0], text: row[1], wedding: weddingActive ? row[2] : "", continuation: row[3] };
+      })
       .filter(function (example) { return example.text; });
+  }
+
+  // One example as it appears in the system prompt. A plain entry is just its
+  // text; with either optional part the parts are labelled, so the model can
+  // tell the act from the separate column and from the next image's opening.
+  function exampleAsPromptText(example) {
+    if (!example.wedding && !example.continuation) return example.text;
+    var out = "Main entry:\n\n" + example.text;
+    if (example.wedding) out += "\n\nChurch Wedding Record:\n\n" + example.wedding;
+    if (example.continuation) {
+      out += "\n\nContinuation (this is the opening of the NEXT image: it picks up mid-sentence, carries the note \"Entry appears to continue from the previous image.\", and has no Date block of its own):\n\n" + example.continuation;
+    }
+    return out;
+  }
+
+  function exampleFormatNotes(examples) {
+    var notes = [];
+    if (examples.some(function (e) { return e.wedding; })) {
+      notes.push("Where an example shows a Church Wedding Record, that is the text of the separate right-hand column: in your own output it goes in its own `Church Wedding Record:` block, never inside the entry's text.");
+    }
+    if (examples.some(function (e) { return e.continuation; })) {
+      notes.push("Where an example shows a Continuation, the main entry breaks off at the bottom of its image and the continuation is what you will meet at the top of the next image; transcribe such a fragment exactly as shown, with no invented opening.");
+    }
+    return notes.length ? "\n\n" + notes.join(" ") : "";
   }
 
   function pbRows(containerId, classNames) {
@@ -763,16 +800,16 @@
       parts.push(
         "# EXAMPLE ENTRY (REFERENCE ONLY)\n\n" +
         "The following is a verified, complete, 100% accurate transcription of one real entry from this exact register, given purely as a formatting and style reference. Match its conventions -- spelling, abbreviation style, how it handles line breaks -- but do not copy its content into your own output; it is not the entry you are transcribing.\n\n" +
-        examples[0].text
+        exampleAsPromptText(examples[0]) + exampleFormatNotes(examples)
       );
     } else if (examples.length > 1) {
       var exampleBlocks = examples.map(function (example, index) {
-        return "Example " + (index + 1) + (example.label ? " -- " + example.label : "") + ":\n\n" + example.text;
+        return "Example " + (index + 1) + (example.label ? " -- " + example.label : "") + ":\n\n" + exampleAsPromptText(example);
       });
       parts.push(
         "# EXAMPLE ENTRIES (REFERENCE ONLY)\n\n" +
         "The following are verified, complete, 100% accurate transcriptions of real entries from this exact register, given purely as formatting and style references -- deliberately covering more than one situation (e.g. a straightforward entry, one with an uncertain reading, one where a heading and body disagree). Match their conventions -- spelling, abbreviation style, how they handle line breaks -- but do not copy their content into your own output; none of them is the entry you are transcribing.\n\n" +
-        exampleBlocks.join("\n\n---\n\n")
+        exampleBlocks.join("\n\n---\n\n") + exampleFormatNotes(examples)
       );
     }
 
@@ -846,6 +883,7 @@
   }
 
   function pbRefresh() {
+    updateExampleSubsections();
     var role = buildRoleContext();
     var reference = buildReferenceContext();
     var format = buildOutputFormat();
@@ -1096,13 +1134,28 @@
     return addRow(containerId, '<input type="text" class="pb-simple-value" placeholder="' + placeholder + '">', "pb-row-simple");
   }
 
+  // Shared by the JS-built rows here and mirrored by the server-rendered first
+  // row in pages/prompt_builder.py -- keep the two in sync.
   function addExampleRow() {
-    return addRow(
+    var row = addRow(
       "pb-example-rows",
       '<input type="text" class="pb-example-label" placeholder="Label (optional), e.g. Image 193 Entry 1">' +
-      '<textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea>',
+      '<label class="pb-example-part"><span>Main entry</span>' +
+      '<textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea></label>' +
+      '<label class="pb-example-part pb-example-wedding-part" hidden><span>Church Wedding Record (if any)</span>' +
+      '<textarea class="pb-example-wedding" rows="3" placeholder="Paste the text of the right-hand church-wedding column, exactly as transcribed -- no labels or headers."></textarea></label>' +
+      '<label class="pb-example-part"><span>Continuation (if any)</span>' +
+      '<textarea class="pb-example-continuation" rows="3" placeholder="If this entry runs onto the next image, paste the text that continues it at the top of that image, exactly as transcribed -- no labels or headers."></textarea></label>',
       "pb-example-row"
     );
+    updateExampleSubsections();
+    return row;
+  }
+
+  // The Church Wedding Record part only applies when that checkbox is on.
+  function updateExampleSubsections() {
+    var show = churchWeddingColumnActive();
+    document.querySelectorAll(".pb-example-wedding-part").forEach(function (el) { el.hidden = !show; });
   }
 
   // ---- Load an existing profile back into the questionnaire ----
@@ -1122,7 +1175,7 @@
   var PB_ROW_CONTAINERS = {
     "pb-variant-rows": { classNames: ["pb-variant-name", "pb-variant-markers"], build: addVariantRow },
     "pb-abbrev-rows": { classNames: ["pb-abbrev-written", "pb-abbrev-expansion", "pb-abbrev-meaning"], build: addAbbrevRow },
-    "pb-example-rows": { classNames: ["pb-example-label", "pb-example-text"], build: addExampleRow },
+    "pb-example-rows": { classNames: ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation"], build: addExampleRow },
     "pb-relativedate-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-relativedate-rows", "Add another term"); } },
     "pb-scribal-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-scribal-rows", "Add another quirk"); } },
     "pb-honorific-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-honorific-rows", "Add another honorific"); } },

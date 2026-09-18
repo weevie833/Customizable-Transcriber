@@ -459,6 +459,13 @@
     // Prompt Builder — Example entries & Preflight Test
     "Example entries": "Voci di esempio",
     "Add another example": "Aggiungi un altro esempio",
+    "Main entry": "Voce principale",
+    "Church Wedding Record (if any)": "Registro del matrimonio religioso (se presente)",
+    "Continuation (if any)": "Continuazione (se presente)",
+    "Paste the text of the right-hand church-wedding column, exactly as transcribed -- no labels or headers.":
+      "Incolla il testo della colonna di destra sul matrimonio religioso, esattamente come è stato trascritto — senza etichette o intestazioni.",
+    "If this entry runs onto the next image, paste the text that continues it at the top of that image, exactly as transcribed -- no labels or headers.":
+      "Se questa voce prosegue nell'immagine successiva, incolla il testo che la continua in cima a quell'immagine, esattamente come è stato trascritto — senza etichette o intestazioni.",
     "Label (optional), e.g. Image 193 Entry 1": "Etichetta (opzionale), ad es. Immagine 193 Voce 1",
     "Each example is a verified, 100% accurate transcription of one real entry from this register, shown to the AI purely as a formatting and style reference -- never as content to copy. More than one example, especially covering different situations (a straightforward entry, one with an illegible word, one where a heading and body disagree), calibrates the AI's judgment better than a single example can. An optional label just helps you tell examples apart later -- e.g. in Preflight Test, if you add more than one.":
       "Ogni esempio è una trascrizione verificata e accurata al 100% di una voce reale di questo registro, mostrata all'IA puramente come riferimento di formattazione e stile — mai come contenuto da copiare. Più di un esempio, specialmente se copre situazioni diverse (una voce semplice, una con una parola illeggibile, una in cui intestazione e corpo non concordano), calibra il giudizio dell'IA meglio di un singolo esempio. Un'etichetta facoltativa ti aiuta solo a distinguere gli esempi in seguito — ad es. nel Test di controllo preliminare, se ne aggiungi più di uno.",

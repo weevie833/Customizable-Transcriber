@@ -413,9 +413,19 @@ styling has diverged too much from Transcribe/Test Mode's shared shell. */
       margin-top: 0;
       align-self: center;
     }
-    .pb-example-row .pb-example-text {
+    .pb-example-row .pb-example-part {
       grid-column: 1 / -1;
-      grid-row: 2;
+      display: block;
+      margin-top: 6px;
+    }
+    .pb-example-row .pb-example-part[hidden] {
+      display: none;
+    }
+    .pb-example-row .pb-example-part > span {
+      display: block;
+      font-weight: 600;
+    }
+    .pb-example-row .pb-example-part textarea {
       width: 100%;
       box-sizing: border-box;
       margin-top: 4px;

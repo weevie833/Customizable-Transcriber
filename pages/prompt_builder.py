@@ -622,7 +622,12 @@ def prompt_builder_page(
         <div id="pb-example-rows">
           <div class="pb-row pb-example-row">
             <input type="text" class="pb-example-label" placeholder="Label (optional), e.g. Image 193 Entry 1">
-            <textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea>
+            <label class="pb-example-part"><span>Main entry</span>
+              <textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea></label>
+            <label class="pb-example-part pb-example-wedding-part" hidden><span>Church Wedding Record (if any)</span>
+              <textarea class="pb-example-wedding" rows="3" placeholder="Paste the text of the right-hand church-wedding column, exactly as transcribed -- no labels or headers."></textarea></label>
+            <label class="pb-example-part"><span>Continuation (if any)</span>
+              <textarea class="pb-example-continuation" rows="3" placeholder="If this entry runs onto the next image, paste the text that continues it at the top of that image, exactly as transcribed -- no labels or headers."></textarea></label>
             <button type="button" class="button-tiny pb-row-remove">Remove</button>
           </div>
         </div>

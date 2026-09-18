@@ -249,6 +249,15 @@ function strings(lang) {
       ? "Incolla o scrivi cognomi e nomi noti, nel formato \"Nome Cognome\" oppure \"Cognome, Nome\" — uno per riga. L'app li suddivide automaticamente in elenchi separati di cognomi e nomi."
       : "Paste or write known family names and given names, either as \"Given Surname\" or \"Surname, Given name\" -- one per line. The app automatically splits these into separate surname and given-name lists.",
 
+    exampleMainLabel: it ? "Voce principale" : "Main entry",
+    exampleWeddingLabel: it ? "Registro del matrimonio religioso (se presente)" : "Church Wedding Record (if any)",
+    exampleWeddingNote: it
+      ? "il testo della colonna di destra, solo se hai selezionato la casella della colonna del matrimonio religioso nella Sezione 2"
+      : "the text of the right-hand column -- only if you checked the church-wedding column box in Section 2",
+    exampleContinuationLabel: it ? "Continuazione (se presente)" : "Continuation (if any)",
+    exampleContinuationNote: it
+      ? "se la voce prosegue nell'immagine successiva, il testo che la continua in cima a quell'immagine"
+      : "if the entry runs onto the next image, the text that continues it at the top of that image",
     exampleEntryLabel: it ? "Voce di esempio" : "Example entry",
     exampleEntryNote: it
       ? "Digita una voce completa e accurata al 100% nella lingua originale delle tue fonti, esattamente come dovrebbe essere trascritta — senza etichette o intestazioni. Viene usata come riferimento di formattazione fondamentale per l'IA."
@@ -679,12 +688,32 @@ function section2Civil(S, type) {
 // hint sentence is reworded for a single checkbox instead of "leave both
 // unchecked."
 
-function section3Civil(S) {
+// The app's Example entries field is a main entry plus optional Church Wedding
+// Record and Continuation parts (Church Wedding Record only where that column
+// exists -- Civil Matrimoni).
+function exampleParts(S, includeWedding) {
+  const sub = (text, note) => new Paragraph({
+    spacing: { before: 100, after: 40 }, indent: { left: 200 },
+    children: [
+      new TextRun({ text, bold: true, size: 20 }),
+      ...(note ? [new TextRun({ text: `  ${note}`, italics: true, size: 17, color: MUTED })] : []),
+    ],
+  });
+  return [
+    sub(S.exampleMainLabel),
+    writingBox(S, 8, null),
+    ...(includeWedding ? [sub(S.exampleWeddingLabel, S.exampleWeddingNote), writingBox(S, 4, null)] : []),
+    sub(S.exampleContinuationLabel, S.exampleContinuationNote),
+    writingBox(S, 5, null),
+  ];
+}
+
+function section3Civil(S, includeWedding) {
   return [
     ...sectionHeading(3, S.s3Title, S.s3Caption),
 
     fieldLabel(S.exampleEntryLabel, { note: S.exampleEntryNote }),
-    writingBox(S, 8, null),
+    ...exampleParts(S, includeWedding),
 
     fieldLabel(S.translationLabel, { note: S.civilTranslationNote }),
     ...checklistUnchecked(S.civilTranslationItems),
@@ -776,7 +805,7 @@ function section3(S) {
     ...sectionHeading(3, S.s3Title, S.s3Caption),
 
     fieldLabel(S.exampleEntryLabel, { note: S.exampleEntryNote }),
-    writingBox(S, 8, null),
+    ...exampleParts(S, false),
 
     fieldLabel(S.translationLabel, { note: S.translationNote }),
     ...checklistUnchecked(S.translationItems),
@@ -1041,7 +1070,7 @@ function buildDoc(lang, type, isCivil = false) {
         ...titleBlock(S, recordLabel),
         ...section1Civil(S, recordLabel),
         ...section2Civil(S, typeForSection2),
-        ...section3Civil(S),
+        ...section3Civil(S, !!type.hasChurchWeddingColumn),
       ]
     : [
         ...titleBlock(S, recordLabel),

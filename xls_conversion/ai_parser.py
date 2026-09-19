@@ -284,6 +284,7 @@ Return one valid JSON object with this structure and no other text:
   "entries": [
     {{
       "entry_identifier": "entry number or short source label",
+      "continues_previous_entry": false,
       "target_material_present": true,
       "evidence": "short verbatim excerpt from the beginning of the {target_language} material, or empty"
     }}
@@ -296,6 +297,8 @@ REVIEW RULES:
 {presence_rule}
 - If a heading is absent but a distinct record is present, report it as an unnumbered entry.
 - Do not evaluate or report image markers outside the supplied image block.
+- A "Church Wedding Record", "Baptism Record", or "Marginal Heading" block (and its translation line, e.g. "Church Wedding Record (English translation)") belongs to the entry it accompanies. It is never an entry of its own, and its presence or absence never decides target_material_present -- judge only the entry's own main {target_language} material.
+- An entry that opens the block with a note saying it continues from the previous image (for example "Entry appears to continue from the previous image.") is the rest of the entry that began on the previous image, not a new record. Report it as usual but set continues_previous_entry to true; for every other entry set it to false. Still judge whether it has its own {target_language} material.
 """
 
 
@@ -1361,6 +1364,23 @@ def preflight_generic(
             for entry in image_entries:
                 entry_identifier = str(entry.get("entry_identifier", "") or "").strip()
                 material_present = entry.get("target_material_present") is True
+                if entry.get("continues_previous_entry") is True:
+                    # The tail of an entry counted on the previous image -- not
+                    # a record of its own, so it neither adds to the entry
+                    # count nor to the material-found count. Missing material
+                    # is still a real problem, though.
+                    if not material_present:
+                        issues.append(
+                            {
+                                "code": "target_material_missing",
+                                "severity": "error",
+                                "image_number": image_number,
+                                "entry_identifier": entry_identifier or "(continuation)",
+                                "message": f"{target_language} material was not found for this continuation.",
+                                "evidence": "",
+                            }
+                        )
+                    continue
                 evidence = (
                     str(entry.get("evidence", "") or "")
                     .replace("\r", " ")

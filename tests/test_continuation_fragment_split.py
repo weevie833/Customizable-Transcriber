@@ -184,3 +184,52 @@ def test_occupations_start_with_a_capital_but_keep_the_rest():
     )
     assert [r["groom_occupation"] for r in rows] == ["Buyer", "City Officer"]
     assert rows[0]["bride_occupation"] == "Marble worker"
+
+
+# --- preflight counts entries, not continuation fragments or side blocks ----
+
+def _preflight(monkeypatch, entries_by_image):
+    def fake_call_ai_json(api_key, model, prompt, user_message, *_a, **_k):
+        for image, entries in entries_by_image.items():
+            if f"Requested image number: {image}" in user_message:
+                return {"entries": entries}
+        return {"entries": []}
+
+    monkeypatch.setattr(ai_parser, "call_ai_json", fake_call_ai_json)
+    return ai_parser.preflight_generic(
+        text=TEXT, image_range="", api_key="key", model="gemini-2.5-pro",
+        target_language="English", target_role="translation", process_all=True,
+    )
+
+
+def test_preflight_prompt_tells_the_model_about_side_blocks_and_fragments():
+    prompt = ai_parser.preflight_prompt_for("English", "translation")
+    assert "Church Wedding Record" in prompt
+    assert "continues_previous_entry" in prompt
+
+
+def test_preflight_does_not_count_a_continuation_fragment_as_an_entry(monkeypatch):
+    result = _preflight(monkeypatch, {
+        "002": [{"entry_identifier": "1", "target_material_present": True}],
+        "003": [
+            {"entry_identifier": "continuation", "continues_previous_entry": True, "target_material_present": True},
+            {"entry_identifier": "2", "continues_previous_entry": False, "target_material_present": True},
+        ],
+        "004": [
+            {"entry_identifier": "continuation", "continues_previous_entry": True, "target_material_present": True},
+        ],
+    })
+    assert result["entries_reviewed"] == 2
+    assert result["target_material_found"] == 2
+    assert result["issues"] == []
+
+
+def test_preflight_still_reports_a_continuation_with_no_translation(monkeypatch):
+    result = _preflight(monkeypatch, {
+        "002": [{"entry_identifier": "1", "target_material_present": True}],
+        "003": [{"entry_identifier": "", "continues_previous_entry": True, "target_material_present": False}],
+        "004": [{"entry_identifier": "3", "target_material_present": True}],
+    })
+    assert result["entries_reviewed"] == 2
+    assert [i["code"] for i in result["issues"]] == ["target_material_missing"]
+    assert result["issues"][0]["entry_identifier"] == "(continuation)"

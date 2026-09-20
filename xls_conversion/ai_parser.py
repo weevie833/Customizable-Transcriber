@@ -99,6 +99,7 @@ GENERAL_EXTRACTION_RULES = f"""GENERAL RULES:
 - Strip honorifics from name fields, but retain relevant titles, occupations, status, age, residence, origin, legitimacy, and relationship information in the appropriate field.
 - A Marginal Heading block may begin with an "Entry N - " locator prefix immediately before a name (for example "Entry 4 - Laurentius Sansone"). That number is the register's own entry number, not part of the name -- exclude it from every name field.
 - image_link must always be "".
+- A final "Notes:" line at the very end of a block, after the last entry's other blocks (for example "Notes: ENTRY CONTINUES ON THE NEXT IMAGE -- ..."), is that last entry's note. It is never an entry of its own.
 - When an entry says "on the same day", "on the aforementioned day", "on the aforesaid day", "on the said day", or equivalent language, inherit the date from the preceding entry.
 - A PREVIOUS RECORD CONTEXT may be supplied for the first entry in a block. Use it only when the source explicitly refers back to a preceding date.
 - CROSSED-OUT ENTRIES: if the entry's transcribed text contains the marker "[ENTRY CROSSED OUT BY SCRIBE]" anywhere, set crossed_out to "true" and still extract every other field normally from the rest of that entry's transcribed content -- do not skip the entry or blank its fields. If no such marker is present, set crossed_out to "false", even if the entry has an ordinary correction, insertion, or a strikethrough affecting only part of it.
@@ -601,6 +602,7 @@ FIELD LANGUAGE:
 
 NOTES:
 - Notes should capture the declarant's identity when not the father, home birth vs. institutional birth, legitimacy questions, late registration, corrections, and any other exceptional circumstances.
+- This template has no baptism columns, so the entry's "Baptism Record" block (the church's return of the baptism, filed beside the birth act) is recorded in notes only. Whenever an entry has that block, ALWAYS include a note giving the date the baptism was administered and the parish, taken from that block (for example "Baptized 19 July 1834, parish de' Vergini"); never leave it out. The child named there is the entry's own child.
 - Do not record the time/hour of the declaration or birth in notes -- it is not useful for indexing purposes; a researcher who needs it can consult the transcript directly.
 - Keep notes concise and separate distinct notes with semicolons.
 """
@@ -775,7 +777,7 @@ FILENAME_KEYWORDS: dict[str, tuple[str, ...]] = {
     # trailing "o" doesn't match "matrimonio" -- Italian's singular/plural
     # endings differ, so each needed its own explicit entry rather than
     # assuming the other civil types' existing keywords already covered it.
-    "civil_birth": ("birth", "nascita", "nascite", "battesim"),
+    "civil_birth": ("birth", "nascita", "nascite", "battesim", "nati"),
     "civil_marriage": ("marriage", "matrimonio", "matrimoni", "wedding"),
     "civil_death": ("death", "morte", "morti"),
 }
@@ -1253,8 +1255,12 @@ def check_record_type_filename_match(record_type: str, filename: str) -> dict[st
     lowered = filename.lower()
     if any(keyword in lowered for keyword in keywords):
         return None
+    # The name shown in the "Source material" dropdown, not RECORD_TYPES[...].label
+    # (which is also the Excel tab name and keeps the older "Civil Birth" wording).
     config = RECORD_TYPES.get(record_type)
-    label = config.label if config else record_type
+    label = {"civil_birth": "Civil Nati", "civil_marriage": "Civil Matrimoni", "civil_death": "Civil Morti"}.get(
+        record_type, config.label if config else record_type
+    )
     return {
         "code": "record_type_filename_mismatch",
         "severity": "warning",
@@ -1484,11 +1490,18 @@ def open_entry_note(target_language: str) -> str:
 
 
 def block_ends_with_open_entry(block_text: str) -> bool:
-    """True when the LAST entry of a transcription block carries the fixed
-    "Entry appears to continue on the next image." Notes line. Only the last
-    Notes line counts, and only if the last transcription label comes right
-    after it -- so a stray flag on an earlier entry can't mark the block."""
+    """True when the LAST entry of a transcription block is flagged as
+    continuing on the next image. The transcription app writes that flag as a
+    final "Notes: ENTRY CONTINUES ON THE NEXT IMAGE -- ..." line at the very end
+    of the record; older transcripts carry the fixed "Entry appears to continue
+    on the next image." sentence in the last entry's own Notes line instead, and
+    both are recognised. For the older form only the last Notes line counts, and
+    only if the last transcription label comes right after it -- so a stray flag
+    on an earlier entry can't mark the block."""
     lines = block_text.split("\n")
+    last_line = next((line for line in reversed(lines) if line.strip()), "")
+    if re.match(r"^\s*Notes\s*:", last_line, re.IGNORECASE) and _says_continues_on_next(last_line):
+        return True
     notes_at = [i for i, line in enumerate(lines) if re.match(r"^\s*Notes\s*:", line, re.IGNORECASE)]
     labels_at = [i for i, line in enumerate(lines) if _TRANSCRIPTION_LABEL_RE.match(line)]
     if not notes_at or not labels_at:
@@ -1647,16 +1660,50 @@ def _confirms_continuation_merge(row: dict[str, str]) -> bool:
 # wording -- a real Napoli marriage run came back with "Entry continues from
 # previous page", which the old literal "previous image" test rejected, leaving
 # an orphaned blank row for a split act.
-_PREVIOUS_IMAGE_RE = re.compile(r"\b(?:previous|preceding|prior)\s+(?:image|page)\b", re.IGNORECASE)
-_NEXT_IMAGE_RE = re.compile(r"\bnext\s+(?:image|page)\b", re.IGNORECASE)
+# The Italian forms matter because the extraction model writes the notes cell
+# in the target language: a real Napoli Nati run (Italian target) produced
+# "continuato dall'immagine precedente" / "l'atto continua nell'immagine
+# successiva", which the English-only test missed -- merged rows kept a stale
+# "continued" note and the last row got the flag twice.
+_PREVIOUS_IMAGE_RE = re.compile(
+    r"\b(?:previous|preceding|prior)\s+(?:image|page)\b"
+    r"|\b(?:immagine|pagina)\s+precedente\b|\bprecedente\s+(?:immagine|pagina)\b",
+    re.IGNORECASE,
+)
+_NEXT_IMAGE_RE = re.compile(
+    r"\bnext\s+(?:image|page)\b"
+    r"|\b(?:immagine|pagina)\s+successiva\b|\bsuccessiva\s+(?:immagine|pagina)\b"
+    r"|\b(?:immagine|pagina)\s+seguente\b",
+    re.IGNORECASE,
+)
+
+
+def _mentions_continuation(text: str) -> bool:
+    lowered = text.lower()
+    return "continu" in lowered or "prosegu" in lowered
 
 
 def _says_continues_from_previous(text: str) -> bool:
-    return "continu" in text.lower() and bool(_PREVIOUS_IMAGE_RE.search(text))
+    return _mentions_continuation(text) and bool(_PREVIOUS_IMAGE_RE.search(text))
 
 
 def _says_continues_on_next(text: str) -> bool:
-    return "continu" in text.lower() and bool(_NEXT_IMAGE_RE.search(text))
+    return _mentions_continuation(text) and bool(_NEXT_IMAGE_RE.search(text))
+
+
+def merge_notes(previous_notes: str, merged_notes: str) -> str:
+    """Notes for a row that absorbed its continuation: the merge call sometimes
+    returns only its own note ("continued from previous image") and drops the
+    departure row's real notes (a real run lost a baptism note this way), so keep
+    the previous row's clauses that the merged notes don't already contain."""
+    kept = [
+        clause for clause in re.split(r"\s*;\s*", previous_notes or "")
+        if clause
+        and not _says_continues_on_next(clause)
+        and not _says_continues_from_previous(clause)
+        and clause.lower() not in (merged_notes or "").lower()
+    ]
+    return "; ".join(kept + ([merged_notes] if merged_notes else []))
 
 
 _TRANSCRIPTION_LABEL_RE = re.compile(r"^\s*(?:.+?\s+Transcription|Trascrizione in .+?)\s*:", re.IGNORECASE)
@@ -1783,7 +1830,7 @@ def parse_generic(
             + "\nThis block's first entry is a continuation of that same record -- no new "
             "opening declaration, picking up mid-sentence, or only witness/closing content -- do "
             "not extract it as a separate new record. Output ONE row for it instead: reuse that "
-            "record's own locator/act number and already-known field values, add any new details "
+            "record's own locator/act number and already-known field values (including its existing notes, which must be kept), add any new details "
             "found in this continuation (such as witnesses or a closing date), and note the merge, "
             "e.g. \"continued from previous image.\"\n"
         )
@@ -1804,6 +1851,8 @@ def parse_generic(
             return candidate_rows, False
         previous_row = rows.pop()
         merged_row = candidate_rows[0]
+        if "notes" in merged_row:
+            merged_row["notes"] = merge_notes(str(previous_row.get("notes") or ""), str(merged_row.get("notes") or ""))
         merged_row["_source_images"] = (
             previous_row.get("_source_images") or [previous_row.get("_image_number", "")]
         ) + [image_number]
@@ -1869,6 +1918,8 @@ def parse_generic(
                 else:
                     previous_row = rows.pop()
                     merged_row = fragment_rows[0]
+                    if "notes" in merged_row:
+                        merged_row["notes"] = merge_notes(str(previous_row.get("notes") or ""), str(merged_row.get("notes") or ""))
                     merged_row["_source_images"] = (
                         previous_row.get("_source_images") or [previous_row.get("_image_number", "")]
                     ) + [image_number]

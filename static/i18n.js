@@ -352,6 +352,7 @@
     // Prompt Builder — Section 2 questionnaire fields
     "This register has a separate margin for each entry that states the name": "Questo registro ha un margine separato per ogni voce che riporta il nome",
     "Marginal heading structure": "Struttura dell'intestazione marginale",
+    "Baptism record formula": "Formula del registro del battesimo",
     "Entry structure - write out the structure used in each entry": "Struttura della voce - descrivi la struttura usata in ogni voce",
     "Groom's formula": "Formula dello sposo",
     "Bride's formula": "Formula della sposa",
@@ -361,7 +362,7 @@
     "Role-clause vocabulary for Church Battesimi (optional)": "Vocabolario delle formule di ruolo per Battesimi parrocchiali (opzionale)",
     "Role-clause vocabulary for Church Matrimoni (optional)": "Vocabolario delle formule di ruolo per Matrimoni parrocchiali (opzionale)",
     "Role-clause vocabulary for Church Morti (optional)": "Vocabolario delle formule di ruolo per Morti parrocchiali (opzionale)",
-    "Role-clause vocabulary for Civil Battesimi (optional)": "Vocabolario delle formule di ruolo per Battesimi civili (opzionale)",
+    "Role-clause vocabulary for Civil Nati (optional)": "Vocabolario delle formule di ruolo per Nati civili (opzionale)",
     "Role-clause vocabulary for Civil Matrimoni (optional)": "Vocabolario delle formule di ruolo per Matrimoni civili (opzionale)",
     "Role-clause vocabulary for Civil Morti (optional)": "Vocabolario delle formule di ruolo per Morti civili (opzionale)",
     "P.nus / Patrinus = godfather (one male)": "P.nus / Patrinus = padrino (un uomo)",
@@ -461,6 +462,9 @@
     "Add another example": "Aggiungi un altro esempio",
     "Main entry": "Voce principale",
     "Church Wedding Record (if any)": "Registro del matrimonio religioso (se presente)",
+    "Baptism Record (if any)": "Registro del battesimo (se presente)",
+    "Paste the text of the baptism column, exactly as transcribed -- no labels or headers.":
+      "Incolla il testo della colonna del battesimo, esattamente come è stato trascritto — senza etichette o intestazioni.",
     "Continuation (if any)": "Continuazione (se presente)",
     "Paste the text of the right-hand church-wedding column, exactly as transcribed -- no labels or headers.":
       "Incolla il testo della colonna di destra sul matrimonio religioso, esattamente come è stato trascritto — senza etichette o intestazioni.",
@@ -544,7 +548,7 @@
     // needed for them, but see xls_conversion/app.js's DECLARED_LABEL_TO_VALUE
     // for where the old label text still has to be recognized, in a DOCX
     // generated before this rename.
-    "Civil Battesimi": "Battesimi civili",
+    "Civil Nati": "Nati civili",
     "Civil Matrimoni": "Matrimoni civili",
     "Civil Morti": "Morti civili",
     "Upload the transcription": "Carica la trascrizione",

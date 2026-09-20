@@ -254,6 +254,10 @@ function strings(lang) {
     exampleWeddingNote: it
       ? "il testo della colonna di destra, solo se hai selezionato la casella della colonna del matrimonio religioso nella Sezione 2"
       : "the text of the right-hand column -- only if you checked the church-wedding column box in Section 2",
+    exampleBaptismLabel: it ? "Registro del battesimo (se presente)" : "Baptism Record (if any)",
+    exampleBaptismNote: it
+      ? "il testo della colonna del battesimo, solo se hai selezionato la casella della colonna del battesimo nella Sezione 2"
+      : "the text of the baptism column -- only if you checked the baptism column box in Section 2",
     exampleContinuationLabel: it ? "Continuazione (se presente)" : "Continuation (if any)",
     exampleContinuationNote: it
       ? "se la voce prosegue nell'immagine successiva, il testo che la continua in cima a quell'immagine"
@@ -316,6 +320,9 @@ function strings(lang) {
       ? "I registri civili di questo periodo si presentano in due forme visivamente diverse: una narrazione interamente manoscritta (comune prima dell'adozione dei moduli prestampati nazionali), oppure un modulo prestampato con la formula legale fissa già presente sulla pagina e solo i nomi, le date e gli altri dettagli compilati a mano. Se il tuo registro è un modulo prestampato, l'IA viene istruita ad aspettarsi due grafie diverse sulla stessa pagina — il testo prestampato e la scrittura a mano del funzionario — e a dare priorità di accuratezza alle parti compilate a mano, poiché è lì che si trovano i nomi e le date rilevanti per l'indicizzazione."
       : "Civil registers from this period take two visibly different forms: an entirely handwritten narrative (common before national printed templates were adopted), or a printed form with the fixed legal wording already on the page and only the names, dates, and other specifics filled in by hand. If your register is a printed form, the AI is told to expect two different scripts on the same page -- the printed boilerplate and the clerk's handwriting -- and to weigh transcription accuracy toward the handwritten fill-ins, since that is where the names and dates that matter for indexing are recorded.",
 
+    baptismFormulaLabel: it ? "Formula del registro del battesimo" : "Baptism record formula",
+    baptismFormulaNote: it ? "Necessaria solo se hai selezionato la casella della colonna del battesimo sopra." : "Only needed if you checked the baptism column box above.",
+    baptismFormulaPlaceholder: "the baptism-column formula, e.g. \"[DATE]: baptism administered to [CHILD] by [PRIEST] in the parish of [PARISH]\"",
     baptismColumnItem: it
       ? "Questo registro ha una colonna separata che registra quando il bambino è stato battezzato"
       : "This register has a separate column recording when the child was baptized",
@@ -626,20 +633,24 @@ function section2Civil(S, type) {
     writingBox(S, 3, type.marginalPlaceholder),
   ];
 
-  for (const f of type.formulaFields) {
+  // The baptism column question (Civil Nati only) sits right under the first
+  // formula field, the Act formula -- same position as in the app.
+  type.formulaFields.forEach((f, index) => {
     out.push(fieldLabel(f.label, f.optional ? { note: S.formulaOptionalNote } : undefined));
     out.push(infoNote(S, S.formulaInfo));
     out.push(writingBox(S, 4, f.placeholder));
-  }
+    if (index === 0 && type.hasBaptismColumn) {
+      out.push(soloCheckbox(S, S.baptismColumnItem));
+      out.push(infoNote(S, S.baptismColumnInfo));
+      out.push(fieldLabel(S.baptismFormulaLabel, { note: S.baptismFormulaNote }));
+      out.push(writingBox(S, 3, S.baptismFormulaPlaceholder));
+    }
+  });
 
   out.push(fieldLabel(S.civilPageFormatLabel));
   out.push(infoNote(S, S.civilPageFormatInfo));
   out.push(...choiceList(S.civilPageFormatOptions));
 
-  if (type.hasBaptismColumn) {
-    out.push(soloCheckbox(S, S.baptismColumnItem));
-    out.push(infoNote(S, S.baptismColumnInfo));
-  }
   if (type.hasChurchWeddingColumn) {
     out.push(soloCheckbox(S, S.churchWeddingColumnItem));
     out.push(infoNote(S, S.churchWeddingColumnInfo));
@@ -689,9 +700,9 @@ function section2Civil(S, type) {
 // unchecked."
 
 // The app's Example entries field is a main entry plus optional Church Wedding
-// Record and Continuation parts (Church Wedding Record only where that column
-// exists -- Civil Matrimoni).
-function exampleParts(S, includeWedding) {
+// Record, Baptism Record and Continuation parts (each only where that column
+// exists -- Civil Matrimoni / Civil Nati respectively).
+function exampleParts(S, includeWedding, includeBaptism) {
   const sub = (text, note) => new Paragraph({
     spacing: { before: 100, after: 40 }, indent: { left: 200 },
     children: [
@@ -703,17 +714,18 @@ function exampleParts(S, includeWedding) {
     sub(S.exampleMainLabel),
     writingBox(S, 8, null),
     ...(includeWedding ? [sub(S.exampleWeddingLabel, S.exampleWeddingNote), writingBox(S, 4, null)] : []),
+    ...(includeBaptism ? [sub(S.exampleBaptismLabel, S.exampleBaptismNote), writingBox(S, 4, null)] : []),
     sub(S.exampleContinuationLabel, S.exampleContinuationNote),
     writingBox(S, 5, null),
   ];
 }
 
-function section3Civil(S, includeWedding) {
+function section3Civil(S, includeWedding, includeBaptism) {
   return [
     ...sectionHeading(3, S.s3Title, S.s3Caption),
 
     fieldLabel(S.exampleEntryLabel, { note: S.exampleEntryNote }),
-    ...exampleParts(S, includeWedding),
+    ...exampleParts(S, includeWedding, includeBaptism),
 
     fieldLabel(S.translationLabel, { note: S.civilTranslationNote }),
     ...checklistUnchecked(S.civilTranslationItems),
@@ -944,7 +956,7 @@ const TYPES = {
 // text, roleVocab) mirrors PROMPT_BUILDER_RECORD_TYPES[...] in
 // prompt_builder_content.py verbatim -- keep the two in sync if that config
 // changes. `label` matches the app's own record-type dropdown ("Civil
-// Battesimi"/"Civil Matrimoni"/"Civil Morti"), not the older Civil
+// Nati"/"Civil Matrimoni"/"Civil Morti"), not the older Civil
 // Birth/Marriage/Death names. Civil Birth alone also asks the "baptism
 // column" question (hasBaptismColumn) and Civil Matrimoni alone asks the
 // "church wedding column" question (hasChurchWeddingColumn) -- the two
@@ -952,9 +964,9 @@ const TYPES = {
 
 const CIVIL_TYPES = {
   civil_birth: {
-    fileSlug: "prompt-builder-worksheet-civil-battesimi",
-    fileSlugIt: "generatore-di-prompt-battesimi-civili",
-    label: { en: "Civil Battesimi", it: "Battesimi civili" },
+    fileSlug: "prompt-builder-worksheet-civil-nati",
+    fileSlugIt: "generatore-di-prompt-nati-civili",
+    label: { en: "Civil Nati", it: "Nati civili" },
     hasMarginalHeadingDefault: false,
     hasBaptismColumn: true,
     marginalPlaceholder: "Numero [Act #]\n[Child's given name] [Child's surname]",
@@ -1070,7 +1082,7 @@ function buildDoc(lang, type, isCivil = false) {
         ...titleBlock(S, recordLabel),
         ...section1Civil(S, recordLabel),
         ...section2Civil(S, typeForSection2),
-        ...section3Civil(S, !!type.hasChurchWeddingColumn),
+        ...section3Civil(S, !!type.hasChurchWeddingColumn, !!type.hasBaptismColumn),
       ]
     : [
         ...titleBlock(S, recordLabel),

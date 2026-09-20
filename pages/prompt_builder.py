@@ -118,7 +118,7 @@ PB_HONORIFICS_INFO_TEXT = (
 )
 
 
-def pb_formula_fields_html(type_key: str, config: dict) -> str:
+def pb_formula_fields_html(type_key: str, config: dict, after_first: str = "") -> str:
     # placeholder here is live, pre-filled textarea content (not a `placeholder`
     # attribute) -- the user edits the sample formula in place rather than
     # typing into an empty box. The label text + note + info button are wrapped
@@ -140,7 +140,48 @@ def pb_formula_fields_html(type_key: str, config: dict) -> str:
             f'        <textarea name="{type_key}_{key}" rows="{textarea_rows}">{html.escape(placeholder)}</textarea>\n'
             f'      </label>'
         )
+        if not rows[1:] and after_first:
+            rows.append(after_first.rstrip("\n"))
     return "\n".join(rows)
+
+
+# Civil Birth only, confirmed against a real 1843 register: some registers
+# print a genuine two-column form, the birth act on the left and a
+# dedicated, separately-headed column on the right recording when the
+# church administered baptism (same act number as the birth act, its own
+# short administrative narrative -- the parish returning a slip, the
+# civil officiant filing it). This is a real, distinct layout, not the
+# same thing as a baptism note folded into the main body or written in
+# the margin (that case is still handled unconditionally below, for
+# registers that don't use this column).
+PB_BAPTISM_COLUMN_INFO = (
+    "Some civil birth registers print a genuine two-column form: the birth act on the left, and a separately "
+    "headed column on the right recording when the church administered baptism, sharing the same act number. "
+    "If your register does this, check the box. The AI will transcribe that column as its own \"Baptism Record\" "
+    "block, kept separate from the main act -- rather than treating it as a note folded into the body or "
+    "written in the margin, which is how baptism information is handled when this box is left unchecked."
+)
+
+PB_BAPTISM_FORMULA_DEFAULT = (
+    'the baptism-column formula, e.g. "[DATE]: baptism administered to [CHILD] by [PRIEST] in the parish of [PARISH]"'
+)
+
+
+def pb_baptism_block_html(type_key: str) -> str:
+    # Civil Nati only. The checkbox reveals its own formula field (same
+    # checkbox-then-field pattern as the marginal heading just above it) and
+    # also switches on the Baptism Record block and example part.
+    if type_key != "civil_birth":
+        return ""
+    return f"""      <div class="pb-inline-row">
+        <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasBaptismColumn" class="pb-baptism-toggle"> This register has a separate column recording when the child was baptized</label>{pb_info_button_html(f"pb-info-baptismcolumn-{type_key}", PB_BAPTISM_COLUMN_INFO)}
+      </div>
+      <div class="pb-baptism-formula" hidden>
+        <label><span>Baptism record formula{pb_info_button_html(f"pb-info-baptism-formula-{type_key}", PB_FORMULA_INFO_TEXT)}</span>
+          <textarea name="{type_key}_formula_baptism" rows="2">{html.escape(PB_BAPTISM_FORMULA_DEFAULT)}</textarea>
+        </label>
+      </div>
+"""
 
 
 def pb_civil_fields_html(type_key: str, config: dict) -> str:
@@ -157,22 +198,6 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
         "a printed form, the AI is told to expect two different scripts on the same page -- the printed boilerplate "
         "and the clerk's handwriting -- and to weigh transcription accuracy toward the handwritten fill-ins, since "
         "that is where the names and dates that matter for indexing are recorded."
-    )
-    # Civil Birth only, confirmed against a real 1843 register: some registers
-    # print a genuine two-column form, the birth act on the left and a
-    # dedicated, separately-headed column on the right recording when the
-    # church administered baptism (same act number as the birth act, its own
-    # short administrative narrative -- the parish returning a slip, the
-    # civil officiant filing it). This is a real, distinct layout, not the
-    # same thing as a baptism note folded into the main body or written in
-    # the margin (that case is still handled unconditionally below, for
-    # registers that don't use this column).
-    baptism_column_info = (
-        "Some civil birth registers print a genuine two-column form: the birth act on the left, and a separately "
-        "headed column on the right recording when the church administered baptism, sharing the same act number. "
-        "If your register does this, check the box. The AI will transcribe that column as its own \"Baptism Record\" "
-        "block, kept separate from the main act -- rather than treating it as a note folded into the body or "
-        "written in the margin, which is how baptism information is handled when this box is left unchecked."
     )
     # Civil Marriage only, confirmed against a real 1823 Napoli register: the
     # act is printed as a two-column form, the marriage promise on the left and
@@ -196,12 +221,6 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
         <div class="pb-inline-row">
           <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasChurchWeddingColumn"> This register has a separate right-hand column recording the parish's confirmation of the church wedding</label>{pb_info_button_html(f"pb-info-churchweddingcolumn-{type_key}", church_wedding_column_info)}
         </div>"""
-    baptism_column_html = ""
-    if type_key == "civil_birth":
-        baptism_column_html = f"""
-        <div class="pb-inline-row">
-          <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasBaptismColumn"> This register has a separate column recording when the child was baptized</label>{pb_info_button_html(f"pb-info-baptismcolumn-{type_key}", baptism_column_info)}
-        </div>"""
     return f"""      <div class="pb-civil-fields">
         <fieldset>
           <legend>Page format{pb_info_button_html(f"pb-info-pageformat-{type_key}", page_format_info)}</legend>
@@ -209,7 +228,7 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
             <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="printed_form" checked> Printed form with handwritten entries filled in</label>
             <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="handwritten"> Entirely handwritten — no printed form on the page</label>
           </div>
-        </fieldset>{baptism_column_html}{church_wedding_column_html}
+        </fieldset>{church_wedding_column_html}
       </div>"""
 
 
@@ -218,7 +237,7 @@ def pb_section2_type_group_html(type_key: str) -> str:
     checked = " checked" if config["has_marginal_heading_default"] else ""
     formula_hidden = "" if config["has_marginal_heading_default"] else " hidden"
     marginal_placeholder = html.escape(config["marginal_heading_placeholder"])
-    formula_html = pb_formula_fields_html(type_key, config)
+    formula_html = pb_formula_fields_html(type_key, config, after_first=pb_baptism_block_html(type_key))
     role_vocab_html = pb_checklist_html(f"{type_key}_roleVocab", config["role_vocab"])
     # Both info-button texts below are generic on purpose -- they used to hardcode
     # Battesimi's own example ("[child's name] filius/filia...", "P.nus"/"PP.") and
@@ -626,6 +645,8 @@ def prompt_builder_page(
               <textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea></label>
             <label class="pb-example-part pb-example-wedding-part" hidden><span>Church Wedding Record (if any)</span>
               <textarea class="pb-example-wedding" rows="3" placeholder="Paste the text of the right-hand church-wedding column, exactly as transcribed -- no labels or headers."></textarea></label>
+            <label class="pb-example-part pb-example-baptism-part" hidden><span>Baptism Record (if any)</span>
+              <textarea class="pb-example-baptism" rows="3" placeholder="Paste the text of the baptism column, exactly as transcribed -- no labels or headers."></textarea></label>
             <label class="pb-example-part"><span>Continuation (if any)</span>
               <textarea class="pb-example-continuation" rows="3" placeholder="If this entry runs onto the next image, paste the text that continues it at the top of that image, exactly as transcribed -- no labels or headers."></textarea></label>
             <button type="button" class="button-tiny pb-row-remove">Remove</button>

@@ -72,7 +72,7 @@ def test_fragments_merge_even_when_the_model_drops_flags_and_paraphrases(monkeyp
     def fake_call_ai(api_key, model, system_prompt, user_message, *_a, **_k):
         calls.append(user_message)
         if "ACT-ONE-OPENING" in user_message and "PREVIOUS RECORD" not in user_message:
-            return [{"act_number": "1", "notes": "Church wedding on 2 January."}]  # no continuation flag kept
+            return [{"act_number": "1", "notes": "Baptism on 3 January."}]  # no continuation flag kept
         if "PREVIOUS RECORD WAS FLAGGED" in user_message:
             # The model's own wording is deliberately unconventional ("page").
             prior = "act 1" if "ACT-ONE-ENDING" in user_message else "act 2"
@@ -81,14 +81,15 @@ def test_fragments_merge_even_when_the_model_drops_flags_and_paraphrases(monkeyp
         # The rest-of-block call must not carry merge context.
         assert "PREVIOUS RECORD WAS FLAGGED" not in user_message
         assert "ACT-ONE-ENDING" not in user_message
-        return [{"act_number": "2", "notes": "no continuation flag kept"}]
+        return [{"act_number": "2", "notes": ""}]  # no continuation flag kept
 
     result = _run(monkeypatch, fake_call_ai)
 
     assert [row["act_number"] for row in result["rows"]] == ["1", "2"]
     # Real information survives; the "continues from previous page" bookkeeping
     # clause does not.
-    assert result["rows"][0]["notes"] == "witnesses (act 1)"
+    # The departure row's own note survives the merge call dropping it.
+    assert result["rows"][0]["notes"] == "Baptism on 3 January.; witnesses (act 1)"
     assert result["rows"][1]["notes"] == "witnesses (act 2)"
     # The act starts on its departure image: that stays the row's image link.
     assert [row["image_link"] for row in result["rows"]] == ["002", "003"]

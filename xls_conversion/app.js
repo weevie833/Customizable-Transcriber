@@ -3,7 +3,7 @@
     battesimi: "Church Battesimi",
     matrimoni: "Church Matrimoni",
     morti: "Church Morti",
-    civil_birth: "Civil Battesimi",
+    civil_birth: "Civil Nati",
     civil_marriage: "Civil Matrimoni",
     civil_death: "Civil Morti",
   };
@@ -159,7 +159,8 @@
     "Church Battesimi": "battesimi",
     "Church Matrimoni": "matrimoni",
     "Church Morti": "morti",
-    "Civil Battesimi": "civil_birth",
+    "Civil Nati": "civil_birth",
+    "Civil Battesimi": "civil_birth", // legacy label, pre-dating the Civil Nati rename
     "Civil Matrimoni": "civil_marriage",
     "Civil Morti": "civil_death",
     "Civil Birth": "civil_birth", // legacy label, pre-dating the rename above

@@ -70,6 +70,7 @@ from customizable_transcription.core import (
     count_failures,
     display_name,
     humanize_provider_error,
+    physical_neighbors,
     provider_for_model,
     render_entry,
     sniff_file_type,
@@ -739,7 +740,8 @@ def run_off_peak_job(
                 else:
                     entry_text = text
                     image_results.append(ImageResult(name, True, text))
-                output.write(render_entry(name, entry_text))
+                next_name, previous_name = physical_neighbors(names, index, reverse_order)
+                output.write(render_entry(name, entry_text, next_name, previous_name))
 
         if markdown_file.exists():
             write_docx(

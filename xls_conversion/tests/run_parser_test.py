@@ -78,9 +78,18 @@ def load_core_helpers():
     src = (REPO / "customizable_transcription" / "core.py").read_text(encoding="utf-8")
     ns = {"re": re}
     wanted = {"collapse_source_line_breaks", "strip_model_record_headers",
-              "render_entry"}
+              "render_entry", "standardize_continuation_notes",
+              "continues_on_next_note", "continues_from_previous_note",
+              "_last_entry_notes_line"}
+    wanted_constants = {"_CONTINUES_ON_NEXT_RE", "_CONTINUES_FROM_PREVIOUS_RE",
+                        "_NOTES_LINE_RE", "_TRANSCRIPTION_LABEL_LINE_RE"}
     for node in ast.parse(src).body:
-        if isinstance(node, ast.FunctionDef) and node.name in wanted:
+        is_wanted_function = isinstance(node, ast.FunctionDef) and node.name in wanted
+        is_wanted_constant = (
+            isinstance(node, ast.Assign)
+            and any(getattr(t, "id", None) in wanted_constants for t in node.targets)
+        )
+        if is_wanted_function or is_wanted_constant:
             exec(compile(ast.Module([node], []), "<core>", "exec"), ns)
     return ns
 

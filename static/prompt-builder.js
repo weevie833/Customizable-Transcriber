@@ -52,7 +52,7 @@
     // from PROMPT_BUILDER_RECORD_TYPES's own "label" (prompt_builder_content.py),
     // rendered server-side. Kept in sync anyway so this dict doesn't show a
     // stale name to the next person reading it.
-    civil_birth: { label: "Civil Battesimi", nounSingular: "Battesimi", nounPlural: "Battesimi", principal: "the child", locatorKind: "act", hasMarginalHeadingDefault: false },
+    civil_birth: { label: "Civil Nati", nounSingular: "Battesimi", nounPlural: "Battesimi", principal: "the child", locatorKind: "act", hasMarginalHeadingDefault: false },
     civil_marriage: { label: "Civil Matrimoni", nounSingular: "Matrimoni", nounPlural: "Matrimoni", principal: "the couple", locatorKind: "act", hasMarginalHeadingDefault: false },
     civil_death: { label: "Civil Morti", nounSingular: "Morti", nounPlural: "Morti", principal: "the deceased", locatorKind: "act", hasMarginalHeadingDefault: false },
   };
@@ -246,11 +246,21 @@
     return !!(box && box.checked);
   }
 
+  // Same idea for Civil Nati's Baptism Record column.
+  function baptismColumnActive() {
+    if (selectedRecordType() !== "civil_birth") return false;
+    var box = document.querySelector('[name="' + typeField("hasBaptismColumn") + '"]');
+    return !!(box && box.checked);
+  }
+
+  // The baptism part is the last class name so a row saved before it existed
+  // (four values) still loads into the right fields.
   function pbExampleEntries() {
     var weddingActive = churchWeddingColumnActive();
-    return pbRows("pb-example-rows", ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation"])
+    var baptismActive = baptismColumnActive();
+    return pbRows("pb-example-rows", ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation", "pb-example-baptism"])
       .map(function (row) {
-        return { label: row[0], text: row[1], wedding: weddingActive ? row[2] : "", continuation: row[3] };
+        return { label: row[0], text: row[1], wedding: weddingActive ? row[2] : "", continuation: row[3], baptism: baptismActive ? row[4] : "" };
       })
       .filter(function (example) { return example.text; });
   }
@@ -259,9 +269,10 @@
   // text; with either optional part the parts are labelled, so the model can
   // tell the act from the separate column and from the next image's opening.
   function exampleAsPromptText(example) {
-    if (!example.wedding && !example.continuation) return example.text;
+    if (!example.wedding && !example.baptism && !example.continuation) return example.text;
     var out = "Main entry:\n\n" + example.text;
     if (example.wedding) out += "\n\nChurch Wedding Record:\n\n" + example.wedding;
+    if (example.baptism) out += "\n\nBaptism Record:\n\n" + example.baptism;
     if (example.continuation) {
       out += "\n\nContinuation (this is the opening of the NEXT image: it picks up mid-sentence, carries the note \"Entry appears to continue from the previous image.\", and has no Date block of its own):\n\n" + example.continuation;
     }
@@ -272,6 +283,9 @@
     var notes = [];
     if (examples.some(function (e) { return e.wedding; })) {
       notes.push("Where an example shows a Church Wedding Record, that is the text of the separate right-hand column: in your own output it goes in its own `Church Wedding Record:` block, never inside the entry's text.");
+    }
+    if (examples.some(function (e) { return e.baptism; })) {
+      notes.push("Where an example shows a Baptism Record, that is the text of the separate baptism column: in your own output it goes in its own `Baptism Record:` block, never inside the entry's text.");
     }
     if (examples.some(function (e) { return e.continuation; })) {
       notes.push("Where an example shows a Continuation, the main entry breaks off at the bottom of its image and the continuation is what you will meet at the top of the next image; transcribe such a fragment exactly as shown, with no invented opening.");
@@ -545,6 +559,10 @@
       var value = pbVal(typeField(key));
       if (value) formulaLines.push(value, "");
     });
+    if (baptismColumnActive()) {
+      var baptismFormula = pbVal(typeField("formula_baptism"));
+      if (baptismFormula) formulaLines.push("Baptism Record formula (the separate baptism column):\n\n    " + baptismFormula, "");
+    }
     var roleVocab = pbChecked(typeField("roleVocab")).concat(pbSimpleValues(selectedRecordType() + "-rolevocab-rows"));
     if (roleVocab.length) {
       formulaLines.push("Role-clause vocabulary: " + roleVocab.join(" · "), "");
@@ -920,6 +938,8 @@
     var group = document.querySelector('.pb-type-group[data-record-type="' + selectedRecordType() + '"]');
     var box = group ? group.querySelector(".pb-marginal-formula") : null;
     if (box) box.hidden = !(toggle && toggle.checked);
+    var baptismBox = group ? group.querySelector(".pb-baptism-formula") : null;
+    if (baptismBox) baptismBox.hidden = !baptismColumnActive();
   }
 
   function updateRecordTypeVisibility() {
@@ -1148,6 +1168,8 @@
       '<textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea></label>' +
       '<label class="pb-example-part pb-example-wedding-part" hidden><span>Church Wedding Record (if any)</span>' +
       '<textarea class="pb-example-wedding" rows="3" placeholder="Paste the text of the right-hand church-wedding column, exactly as transcribed -- no labels or headers."></textarea></label>' +
+      '<label class="pb-example-part pb-example-baptism-part" hidden><span>Baptism Record (if any)</span>' +
+      '<textarea class="pb-example-baptism" rows="3" placeholder="Paste the text of the baptism column, exactly as transcribed -- no labels or headers."></textarea></label>' +
       '<label class="pb-example-part"><span>Continuation (if any)</span>' +
       '<textarea class="pb-example-continuation" rows="3" placeholder="If this entry runs onto the next image, paste the text that continues it at the top of that image, exactly as transcribed -- no labels or headers."></textarea></label>',
       "pb-example-row"
@@ -1156,10 +1178,12 @@
     return row;
   }
 
-  // The Church Wedding Record part only applies when that checkbox is on.
+  // The Church Wedding / Baptism Record parts only apply when their checkbox is on.
   function updateExampleSubsections() {
     var show = churchWeddingColumnActive();
     document.querySelectorAll(".pb-example-wedding-part").forEach(function (el) { el.hidden = !show; });
+    var showBaptism = baptismColumnActive();
+    document.querySelectorAll(".pb-example-baptism-part").forEach(function (el) { el.hidden = !showBaptism; });
   }
 
   // ---- Load an existing profile back into the questionnaire ----
@@ -1179,7 +1203,7 @@
   var PB_ROW_CONTAINERS = {
     "pb-variant-rows": { classNames: ["pb-variant-name", "pb-variant-markers"], build: addVariantRow },
     "pb-abbrev-rows": { classNames: ["pb-abbrev-written", "pb-abbrev-expansion", "pb-abbrev-meaning"], build: addAbbrevRow },
-    "pb-example-rows": { classNames: ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation"], build: addExampleRow },
+    "pb-example-rows": { classNames: ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation", "pb-example-baptism"], build: addExampleRow },
     "pb-relativedate-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-relativedate-rows", "Add another term"); } },
     "pb-scribal-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-scribal-rows", "Add another quirk"); } },
     "pb-honorific-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-honorific-rows", "Add another honorific"); } },
@@ -1850,7 +1874,7 @@
       if (event.target.name === "recordType") { updateRecordTypeVisibility(); return; }
       if (event.target.name === "language") { event.target.dataset.touched = "1"; updateLanguageDefaults(); return; }
       if (event.target.name === "pageNumberScheme" || event.target.name === "pageLayout") { updateRecordTypeVisibility(); return; }
-      if (event.target.classList.contains("pb-marginal-toggle")) { updateMarginalHeadingVisibility(); pbRefresh(); return; }
+      if (event.target.classList.contains("pb-marginal-toggle") || event.target.classList.contains("pb-baptism-toggle")) { updateMarginalHeadingVisibility(); pbRefresh(); return; }
       if (event.target.name === "translateEnglish" || event.target.name === "translateItalian") { updateTranslationVisibility(); return; }
       if (event.target.name === "monthConvention") { event.target.dataset.touched = "1"; updateRecordTypeVisibility(); return; }
       pbRefresh();

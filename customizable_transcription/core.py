@@ -1012,8 +1012,97 @@ def strip_model_record_headers(text: str) -> str:
     return "\n".join(lines)
 
 
-def render_entry(filename: str, text: str) -> str:
-    clean_text = collapse_source_line_breaks(strip_model_record_headers(text))
+# The two fixed continuation notes the prompt tells the model to write (see
+# static/prompt-builder.js). The app upgrades them to a preset note that names
+# the neighbouring image's record, so a reader of the DOCX knows where to look.
+# XLS Conversion (xls_conversion/ai_parser.py's _says_continues_on_next/
+# _says_continues_from_previous, block_ends_with_open_entry(),
+# split_leading_continuation()) recognises a note by "continu..." plus "next
+# image"/"previous image" -- keep both phrases in the preset wording below.
+_CONTINUES_ON_NEXT_RE = re.compile(
+    r"Entry\s+(?:appears\s+to\s+)?continu\w*\s+on\s+the\s+next\s+(?:image|page)\.?", re.IGNORECASE
+)
+_CONTINUES_FROM_PREVIOUS_RE = re.compile(
+    r"Entry\s+(?:appears\s+to\s+)?continu\w*\s+from\s+the\s+(?:previous|preceding|prior)\s+(?:image|page)\.?",
+    re.IGNORECASE,
+)
+
+
+def continues_on_next_note(next_name: str | None) -> str:
+    where = (
+        f"the rest of this entry is in the record for {next_name}"
+        if next_name
+        else "the next image is not part of this run"
+    )
+    return f"ENTRY CONTINUES ON THE NEXT IMAGE -- {where}."
+
+
+def continues_from_previous_note(previous_name: str | None) -> str:
+    where = (
+        f"the beginning of this entry is in the record for {previous_name}"
+        if previous_name
+        else "the previous image is not part of this run"
+    )
+    return f"ENTRY CONTINUES FROM THE PREVIOUS IMAGE -- {where}."
+
+
+_NOTES_LINE_RE = re.compile(r"^\s*Notes\s*:", re.IGNORECASE)
+_TRANSCRIPTION_LABEL_LINE_RE = re.compile(r"^\s*(?:.+?\s+Transcription|Trascrizione in .+?)\s*:", re.IGNORECASE)
+
+
+def _last_entry_notes_line(lines: list[str]) -> int | None:
+    """Index of the last Notes line when it belongs to the block's last entry
+    (the last transcription label comes right after it), else None. Mirrors
+    xls_conversion/ai_parser.py's block_ends_with_open_entry(): a stray flag on
+    an earlier entry must not mark the whole record as continuing."""
+    notes_at = [i for i, line in enumerate(lines) if _NOTES_LINE_RE.match(line)]
+    labels_at = [i for i, line in enumerate(lines) if _TRANSCRIPTION_LABEL_LINE_RE.match(line)]
+    if not notes_at or not labels_at:
+        return None
+    following = [i for i in labels_at if i > notes_at[-1]]
+    if following and following[0] == labels_at[-1]:
+        return notes_at[-1]
+    return None
+
+
+def standardize_continuation_notes(text: str, next_name: str | None, previous_name: str | None) -> str:
+    """Turn the model's two fixed continuation sentences into the preset notes.
+
+    "Continues from the previous image" stays where the model put it: in the
+    Notes line at the top of the record, right under the START OF RECORD line.
+    "Continues on the next image" is moved out of the last entry's Notes line
+    to the very end of the record, so both continuation notes sit at the
+    boundary between the two images. Anything else in the Notes line is kept."""
+    text = _CONTINUES_FROM_PREVIOUS_RE.sub(lambda _m: continues_from_previous_note(previous_name), text)
+    lines = text.split("\n")
+    notes_at = _last_entry_notes_line(lines)
+    if notes_at is None or not _CONTINUES_ON_NEXT_RE.search(lines[notes_at]):
+        return _CONTINUES_ON_NEXT_RE.sub(lambda _m: continues_on_next_note(next_name), text)
+    remaining = _CONTINUES_ON_NEXT_RE.sub("", lines[notes_at])
+    if re.fullmatch(r"\s*Notes\s*:[\s.;,]*", remaining, re.IGNORECASE):
+        del lines[notes_at]
+        if notes_at < len(lines) and not lines[notes_at].strip():
+            del lines[notes_at]
+    else:
+        lines[notes_at] = re.sub(r"\s{2,}", " ", remaining).rstrip()
+    body = _CONTINUES_ON_NEXT_RE.sub(lambda _m: continues_on_next_note(next_name), "\n".join(lines))
+    return body.rstrip() + "\n\nNotes: " + continues_on_next_note(next_name)
+
+
+def physical_neighbors(names: list[str], index: int, reverse_order: bool) -> tuple[str | None, str | None]:
+    """(next, previous) image names for names[index] in reading order.
+    `names` is in processing order, which a reverse-order run flips."""
+    step = -1 if reverse_order else 1
+
+    def at(position: int) -> str | None:
+        return names[position] if 0 <= position < len(names) else None
+
+    return at(index + step), at(index - step)
+
+
+def render_entry(filename: str, text: str, next_name: str | None = None, previous_name: str | None = None) -> str:
+    clean_text = standardize_continuation_notes(strip_model_record_headers(text), next_name, previous_name)
+    clean_text = collapse_source_line_breaks(clean_text)
     return f"\n\n--- START OF RECORD: {filename} ---\n\n{clean_text}\n"
 
 
@@ -1056,12 +1145,14 @@ def run_batch(
         with config.output_file.open("w", encoding="utf-8") as output:
             output.write(f"# Transcription Output\n\nSource folder: {config.image_folder}\n")
 
+            names = [display_name(path, config.image_folder) for path in files]
             for index, image_path in enumerate(files, start=1):
                 if cancel_requested and cancel_requested():
                     log("Stopped before next image.")
                     break
 
-                name = display_name(image_path, config.image_folder)
+                name = names[index - 1]
+                next_name, previous_name = physical_neighbors(names, index - 1, config.reverse_order)
                 log(f"[{index}/{len(files)}] Processing {name}")
                 try:
                     validate_batch_source_file(image_path, config.image_folder)
@@ -1075,13 +1166,13 @@ def run_batch(
                         cached_content=gemini_cache_name,
                         use_prompt_cache=use_prompt_cache,
                     )
-                    output.write(render_entry(name, text))
+                    output.write(render_entry(name, text, next_name, previous_name))
                     output.flush()
                     results.append(ImageResult(name, True, text))
                     log(f"Saved {name}")
                 except Exception as exc:
                     error = f"ERROR: {humanize_provider_error(exc, config.model)}"
-                    output.write(render_entry(name, error))
+                    output.write(render_entry(name, error, next_name, previous_name))
                     output.flush()
                     results.append(ImageResult(name, False, error))
                     log(f"Failed {name}: {humanize_provider_error(exc, config.model)}")

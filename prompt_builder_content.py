@@ -95,7 +95,7 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
             "conjux / uxor = spouse / wife",
         ],
     },
-    # The 3 civil types' "label" values below say "Civil Battesimi"/"Civil
+    # The 3 civil types' "label" values below say "Civil Nati"/"Civil
     # Matrimoni"/"Civil Morti", not the plainer "Civil Birth"/"Civil
     # Marriage"/"Civil Death" they used to -- the user's own choice, matching
     # XLS Conversion's "Source material" dropdown (xls_conversion/index.html),
@@ -113,7 +113,7 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
     # prompt ("Extract every civil death entry..."), so it stays "Civil
     # Birth"/"Civil Marriage"/"Civil Death" unless asked to change too.
     "civil_birth": {
-        "label": "Civil Battesimi",
+        "label": "Civil Nati",
         "has_marginal_heading_default": False,
         "marginal_heading_placeholder": "Numero [Act #]\n[Child's given name] [Child's surname]",
         "formula_fields": [
@@ -131,6 +131,7 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
         # type's checklist into it (see pb_section2_type_group_html()) without
         # changing the mechanism for every other type.
         "role_vocab_extendable": True,
+        "role_vocab_stacked": True,
     },
     "civil_marriage": {
         "label": "Civil Matrimoni",

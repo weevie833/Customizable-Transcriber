@@ -421,15 +421,21 @@ reflects how well a model reads handwriting.
 
 An entry whose content spans two consecutive source images (a register
 entry that starts at the bottom of one photographed page and continues
-onto the next) is flagged in the transcript by two preset Notes lines that
-the app itself writes (`render_entry()` in `customizable_transcription/core.py`),
-not the model: `ENTRY CONTINUES ON THE NEXT IMAGE -- ...` as the very last line
+onto the next) is flagged in the transcript by two preset Notes lines. The
+model detects the split and writes a fixed sentence (the prompt requires that exact
+wording); the app then standardizes it (`render_entry()` in
+`customizable_transcription/core.py`): `ENTRY CONTINUES ON THE NEXT IMAGE -- ...` as the very last line
 of the record where the entry starts, and `ENTRY CONTINUES FROM THE PREVIOUS
 IMAGE -- ...` at the top of the record that picks it up. Both name the
 neighbouring image's record so a reader knows where to look, and together they
 sit at the `START OF RECORD` boundary. XLS Conversion keys off the same notes to
 merge the two halves into one row rather than exporting two truncated ones
-(`xls_conversion/README.md`).
+(`xls_conversion/README.md`). Detection is the model's, not deterministic: if it
+omits the note, nothing is standardized and the halves stay separate rows, so the
+transcript should be spot-checked where an entry runs off a page. A merged row is
+also guarded field by field (`apply_merge_invariants()`): a blank never erases an
+earlier value, a conflicting value keeps the original and is logged, and a
+different act number rejects the merge.
 
 ## Accessibility
 

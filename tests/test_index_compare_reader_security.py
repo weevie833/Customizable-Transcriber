@@ -13,7 +13,7 @@ import zipfile
 
 import pytest
 
-import index_compare.reader as reader
+from index_compare import reader
 from xls_conversion.ai_parser import RECORD_TYPES
 from xls_conversion.spreadsheet_export import rows_to_xlsx
 

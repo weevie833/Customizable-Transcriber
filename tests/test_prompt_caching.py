@@ -18,9 +18,8 @@ from pathlib import Path
 import pytest
 from google.genai import types
 
-import customizable_transcription.core as core
-import xls_conversion.ai_parser as ai_parser
-
+from customizable_transcription import core
+from xls_conversion import ai_parser
 
 # --- core.py: per-call plumbing -------------------------------------------------
 

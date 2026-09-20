@@ -5,9 +5,8 @@ ever silently dropping or misaligning a row."""
 
 from __future__ import annotations
 
-from xls_conversion.ai_parser import RECORD_TYPES
-
 from index_compare.align import align_rows
+from xls_conversion.ai_parser import RECORD_TYPES
 
 MATRIMONI = RECORD_TYPES["matrimoni"]  # locator field: page_number
 

@@ -11,9 +11,9 @@ import json
 import threading
 from pathlib import Path
 
-from app_state import lock, load_source_folder, reset_ui_state, state, status_payload, stop_event
-from profiles_store import load_profile, save_custom_profile, update_profile
+from app_state import load_source_folder, lock, reset_ui_state, state, status_payload, stop_event
 from http_utils import parse_post_form, pasted_value
+from profiles_store import load_profile, save_custom_profile, update_profile
 from run_support import (
     destination_output_file,
     preflight_source_file_type,

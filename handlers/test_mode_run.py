@@ -12,11 +12,8 @@ import json
 import threading
 from pathlib import Path
 
-from customizable_transcription.core import key_looks_like_claude, provider_for_model
-from test_mode.comparison import score_transcription
-from test_mode.report_docx import build_compare_report_docx
-from profiles_store import delete_profile
 from app_state import (
+    USER_OUTPUTS_DIR,
     load_source_folder,
     new_test_run_state,
     reset_test_ui_state,
@@ -24,9 +21,17 @@ from app_state import (
     test_state,
     test_status_payload,
     test_stop_event,
-    USER_OUTPUTS_DIR,
 )
-from http_utils import extract_docx_text, parse_json_body, parse_multipart_form, parse_post_form, pasted_value, uploaded_docx_field
+from customizable_transcription.core import key_looks_like_claude, provider_for_model
+from http_utils import (
+    extract_docx_text,
+    parse_json_body,
+    parse_multipart_form,
+    parse_post_form,
+    pasted_value,
+    uploaded_docx_field,
+)
+from profiles_store import delete_profile
 from run_support import (
     new_batch_id,
     output_stem,
@@ -34,12 +39,14 @@ from run_support import (
     required_providers,
     resolve_profile_for_run,
     resolve_run_batches,
+    run_test_job,
     selected_file_type,
     selected_model_pair,
     selected_profile_id,
-    run_test_job,
     test_destination_output_file,
 )
+from test_mode.comparison import score_transcription
+from test_mode.report_docx import build_compare_report_docx
 
 
 class TestModeRunHandlerMixin:

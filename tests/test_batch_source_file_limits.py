@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-import customizable_transcription.core as core
+from customizable_transcription import core
 
 
 def test_oversized_file_is_rejected(tmp_path, monkeypatch):

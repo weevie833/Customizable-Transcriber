@@ -1,83 +1,120 @@
 # Human Decisions Required
 
-Review date: 2026-09-16
+Review date: 2026-09-20
 
-Reviewed revision: `e420b3f`
+Reviewed revision: `a4e3328`
 
-Two current decisions are required. Every other corrective action in `CODEX_REVIEW.md` can be implemented without changing product policy.
+Four current decisions are required. All other corrective actions in `CODEX_REVIEW.md` can be made without changing product or data policy.
 
-## HD-1 — Off-Peak cancellation and recovery contract
+## HD-1 — Ambiguous Off-Peak submission recovery
 
 Related finding: `CODEX_REVIEW.md` H-1.
 
 ### Decision needed
 
-Choose what the application must do when the provider does not promptly confirm a cancellation, and whether an in-flight provider/job identifier must survive application restart.
+Define what the app must do when a provider may have accepted a paid batch but the create response, and therefore the job ID, was lost.
 
 ### Recommended choice
 
-Persist only the non-secret provider name, job ID, submission time, and local output metadata. Use distinct states:
+Treat submission timeout as **outcome unknown**, not failure:
 
-- `running`
-- `cancellation requested`
-- `cancellation confirmed`
-- `completed`
-- `failed`
-- `status unknown; check provider`
-
-After Stop, continue bounded polling until a terminal provider state is observed. Never display `cancelled` merely because the local cancel request was sent. If confirmation times out, retain and display the job ID with provider-dashboard instructions, and allow a later status/recovery attempt. Never persist the API key.
+- Persist a non-secret `submitting` record before the call with provider, unique local run ID, timestamp, image count, and request fingerprint.
+- Disable SDK retries for create unless the provider offers a documented idempotency key and that key is actually sent.
+- Use a unique Gemini display name and provider-list/dashboard reconciliation where feasible.
+- Do not invite immediate retry. Require the user to check/reconcile the provider account first, then explicitly acknowledge whether resubmission is safe.
+- Never persist the API key.
 
 ### Lower-scope alternative
 
-Retain the current no-persistence policy, but still stop claiming cancellation without confirmation. Show `cancellation unconfirmed`, keep the job ID visible for the lifetime of the process, and clearly direct the user to the provider console. This is less robust across restart but fixes the dangerous false-success claim.
-
-### Unacceptable option
-
-Keep the current behavior. A failed cancellation can leave a paid provider job running while the application states that it was cancelled and discards its tracking state.
+Disable automatic create retries and change the timeout message to “submission outcome unknown; check the provider dashboard before retrying.” This does not recover the ID automatically, but it avoids positively encouraging duplication.
 
 ### Human input required
 
-- May the existing “no job state on disk” v1 constraint be reversed for non-secret job metadata?
-- How long should cancellation confirmation be retried before the state becomes `unknown`?
-- Should the application support reconnect/recover after restart, or only provide the job ID for manual provider-console recovery?
+- Must the app reconcile ambiguous submissions itself, or is provider-dashboard recovery acceptable?
+- May a user resubmit after acknowledgement without confirmed reconciliation?
+- Is a unique non-secret submission fingerprint acceptable in persisted state?
 
-## HD-2 — Off-Peak batch capacity and scaling policy
+## HD-2 — Continuation merge conflict policy
+
+Related finding: `CODEX_REVIEW.md` H-2.
+
+### Decision needed
+
+Define which value wins when the original departure-image row and the context-aware continuation merge disagree.
+
+### Recommended choice
+
+Use conservative field-level merge rules:
+
+- A blank continuation value never erases a prior non-empty value.
+- Stable identity, date, act/page locator, and source-image fields remain from the original unless a conflict is explicitly surfaced for human review.
+- New continuation-only facts fill blanks or append to suitable notes/list fields.
+- Conflicting non-empty values keep the original in the export and enter a visible review/exception log containing both values.
+- If invariants cannot be satisfied, keep both source rows rather than silently replacing the original.
+
+### Alternative
+
+Allow the context-aware merge to override prior values, but retain an audit copy/diff of the original and flag every changed non-empty field for review.
+
+### Human input required
+
+- Should a later, context-rich extraction ever automatically override a prior non-empty value?
+- Which fields are immutable, append-only, or review-required for each record type?
+- Should unresolved conflicts block export or merely produce warnings?
+
+## HD-3 — Prompt Builder preflight ground-truth scope
+
+Related finding: `CODEX_REVIEW.md` M-1.
+
+### Decision needed
+
+Decide whether a preflight run validates only content visible on one uploaded image or an entire multi-image example.
+
+### Recommended choice
+
+Keep the current one-image workflow. Serialize Date, Main entry, and the applicable Baptism/Church Wedding side-column block as ground truth for that image. Exclude the Continuation field because it is explicitly the opening of the next image. Label this scope in the UI.
+
+### Alternative
+
+Permit two image uploads for examples with continuations and run/compare both images as one linked preflight. This is more complete but increases provider cost, latency, UI complexity, and test surface.
+
+### Human input required
+
+- Is one-image validation sufficient?
+- If so, should continuation be ignored or should preflight reject examples containing it with an explanation?
+- If paired-image validation is required, is the additional cost/latency acceptable?
+
+## HD-4 — Supported Off-Peak memory envelope
 
 Related finding: `CODEX_REVIEW.md` M-2.
 
 ### Decision needed
 
-Define the maximum supported Off-Peak batch by item count and aggregate source bytes, or require a provider file-upload/streaming design for larger workloads.
+Replace the unmeasured 2 GB raw-input default with a limit tied to supported host memory and real batch requirements, or require a staging/streaming design.
 
 ### Recommended choice
 
-Adopt explicit per-provider limits derived from the provider APIs and the minimum supported host-memory budget. Reject the batch before any file body is read if either the item count or aggregate bytes exceeds its limit. Display the calculated count/bytes and tell the user how to split the folder. Revalidate each file at consumption time.
+Measure peak resident memory for Gemini and Claude, including base64 and HTTP serialization, on the minimum supported host. Set provider-specific aggregate limits with safety headroom and reject larger folders before reading bodies. Until that evidence exists, adopt a materially conservative temporary cap and instruct users to split batches.
 
-If the intended product requirement is effectively unlimited archival batches, do not solve that by selecting a very large memory cap; use provider-side files or another bounded streaming/staging mechanism so the process does not retain every raw/base64 payload simultaneously.
-
-### Unacceptable option
-
-Keep only the current 50 MB per-file limit. It permits multi-gigabyte aggregate request construction and does not address the validation/read race.
+If multi-gigabyte batches are a product requirement, move payloads to provider-side file staging or another bounded mechanism; do not raise the in-memory limit.
 
 ### Human input required
 
-- What is the largest legitimate batch, by image count and aggregate bytes?
-- What is the minimum host-memory target?
-- Is rejecting/splitting large folders acceptable, or must the app transparently stage/stream them?
+- What is the minimum supported RAM configuration?
+- What are the largest legitimate batch size and total raw bytes?
+- Is manual folder splitting acceptable, or must very large batches be handled transparently?
 
 ## Previously resolved constraints retained
-
-These prior maintainer decisions were considered during this review and are not being reopened:
 
 | Area | Existing decision |
 |---|---|
 | Local authentication | Single-user machine only; other local OS users/processes are out of scope and documented in `SECURITY.md`. |
-| Credentials | Batch tools require pasted keys; limited `.env` fallback remains for documented small tools; keys are not persisted by browser batch flows. |
-| Per-file source safety | 50 MB maximum per source file; reject files and directory paths involving symlinks. |
+| Credentials | Browser batch flows do not persist API keys; ignored `.env` fallback remains for documented tools. |
+| Off-Peak cancellation | Persist non-secret job metadata, wait for provider-confirmed terminal state, and use manual dashboard recovery after restart. |
 | Profile concurrency | Last-writer-wins across stale browser tabs is accepted. |
-| Browser tests | Browser automation is deferred; Python/HTTP regression coverage is preferred for now. |
+| Browser tests | Browser automation remains deferred; Python/HTTP regressions are preferred for now. |
 | Lint | Ruff remains informational/non-blocking in CI. |
-| Dormant parsers | Retain the three legacy regex parsers as explicitly documented reference code. |
+| Dormant parsers | Retain the three legacy regex parsers as documented reference code. |
 | Supply chain | Exact direct/tool pins are used; fully locked transitives and commit-SHA GitHub Actions are not currently required. |
 
 OVERALL STATUS: HUMAN_DECISION_REQUIRED

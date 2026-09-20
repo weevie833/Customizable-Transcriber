@@ -13,7 +13,7 @@ trigger fired and an orphaned blank "act 2" row was exported.
 
 from __future__ import annotations
 
-import xls_conversion.ai_parser as ai_parser
+from xls_conversion import ai_parser
 
 CONFIG = ai_parser.RECORD_TYPES["civil_marriage"]
 

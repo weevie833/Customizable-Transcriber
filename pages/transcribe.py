@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import html
 
+from app_state import load_source_folder, lock, state
 from customizable_transcription.core import MODELS
 from pages import FOOTER_HTML, info_button_html, json_data_island_html
 from profiles_store import load_profile, profile_options_html, profiles_for_browser
-from app_state import load_source_folder, lock, state
 
 OFF_PEAK_INFO_TEXT = (
     "Off-Peak Mode submits your whole run to your provider's batch queue instead of "

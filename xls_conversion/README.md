@@ -36,14 +36,19 @@ coverage and no execution path anywhere in this app.
 
 ## Entries that span two images
 
-The transcription marks a split entry with two preset Notes lines (written by
-the transcription app, not the model): `ENTRY CONTINUES ON THE NEXT IMAGE -- ...`
+The transcription marks a split entry with two preset Notes lines. The model
+detects the split and writes a fixed sentence; the transcription app standardizes it
+(so a split the model misses is not marked and is not merged): `ENTRY CONTINUES ON THE NEXT IMAGE -- ...`
 as the last line of the record where the entry starts, and
 `ENTRY CONTINUES FROM THE PREVIOUS IMAGE -- ...` as the first Notes line of the
 record that picks it up. The converter recognises both (also the older
 "Entry appears to continue ..." wording, and Italian equivalents in extracted
 notes), splits the leading fragment off the next image, merges it into the
-previous row in its own AI call, and keeps the departure row's own notes. A row
+previous row in its own AI call, and keeps the departure row's own notes. The merge
+never lets the AI erase or change what the earlier row already had: a blank never
+erases a value, a conflicting value keeps the original and is listed in the exception
+log, and a different act/entry number rejects the merge (both rows are kept)
+(`apply_merge_invariants()`). A row
 still open at the end of the run gets an explicit "continues on the next image
 (not included in this conversion)" note. `ai_parser.py`'s `split_leading_continuation()`,
 `block_ends_with_open_entry()` and `merge_notes()` are the relevant functions.

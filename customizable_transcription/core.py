@@ -5,16 +5,16 @@ import os
 import random
 import re
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterable
 
 import anthropic
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-
 
 FILE_TYPE_EXTENSIONS = {
     "jpeg": frozenset({".jpg", ".jpeg"}),
@@ -91,6 +91,12 @@ DEFAULT_MODEL = "gemini-3.1-pro-preview"
 # image and letting the batch continue. 10 minutes is long enough that a
 # real response essentially always arrives well before it.
 BATCH_REQUEST_TIMEOUT_SECONDS = 600
+
+# The "Checking API key..." call that opens every run is one tiny request, so a
+# minute is generous -- and it can't be interrupted by Stop while it blocks, so the
+# bound (not the SDK's own, much longer default) is what keeps a network stall from
+# leaving the UI stuck (CODEX_REVIEW.md M-3).
+KEY_CHECK_TIMEOUT_SECONDS = 60
 # Per-file ceiling for a batch source image -- see CODEX_REVIEW.md finding
 # M-1 / HUMAN_DECISIONS.md. Matches app.py's own MAX_DOCX_BYTES (50MB),
 # chosen as a size no legitimate archival page scan should realistically
@@ -428,29 +434,34 @@ def validate_api_key(
     project_dir: Path,
     model: str,
     api_key_override: str | None = None,
-    timeout_seconds: float | None = None,
+    timeout_seconds: float | None = KEY_CHECK_TIMEOUT_SECONDS,
 ) -> None:
-    # timeout_seconds defaults to None (the SDK's own default) for every
-    # existing caller -- run_job()/run_test_job()'s "Checking API key..."
-    # step and xls_conversion's preflight/convert key checks all run inside
-    # a background job thread with its own progress log and Stop support,
-    # so an SDK-default timeout is fine there. Prompt Builder's Preflight
-    # Test is the one caller that passes a real value (PREFLIGHT_TIMEOUT_
-    # SECONDS): it's a single foreground HTTP request with no progress log
-    # to fall back on, same reasoning as make_client()'s own comment above.
+    # Always bounded (KEY_CHECK_TIMEOUT_SECONDS by default; Prompt Builder's
+    # Preflight Test passes its own PREFLIGHT_TIMEOUT_SECONDS). The old
+    # "None = SDK default" reasoning assumed Stop could interrupt this call, but
+    # Stop is only checked between calls, so an unbounded key check could leave
+    # the UI on "Checking API key..." for the SDK's full default duration
+    # (CODEX_REVIEW.md M-3). A stall is reported as a plain, non-retried error.
     client = make_client(project_dir, model, api_key_override, timeout_seconds=timeout_seconds)
-    if client.provider == "claude":
-        client.claude.messages.create(
+    try:
+        if client.provider == "claude":
+            client.claude.messages.create(
+                model=model,
+                max_tokens=4,
+                messages=[{"role": "user", "content": "Reply with OK."}],
+            )
+            return
+        client.gemini.models.generate_content(
             model=model,
-            max_tokens=4,
-            messages=[{"role": "user", "content": "Reply with OK."}],
+            contents="Reply with OK.",
+            config=types.GenerateContentConfig(max_output_tokens=4),
         )
-        return
-    client.gemini.models.generate_content(
-        model=model,
-        contents="Reply with OK.",
-        config=types.GenerateContentConfig(max_output_tokens=4),
-    )
+    except (httpx.TimeoutException, anthropic.APITimeoutError) as exc:
+        raise RuntimeError(
+            f"The API key check did not finish within {int(timeout_seconds or 0)}s -- the connection to "
+            f"{'Anthropic' if client.provider == 'claude' else 'Google AI'} appears to be stalled. "
+            "Check your network connection and try again."
+        ) from exc
 
 
 # --- Provider transient-failure handling ------------------------------------
@@ -563,7 +574,7 @@ def validate_api_key_with_retry(
     model: str,
     api_key_override: str | None = None,
     progress: Callable[[str], None] | None = None,
-    timeout_seconds: float | None = None,
+    timeout_seconds: float | None = KEY_CHECK_TIMEOUT_SECONDS,
 ) -> None:
     _with_transient_retry(
         lambda: validate_api_key(project_dir, model, api_key_override, timeout_seconds=timeout_seconds),

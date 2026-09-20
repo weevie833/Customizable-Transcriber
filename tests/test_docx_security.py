@@ -26,7 +26,7 @@ def _valid_document_xml(text: str = "Hello world") -> bytes:
         f'<?xml version="1.0" encoding="UTF-8"?>'
         f'<w:document xmlns:w="{NS}"><w:body><w:p><w:r>'
         f"<w:t>{text}</w:t></w:r></w:p></w:body></w:document>"
-    ).encode("utf-8")
+    ).encode()
 
 
 def test_legitimate_docx_extracts_cleanly():

@@ -17,6 +17,7 @@ from pathlib import Path
 
 import httpx
 
+from app_state import lock, state
 from customizable_transcription.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
@@ -30,7 +31,8 @@ from customizable_transcription.core import (
     transcribe_image,
     validate_api_key_with_retry,
 )
-from xls_conversion.ai_parser import call_ai_json
+from http_utils import PREFLIGHT_TIMEOUT_SECONDS, parse_json_body, parse_multipart_form, parse_post_form, pasted_value
+from pages.prompt_builder import prompt_builder_page
 from profiles_store import (
     PROJECT_DIR,
     delete_profile,
@@ -41,10 +43,8 @@ from profiles_store import (
     update_profile,
 )
 from prompt_builder_content import PROMPT_BUILDER_RECORD_TYPES
-from pages.prompt_builder import prompt_builder_page
-from app_state import lock, state
-from http_utils import PREFLIGHT_TIMEOUT_SECONDS, parse_json_body, parse_multipart_form, parse_post_form, pasted_value
 from run_support import selected_profile_id
+from xls_conversion.ai_parser import call_ai_json
 
 # Every category a Preflight Test suggestion can carry, and which of Prompt
 # Builder's questionnaire fields it maps onto -- see applyPreflightSuggestion()
@@ -105,6 +105,11 @@ def critique_prompt_gap(
         "Completely ignore every other entry in the output: never flag anything about content that "
         "has no counterpart in the example, even if it looks like an error, since you have no "
         "ground truth for those other entries.\n\n"
+        "The example may be split into labelled parts -- \"Date:\", \"Main entry:\", and a side block "
+        "such as \"Baptism Record:\" or \"Church Wedding Record:\". Compare each labelled part with the "
+        "corresponding block of the matched entry in the AI's output (the Date part with its Date "
+        "block, and so on). The example never includes the entry's continuation onto the next "
+        "image, so ignore any note or text in the output about the entry continuing.\n\n"
         "Compare the matched entry to the known-correct example. Identify concrete gaps in the "
         "PROMPT -- not just errors in this one run -- that likely caused any difference. Only flag "
         "real, specific differences. Do not invent generic advice, and do not comment on anything "

@@ -28,6 +28,18 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
 
+from app_state import (
+    USER_OUTPUTS_DIR,
+    add_log,
+    add_test_log,
+    load_source_folder,
+    lock,
+    state,
+    stop_event,
+    test_lock,
+    test_state,
+    test_stop_event,
+)
 from customizable_transcription.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
@@ -43,7 +55,7 @@ from customizable_transcription.core import (
     validate_api_key_with_retry,
 )
 from docx_package import content_types_xml, root_rels_xml, strip_xml_illegal_chars
-from prompt_builder_content import PROMPT_BUILDER_RECORD_TYPES
+from http_utils import FormData, pasted_value
 from profiles_store import (
     PROFILES_DIR,
     PROJECT_DIR,
@@ -53,19 +65,7 @@ from profiles_store import (
     save_custom_profile,
     update_profile,
 )
-from app_state import (
-    USER_OUTPUTS_DIR,
-    add_log,
-    add_test_log,
-    load_source_folder,
-    lock,
-    state,
-    stop_event,
-    test_lock,
-    test_state,
-    test_stop_event,
-)
-from http_utils import FormData, pasted_value
+from prompt_builder_content import PROMPT_BUILDER_RECORD_TYPES
 
 FILE_TYPE_LABELS = {
     "jpeg": "JPEG (.jpg, .jpeg)",

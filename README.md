@@ -96,6 +96,10 @@ and one of these two ways to supply its key (you don't need both):
   ANTHROPIC_API_KEY=your_api_key_here
   ```
 
+  `.env` holds your API keys in plain text, so make it readable only by you
+  (macOS/Linux): `chmod 600 .env`. On a computer other people also log into,
+  prefer pasting the key into the browser each time instead of saving it.
+
   **This only skips the paste step for the quick, single-image tools** —
   Prompt Builder's `Preflight Test` and XLS Conversion's `Detect Languages`,
   both of which make one bounded, low-cost AI call. **The batch tools
@@ -227,7 +231,7 @@ Prompt behavior:
 - The app adds the source-relative `START OF RECORD` header automatically.
 - Prompts tell the model not to add duplicate record headers or filenames.
 - Source line breaks are collapsed into continuous paragraph text.
-- An entry that runs across two consecutive images gets preset continuation notes: the record where it starts ends with `Notes: ENTRY CONTINUES ON THE NEXT IMAGE -- ...` (naming the next image's record), and the next record opens with `Notes: ENTRY CONTINUES FROM THE PREVIOUS IMAGE -- ...`. The app writes these itself, so both sit at the `START OF RECORD` boundary between the images, and XLS Conversion uses them to merge the two halves into one row.
+- An entry that runs across two consecutive images gets preset continuation notes: the record where it starts ends with `Notes: ENTRY CONTINUES ON THE NEXT IMAGE -- ...` (naming the next image's record), and the next record opens with `Notes: ENTRY CONTINUES FROM THE PREVIOUS IMAGE -- ...`. The model is what recognises the split (the prompt tells it to write a fixed sentence when an entry is cut off or picks up mid-record); the app then rewrites that sentence into the preset note above, adds the neighbouring record's name and moves the next-image note to the end of the record, so both notes sit at the `START OF RECORD` boundary. XLS Conversion uses them to merge the two halves into one row. **If the model misses a split, no note is written and the halves are not merged -- spot-check pages where an entry runs off the bottom.**
 - Civil Nati and Civil Matrimoni can describe a separate baptism / church-wedding column on the register page; Prompt Builder then asks for that column's formula and the transcript gets its own `Baptism Record:` / `Church Wedding Record:` block.
 - Prompt Builder's Example entries take an optional Date line, a Main entry, an optional Baptism / Church Wedding Record, and an optional Continuation, so the model can copy the exact `Date:` and block layout.
 - Italian transcriptions preserve source abbreviations such as `Ant:o`.

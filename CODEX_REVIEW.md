@@ -1,36 +1,38 @@
-# Codex Independent Code and Security Review
+# Codex Independent Code and Security Re-Review
 
-Review date: 2026-09-16
+Review date: 2026-09-20
 
-Reviewed revision: `e420b3f` (`main`)
+Reviewed revision: `a4e3328` (`main`)
 
-Scope: the complete tracked repository, including Python and JavaScript source, HTML/CSS, configuration, workflows, dependency manifests, tests, documentation, and a Git-history secret scan. The repository contained 135 tracked files and approximately 26,512 lines of Python/JavaScript.
+Scope: the complete repository, not only recent changes. This included 145 tracked files and approximately 28,735 lines of Python/JavaScript, plus HTML/CSS, generated DOCX/ZIP assets, configuration, workflows, dependencies, tests, documentation, and Git history. The nine commits after the prior reviewed revision (`e420b3f`) were examined in detail.
 
 ## Executive result
 
 | Severity | Count |
 |---|---:|
 | CRITICAL | 0 |
-| HIGH | 1 |
+| HIGH | 2 |
 | MEDIUM | 3 |
 | LOW | 3 |
 | INFORMATIONAL | 4 |
 
-The application has strong localhost request defenses, bounded upload parsing, file-type checks, archive-expansion limits, output escaping, exact direct dependency pins, concurrency guards, and a substantial offline test suite. The unresolved findings are concentrated in the newer Off-Peak batch path. In particular, the application can report a provider batch as cancelled even when cancellation failed and the paid provider job is still running.
+The previously reported Off-Peak cancellation, ordering, timeout, cache-cleanup, and unbounded-batch defects were substantially addressed, and the repository retains strong localhost request protections, input/archive bounds, output escaping, profile-path validation, concurrency controls, and dependency hygiene. The principal remaining risks are ambiguous paid-batch submission and destructive AI-assisted continuation merging. Four product/data-policy choices are isolated in `HUMAN_DECISIONS.md`.
 
 ## Review basis and diagnostics
 
-- `pytest -q`: **228 passed**. The live-server tests required permission to bind loopback sockets; after that permission was granted, the complete suite passed.
+- `.venv/bin/pytest -q`: **274 passed in 24.65s**. Loopback-binding permission was required for live HTTP tests.
 - Python bytecode compilation: **passed** for all application and test modules.
-- `node --check`: **passed** for all tracked JavaScript application and parser files.
-- Offline parser regression harness: **passed**, 6 entries.
-- `pip check`: **passed**, no broken installed requirements.
-- `pip-audit -r requirements.txt`: **no known vulnerabilities found**.
+- `node --check`: **passed** for all tracked JavaScript files.
+- Offline parser regression harness: **passed**, 6 entries parsed with expected fields.
+- `.venv/bin/pip check`: **passed**, no broken installed requirements.
+- `.venv/bin/pip-audit -r requirements.txt -r requirements-dev.txt`: **no known vulnerabilities found**.
 - `npm audit --audit-level=high` in `profiles/worksheets/`: **0 vulnerabilities**.
-- Ruff: **118 findings**: 40 `BLE001`, 23 `I001`, 12 `PLR0402`, 8 `TRY004`, 7 `UP012`, 6 `PLW1510`, 5 `DTZ005`, 4 `F401`, and 13 across other rules.
-- Current-tree and Git-history credential-pattern scans found no credible committed API keys, private keys, or tracked `.env` file. Matches were documentation, placeholders, or test fixtures.
+- Generated worksheet DOCX and ZIP integrity checks: **passed**; expected EN/IT bundle members were present.
+- Ruff: **120 findings**: 41 `BLE001`, 23 `I001`, 13 `PLR0402`, 8 `TRY004`, 7 `UP012`, 6 `DTZ005`, 6 `PLW1510`, 3 `ISC004`, 3 `S110`, 3 `F401`, and 7 across other rules; 49 are mechanically fixable.
+- Current-tree and Git-history credential-pattern scans found no credible committed API key, private key, or tracked `.env` file. The local `.env` is ignored.
+- `git diff --check`: **passed** before the reports were replaced.
 
-No source code was modified during this review. Only this report and `HUMAN_DECISIONS.md` were replaced.
+No application source code was modified. Only this report and `HUMAN_DECISIONS.md` were replaced.
 
 ## CRITICAL
 
@@ -38,102 +40,110 @@ No critical findings.
 
 ## HIGH
 
-### H-1 — Off-Peak cancellation can falsely report success while the provider job continues
+### H-1 — A timed-out Off-Peak submission can create an untracked or duplicate paid job
 
-1. **Description:** Both provider cancellation helpers suppress every exception. The orchestration loop then exits whenever the local `cancelled` flag is set, even if the immediately following provider status is non-terminal or the status check fails. It finally reports `Off-peak batch cancelled` and releases the shared run slot without confirming the provider accepted or completed cancellation.
-2. **Files and locations:** `batch_transcription.py:240-248`, `batch_transcription.py:336-340`, `batch_transcription.py:411-440`, `batch_transcription.py:487-499`, `batch_transcription.py:525-543`; the current behavior is explicitly exercised by `tests/test_offpeak_batch.py:391-435`.
-3. **Why it matters:** A Gemini or Claude batch may continue processing and accruing charges after the UI says it was cancelled. The application may also write an output full of `No result was returned` errors, forget the active provider job, and allow another run to start. Because job state is not persisted, a restart removes the only in-app record of the still-running job.
-4. **Recommended correction:** Separate `cancellation_requested` from `cancellation_confirmed`; classify benign “already terminal” responses rather than swallowing all errors; continue polling until the provider reaches a terminal state; use a bounded cancellation-confirmation deadline; and report `cancellation unconfirmed` with the provider job ID and recovery instructions if confirmation cannot be obtained. Persisting the non-secret provider/job identifier would permit recovery after restart.
-5. **Automatic or human:** **Human decision required.** The false-success behavior can be corrected safely, but the cancellation deadline, recovery UX, and whether to reverse the existing no-persistence policy are product decisions. See HD-1 in `HUMAN_DECISIONS.md`.
+1. **Description:** The application learns and persists the provider job ID only after the batch-create response returns. If the provider accepts the batch but the response is lost or times out, `job_id` remains unknown and no recovery state is written. The displayed error explicitly tells the user to try again. The pinned Anthropic SDK also has transport retries enabled by default, while this create call supplies no application-level idempotency or reconciliation identifier.
+2. **Files and locations:** `batch_transcription.py:302-330`, `batch_transcription.py:391-435`, `batch_transcription.py:548-566`; error-path coverage at `tests/test_offpeak_batch.py:907-937`; dependency at `requirements.txt:2`.
+3. **Why it matters:** The first request may already be running and billing even though the app reports submission failure. An SDK retry or the encouraged manual retry can create a second paid batch. Because neither job ID is known locally, cancellation/status recovery is impossible through the app and a crash in the response-to-persistence window has the same effect.
+4. **Recommended correction:** Persist a non-secret `submitting` record before the network call with a unique run identifier, provider, timestamp, request count, and request fingerprint. Use a provider-supported idempotency key when available; otherwise disable automatic retries for the non-idempotent create call, give Gemini a unique display name, and treat response timeout as **outcome unknown** rather than “try again.” Add provider-list/dashboard reconciliation before permitting resubmission, or require explicit user acknowledgement that the prior job was checked.
+5. **Automatic or human:** **Human decision required.** The safe error wording and pre-submit record are automatic, but the supported recovery/reconciliation workflow and whether resubmission may proceed without provider confirmation are product decisions. See HD-1.
+
+### H-2 — Continuation merging can silently erase previously extracted record fields
+
+1. **Description:** Both continuation merge paths remove the existing row and replace it wholesale with the AI's newly returned row. The confirmation gate only checks whether the new row's `notes` says it continues from the prior image; it does not verify that known dates, names, relationships, or other fields survived. Only notes, source-image bookkeeping, and in one path two locator fields receive special preservation.
+2. **Files and locations:** `xls_conversion/ai_parser.py:1637-1650`, `xls_conversion/ai_parser.py:1818-1859`, `xls_conversion/ai_parser.py:1898-1933`, `xls_conversion/ai_parser.py:1998-2029`; tests at `tests/test_continuation_merge.py:39-117` and `tests/test_continuation_fragment_split.py:69-97` verify row replacement but not preservation of every prior non-empty field.
+3. **Why it matters:** A model can comply with the continuation-note instruction while omitting or changing fields extracted from the departure image. The spreadsheet then silently loses historical data that was previously present, with no exception or conflict log. This is especially dangerous because the merge is intended to improve integrity and the resulting row appears complete and authoritative.
+4. **Recommended correction:** Merge field-by-field under explicit invariants. At minimum, a blank continuation value must never erase a prior non-empty value; stable identity/date/locator fields should be preserved or conflicts logged for review. Retain both original rows or fail the merge when invariants are violated. Add tests covering omitted fields, conflicting non-empty values, multiple returned rows, and all six record schemas.
+5. **Automatic or human:** **Human decision required.** Blank-never-erases is safe to implement automatically, but the policy for conflicting non-empty values—preserve the first extraction, trust the context-aware merge, or require review—changes data semantics. See HD-2.
 
 ## MEDIUM
 
-### M-1 — Off-Peak ignores the selected processing order
+### M-1 — Prompt Builder preflight compares only the main text and ignores structured example data
 
-1. **Description:** The Off-Peak handler validates and records `oldest`/`newest`, but does not pass it to the worker. The worker calls `source_files()` without `reverse_order`, so Off-Peak always uses the default oldest-to-newest ordering.
-2. **Files and locations:** `handlers/transcribe_offpeak.py:76-109`, `handlers/transcribe_offpeak.py:115-149`, `batch_transcription.py:160-168`, `batch_transcription.py:367-390`, `customizable_transcription/core.py:335-352`; UI promise at `pages/transcribe.py:167-170`.
-3. **Why it matters:** The confirmation UI can say `Newest-to-oldest` while the generated Markdown/DOCX is in the opposite order. This is a direct data-integrity and apparent-intent failure, especially for chronological archival material and records spanning adjacent images.
-4. **Recommended correction:** Pass the normalized order (or a `reverse_order` boolean) into `run_off_peak_job()`, forward it to `source_files()`, and add tests proving both orders produce the promised provider request/result ordering.
-5. **Automatic or human:** **Safe to correct automatically.** The UI and real-time path already define the intended semantics.
+1. **Description:** Example rows now contain `date`, `text`, optional baptism/church-wedding blocks, and an optional next-image continuation. The full prompt correctly serializes all applicable parts, but preflight sends only `.text` as `example_entry`. The server then describes that partial string to the critique model as the known-100%-accurate example.
+2. **Files and locations:** `static/prompt-builder.js:258-299`, `static/prompt-builder.js:1578-1598`; `handlers/profiles.py:68-145`, `handlers/profiles.py:248-298`; current tests only submit a flat string at `tests/test_prompt_builder_preflight.py:70-77`.
+3. **Why it matters:** Preflight cannot validate the new Date format or same-image Baptism/Church Wedding Record blocks, and its critique can misclassify structured-output differences. Sending the existing full serializer unchanged is also unsafe because the continuation belongs to the next image, not necessarily the one uploaded for preflight.
+4. **Recommended correction:** Define a dedicated preflight ground-truth serializer. For a one-image preflight, include Date, Main entry, and any side-column block visible on that image, but explicitly exclude next-image continuation data. Alternatively, support paired image uploads and compare the continuation separately. Add JavaScript/HTTP tests asserting the exact multipart ground truth.
+5. **Automatic or human:** **Human decision required** because preflight's image/example scope must be defined before the serializer can be corrected. See HD-3.
 
-### M-2 — Off-Peak materializes an unbounded aggregate batch in memory
+### M-2 — The 2 GB Off-Peak aggregate cap still permits process-level memory exhaustion
 
-1. **Description:** Source validation limits each file to 50 MB but imposes no image-count or aggregate-byte ceiling. Gemini retains every image byte payload in a request list; Claude additionally base64-encodes every file and retains the expanded strings. Validation and reading are separate passes, so a file can also change after the size/symlink check.
-2. **Files and locations:** `customizable_transcription/core.py:93-99`, `customizable_transcription/core.py:313-332`, `batch_transcription.py:160-168`, `batch_transcription.py:175-203`, `batch_transcription.py:273-312`.
-3. **Why it matters:** A legitimate-looking folder containing many individually valid files can exhaust RAM before provider submission. For example, 100 files at the allowed maximum represent 5 GB of raw input; Claude base64 expansion alone raises that to roughly 6.7 GB before object overhead. Abrupt process termination can lose current state and leave partially submitted provider work difficult to identify.
-4. **Recommended correction:** Enforce provider-aware maximum item count and aggregate bytes before reading file bodies; revalidate/open files at consumption time to reduce the validation/read race; reject oversize batches with a clear estimate; and use provider file-upload or streaming facilities instead of retaining every payload when supported.
-5. **Automatic or human:** **Human decision required** for capacity and scale expectations. Implementation is straightforward after limits or a streaming design are selected. See HD-2 in `HUMAN_DECISIONS.md`.
+1. **Description:** The former unbounded behavior is now capped, but the chosen 2,000,000,000-byte raw-input limit is explicitly an unmeasured directional default. Gemini retains the inlined request payloads in one list; Claude retains base64 strings of approximately 2.67 GB at the maximum, before Python/object/HTTP serialization overhead and the rest of the process.
+2. **Files and locations:** `batch_transcription.py:238-261`, `batch_transcription.py:264-330`, `batch_transcription.py:397-435`; tests validate threshold enforcement but not peak resident memory at `tests/test_offpeak_batch.py:166-223`.
+3. **Why it matters:** A formally valid batch can still exhaust memory or trigger severe swapping on an ordinary 8 GB machine. The bound prevents unlimited growth but does not yet establish a safe operating envelope, particularly for Claude's base64 expansion and transient serialization copies.
+4. **Recommended correction:** Measure peak memory for each provider and derive provider-specific limits from a documented minimum supported host. Until measured, use a materially conservative cap and clear split-batch guidance. For larger workloads, use provider file staging/streaming rather than retaining all payloads in memory.
+5. **Automatic or human:** **Human decision required** for the supported minimum host and maximum legitimate batch. See HD-4.
 
-### M-3 — Background provider calls rely on SDK-default timeouts and cannot honor Stop while blocked
+### M-3 — Real-time and Test Mode key validation still cannot be stopped promptly
 
-1. **Description:** Off-Peak constructs both SDK clients without explicit timeouts, so submission, polling, cancellation, and result retrieval depend on SDK-version defaults. The real-time and Test Mode API-key checks also omit the explicit timeout that their actual image calls use. Stop events are only examined before or after a blocking provider call, not during it.
-2. **Files and locations:** `batch_transcription.py:392-399`, `batch_transcription.py:415-489`, `run_support.py:499-529`, `run_support.py:624-637`, `customizable_transcription/core.py:396-424`, `customizable_transcription/core.py:427-453`. The existing explicit batch timeout is `customizable_transcription/core.py:85-99`.
-3. **Why it matters:** Network stalls can make the application appear stuck and delay cancellation for the SDK's full default timeout. Default behavior can also change when dependencies are upgraded, producing inconsistent failure handling across otherwise similar code paths.
-4. **Recommended correction:** Configure explicit per-call timeouts for all provider clients, with separate sensible bounds for submission/result transfer versus lightweight status/cancel calls; pass an explicit timeout to background API-key validation; surface timeout failures distinctly; and keep provider job IDs visible when a status call times out.
-5. **Automatic or human:** **Safe to correct automatically** using the existing timeout policy as the baseline, with tests that simulate timed-out submit, poll, cancel, results, and key-validation calls.
+1. **Description:** Actual image calls use the explicit 600-second application timeout, but the initial API-key validation in Real-time and Test Mode passes no timeout. Comments justify this with background progress and Stop support, yet the Stop event is not checked during the blocking validation call; it can only take effect after the SDK returns.
+2. **Files and locations:** `customizable_transcription/core.py:396-453`, `customizable_transcription/core.py:561-572`; callers at `run_support.py:523-530` and `run_support.py:633-638`. Prompt Builder correctly passes an explicit timeout at `handlers/profiles.py:269-277`.
+3. **Why it matters:** A network stall can leave the UI on “Checking API key...” and make Stop appear ineffective for the SDK's full default duration. Relying on dependency defaults also makes this behavior less explicit and can change on dependency upgrades.
+4. **Recommended correction:** Pass a short explicit key-check timeout (the existing 60- or 90-second policy is a suitable baseline), catch/report timeout distinctly, and add tests for both Real-time and Test Mode validation stalls. True mid-call cancellation would require an async/cancellable transport; the bounded timeout is the practical minimum.
+5. **Automatic or human:** **Safe to correct automatically.** Existing timeout constants and foreground preflight behavior define a compatible policy.
 
 ## LOW
 
-### L-1 — Off-Peak regression tests omit the paths where current defects occur
+### L-1 — Failed Off-Peak state persistence is silent while the UI promises recovery
 
-1. **Description:** The Off-Peak tests cover happy-path submission, status retries, and a successful cancel call, but do not test selected `newest` ordering, aggregate capacity, explicit client timeouts, cancellation API failure, or a non-terminal status after a cancellation request. One test deliberately treats a post-cancel poll failure as successful local completion.
-2. **Files and locations:** `tests/test_offpeak_batch.py:58-136`, `tests/test_offpeak_batch.py:391-479`, `tests/test_offpeak_batch.py:518-587`.
-3. **Why it matters:** The suite passes while H-1 and M-1 remain deterministic defects. New code in the highest-cost external integration path is therefore less protected than its test count suggests.
-4. **Recommended correction:** Add focused mocked regression cases for cancellation failure/non-terminal transitions, both processing orders, aggregate limits, file mutation between validation and read, and timeouts on every provider operation.
-5. **Automatic or human:** **Safe to correct automatically** once HD-1 and HD-2 define the desired behavior.
+1. **Description:** `write_off_peak_job_state()` suppresses every `OSError` and returns no success indicator. The cancellation-unknown message then states unconditionally that the job ID “is saved and will be shown again,” even when disk-full, permissions, or filesystem failure prevented that write.
+2. **Files and locations:** `app_state.py:192-219`; callers and promise at `batch_transcription.py:588-596`, `batch_transcription.py:694-705`, `batch_transcription.py:780-786`.
+3. **Why it matters:** The user may close the app believing recovery metadata is durable, then permanently lose the only local job identifier while the provider job continues.
+4. **Recommended correction:** Return a success/failure result (or raise a persistence-specific exception after retaining live state), log the failure, and change the UI to instruct the user to copy the visible job ID immediately when persistence failed. Treat malformed persisted JSON similarly rather than silently ignoring it.
+5. **Automatic or human:** **Safe to correct automatically.** It changes error reporting, not the chosen recovery policy.
 
-### L-2 — Gemini prompt caches are not cleaned up when XLS extraction exits early
+### L-2 — The lint baseline remains too noisy to act as a regression control
 
-1. **Description:** The XLS preflight and generic parsing flows delete a created Gemini cache only after their processing loops. An exception that leaves the function early skips deletion; the code intentionally relies on the provider TTL instead.
-2. **Files and locations:** `xls_conversion/ai_parser.py:1295-1307`, `xls_conversion/ai_parser.py:1309-1389`, `xls_conversion/ai_parser.py:1682-1700`, `xls_conversion/ai_parser.py:1702-1829`; cleanup helper at `customizable_transcription/core.py:969-978`.
-3. **Why it matters:** Failed or cancelled work can retain paid/provider-side cache resources until expiry. This is bounded by the one-hour TTL and is not a data-corruption issue, but it is avoidable resource and cost leakage.
-4. **Recommended correction:** Put loop execution in `try/finally` and call the already best-effort cleanup helper from `finally` whenever a cache was created.
-5. **Automatic or human:** **Safe to correct automatically.** The helper already suppresses cleanup-only failures.
+1. **Description:** Ruff reports 120 findings and the CI lint job is explicitly `continue-on-error`. Broad exception catches, silent exception handlers, unused imports, and a loop-variable closure warning are mixed with intentional style exceptions.
+2. **Files and locations:** `pyproject.toml:21-33`, `.github/workflows/tests.yml:104-125`; representative silent handlers at `batch_transcription.py:367-375`, `batch_transcription.py:463-467`, and `app_state.py:199-209`.
+3. **Why it matters:** New correctness/security warnings do not fail CI and are hard to distinguish from the accepted baseline. L-1 is itself represented by silent-handler warnings, demonstrating that the output contains actionable signals.
+4. **Recommended correction:** Fix the 49 mechanical findings, annotate intentional exceptions narrowly, and enforce either a selected correctness/security ruleset or a no-new-findings baseline while leaving purely stylistic rules advisory.
+5. **Automatic or human:** **Partly automatic.** Mechanical cleanup is safe; changing the CI gate remains the maintainer's previously accepted policy choice.
 
-### L-3 — Advisory-only lint has accumulated a large, noisy baseline
+### L-3 — Documentation overstates continuation-note determinism
 
-1. **Description:** Ruff reports 118 findings, including 40 broad exception catches, 6 subprocess calls without an explicit `check` argument, 4 unused imports, 3 silent exception handlers, and one loop-variable closure warning. Some are intentional or false positives, but the clean and risky cases are mixed together and CI cannot regress because lint is `continue-on-error`.
-2. **Files and locations:** `pyproject.toml:21-33`, `.github/workflows/tests.yml:51-72`; representative security-relevant findings at `batch_transcription.py:240-248` and `batch_transcription.py:336-340`.
-3. **Why it matters:** A high-noise report makes meaningful new warnings easy to miss. The two silent cancellation handlers behind H-1 are already identified by Ruff, demonstrating that the advisory stream contains actionable defects.
-4. **Recommended correction:** Triage the current baseline, add narrow `noqa` comments with rationale for intentional cases, correct safe mechanical findings, and make a selected security/correctness subset or a no-new-findings baseline enforceable in CI.
-5. **Automatic or human:** **No new human decision required for this review.** The repository records an earlier decision to keep lint advisory-only. Mechanical cleanup is automatable; changing the gate remains an accepted maintainer policy choice.
+1. **Description:** User documentation says continuation notes are written by the app, not the model. In implementation, the model must first recognize the split and emit one of the expected phrases; the application only normalizes a matching phrase and adds the neighboring filename. If the model omits the note, no preset is created and XLS merge logic never activates.
+2. **Files and locations:** Claims at `README.md:225-232`, `docs/DESIGN.md:419-430`, `xls_conversion/README.md:37-49`; actual detection/normalization at `static/prompt-builder.js:431-451` and `customizable_transcription/core.py:1015-1089`.
+3. **Why it matters:** Maintainers and users may believe split detection is deterministic and fail to review missed continuations. A model omission can leave duplicate/truncated spreadsheet rows without an application warning.
+4. **Recommended correction:** State precisely that the model detects/flags the split and the app standardizes the note. Consider a validation warning when adjacent record boundaries look inconsistent or when a run ends with a likely incomplete entry, while acknowledging that deterministic visual detection is not currently implemented.
+5. **Automatic or human:** **Safe to correct automatically** for documentation. Adding heuristic detection would require separate design and testing.
 
 ## INFORMATIONAL
 
-### I-1 — Authentication is intentionally absent under a single-user threat model
+### I-1 — Authentication remains intentionally absent under a single-user threat model
 
-1. **Description:** Any local process able to connect to the loopback port can obtain the CSRF cookie and use the application. Host, Origin, and CSRF defenses protect the browser from cross-site requests; they are not user authentication.
-2. **Files and locations:** `SECURITY.md:30-56`; central response protections at `app.py:300-342`; Host/Origin/CSRF checks at `app.py:352-375` and `app.py:506-509`.
-3. **Why it matters:** On a shared or untrusted machine, another local account/process could read outputs, modify profiles/settings, or start and stop paid jobs.
-4. **Recommended correction:** Continue enforcing the documented single-user deployment restriction. If that assumption changes, add real launch/session authentication before use on the shared machine.
-5. **Automatic or human:** **Previously decided by the maintainer:** single-user machines only. No new decision is required unless the deployment model changes.
+1. **Description:** Host, Origin, SameSite cookie, and CSRF checks protect against cross-site browser access and DNS rebinding, but any local process able to reach the loopback port can use the application. This is explicitly documented, not an accidental omission.
+2. **Files and locations:** `SECURITY.md:30-56`; `app.py:300-375`, `app.py:377-509`.
+3. **Why it matters:** On a shared or compromised workstation, another local account/process could read outputs, alter profiles/settings, or start paid work.
+4. **Recommended correction:** Continue enforcing the documented single-user restriction. Add real launch/session authentication before any shared-machine, LAN, proxy, container, or remote deployment.
+5. **Automatic or human:** **Previously decided:** single-user machines only. Revisit only if deployment scope changes.
 
-### I-2 — Direct dependencies are pinned and current audits are clean, but the build is not fully immutable
+### I-2 — Secret handling is repository-safe, but local `.env` permissions rely on the single-user assumption
 
-1. **Description:** Direct Python dependencies and developer tools are exact-pinned, and current Python/npm audits are clean. Some transitive Python packages remain resolver-selected, and GitHub Actions use mutable major tags such as `actions/checkout@v4` rather than commit SHAs.
-2. **Files and locations:** `requirements.txt:1-17`, `requirements-dev.txt:1-18`, `profiles/worksheets/package-lock.json`, `.github/workflows/tests.yml:30-43`, `.github/workflows/tests.yml:60-68`, `.github/workflows/tests.yml:83-103`.
-3. **Why it matters:** Future installations or CI runs are not perfectly reproducible and still trust upstream tag movement/resolution.
-4. **Recommended correction:** For maximum supply-chain assurance, use a fully resolved Python lock with hashes and pin Actions to reviewed commit SHAs, with Dependabot updating them.
-5. **Automatic or human:** **Previously accepted risk.** No new decision is required unless the maintainer wants reproducible/immutable builds.
+1. **Description:** `.env` is ignored and absent from Git history; API keys pasted into batch flows are not persisted. The current local `.env` is mode `0644`, which is typical of manually created files and readable by other local accounts on many Unix systems.
+2. **Files and locations:** `.gitignore:1`, `.env.example:1-2`, credential loaders in `customizable_transcription/core.py:302-327`; local filesystem mode observed during review.
+3. **Why it matters:** This is acceptable only under the stated single-user threat model. If other OS users are in scope, stored provider credentials may be exposed.
+4. **Recommended correction:** Document `chmod 600 .env` (or create it with owner-only permissions) and prefer pasted, non-persisted keys for higher-assurance use.
+5. **Automatic or human:** **Previously accepted through the single-user constraint.** The documentation hardening is safe but not required under the current scope.
 
-### I-3 — Approximately 2,500 lines of parser code are outside the live application
+### I-3 — Dependency audits are clean, but builds are not fully immutable
 
-1. **Description:** Three legacy regex parsers total 2,478 lines. None is used by the live XLS Conversion path; only the baptism parser has an offline harness, while the matrimony and morti parsers have no execution path or tests.
-2. **Files and locations:** `xls_conversion/baptism-parser.js`, `xls_conversion/matrimony-parser.js`, `xls_conversion/morti-parser.js`; status documented at `xls_conversion/README.md:24-34`.
-3. **Why it matters:** Dormant code increases repository search/audit burden and can mislead maintainers about the production architecture, although it creates no current runtime attack surface.
-4. **Recommended correction:** Keep it explicitly marked reference-only, or move it to an archive/history location if its reference value no longer justifies keeping it in the active source tree.
-5. **Automatic or human:** **Previously decided by the maintainer:** retain as documented reference code. No new decision is required.
+1. **Description:** Direct Python and development dependencies are exact-pinned, npm uses a lockfile, and current audits are clean. Transitive Python resolution is not hash-locked and GitHub Actions use mutable major tags such as `actions/checkout@v4`.
+2. **Files and locations:** `requirements.txt:1-17`, `requirements-dev.txt:1-18`, `profiles/worksheets/package-lock.json`, `.github/workflows/tests.yml:47-56`, `.github/workflows/tests.yml:83-94`, `.github/workflows/tests.yml:110-156`.
+3. **Why it matters:** A future clean install or CI run is not fully reproducible and still trusts upstream tag movement and dependency resolution.
+4. **Recommended correction:** For stronger supply-chain assurance, use a fully resolved hash-locked Python environment and pin Actions to reviewed commit SHAs with automated update PRs.
+5. **Automatic or human:** **Previously accepted risk.** No new decision is required unless reproducible/immutable builds become a project goal.
 
-### I-4 — Automated coverage is strong at the Python/HTTP level but has no browser end-to-end suite
+### I-4 — Python/HTTP coverage is strong, but browser behavior remains unexecuted in CI
 
-1. **Description:** The 228-test suite exercises substantial parsing, HTTP security, concurrency, reports, and provider-error behavior. JavaScript receives syntax checks and one offline parser harness, but the browser state machines and user flows are not executed in a real DOM/browser in CI.
-2. **Files and locations:** `tests/`, `static/*.js`, `xls_conversion/app.js`, `.github/workflows/tests.yml:17-49`.
-3. **Why it matters:** DOM wiring, modal state, download behavior, translation refresh, and browser-only regressions can pass all current tests.
-4. **Recommended correction:** Add a small Playwright smoke suite for the highest-risk flows when the project is ready to accept the dependency and CI cost; meanwhile continue adding HTTP/module regression tests for every defect.
-5. **Automatic or human:** **Previously decided by the maintainer:** defer browser automation. No new decision is required.
+1. **Description:** The 274-test suite covers substantial parsing, HTTP security, concurrency, persistence, and provider failure behavior. JavaScript receives syntax checking and one offline parser harness, but Prompt Builder serialization, dynamic field visibility, multipart construction, translations, and browser navigation are not exercised in a DOM/browser.
+2. **Files and locations:** `tests/`, especially the flat preflight fixture at `tests/test_prompt_builder_preflight.py:70-77`; browser logic in `static/prompt-builder.js`, `static/app-common.js`, `static/i18n.js`, `xls_conversion/app.js`; CI at `.github/workflows/tests.yml:38-102`.
+3. **Why it matters:** M-1 passes all current tests because the browser's structured example object is never exercised end-to-end. Similar wiring/state regressions can remain invisible despite a green Python suite.
+4. **Recommended correction:** Add a small Playwright smoke suite for Prompt Builder save/load/preflight and one XLS conversion flow, or at minimum extract browser serialization into testable JavaScript modules and run them under Node.
+5. **Automatic or human:** **Previously decided:** browser automation is deferred. Revisit if recent Prompt Builder growth changes that cost/benefit decision.
 
 ## Overall assessment
 
-The established application paths are substantially hardened and the dependency/test posture is better than typical for a local single-user tool. The Off-Peak path does not yet meet the same reliability standard: cancellation truthfulness, ordering, aggregate resource bounds, and explicit network failure behavior need remediation. Two choices are required before the safest implementation can be finalized; they are isolated in `HUMAN_DECISIONS.md`.
+The codebase is materially stronger than at the prior review: all 274 tests pass, dependency audits are clean, request/file defenses are well designed, and the earlier Off-Peak findings were addressed thoughtfully. It is not ready for a PASS because ambiguous batch submission can create untracked paid work, continuation merging can silently erase extracted data, and the structured preflight/capacity policies remain unresolved.
 
 OVERALL STATUS: HUMAN_DECISION_REQUIRED

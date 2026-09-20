@@ -9,16 +9,15 @@ check)."""
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import types as pytypes
+import urllib.error
 from http.cookiejar import CookieJar
 from pathlib import Path
 
 import pytest
-
-import json
-import urllib.error
 
 import app as ctapp
 import app_state
@@ -118,6 +117,12 @@ class _FakeClaudeBatches:
 class _FakeClaudeClient:
     def __init__(self):
         self.messages = pytypes.SimpleNamespace(batches=_FakeClaudeBatches())
+        self.options_used = []
+
+    def with_options(self, **options):
+        # Real SDK returns a re-configured copy; the fake shares state so tests can inspect it.
+        self.options_used.append(options)
+        return self
 
 
 def test_submit_claude_batch_tags_each_request_with_custom_id(tmp_path):
@@ -132,6 +137,8 @@ def test_submit_claude_batch_tags_each_request_with_custom_id(tmp_path):
     requests = client.messages.batches.created_with
     assert [req["custom_id"] for req in requests] == ["0", "1"]
     assert requests[0]["params"]["system"] == "system prompt"
+    # H-1: batch creation is not idempotent, so the SDK must never auto-retry it.
+    assert client.options_used == [{"max_retries": 0}]
 
 
 # --- reverse_order (CODEX_REVIEW.md finding M-1) ---------------------------
@@ -1200,3 +1207,34 @@ def test_run_offpeak_forwards_newest_first_order_to_the_job(live_server, sandbox
     time.sleep(0.2)
     with ctapp.lock:
         ctapp.state["running"] = False
+
+
+def test_gemini_batches_get_a_unique_display_name(tmp_path):
+    a = tmp_path / "a.jpg"
+    _write_jpeg(a)
+    names = []
+
+    class _Batches:
+        def create(self, model, src, config):
+            names.append(config.display_name)
+            return pytypes.SimpleNamespace(name="batches/x")
+
+    client = pytypes.SimpleNamespace(batches=_Batches())
+    bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [a])
+    bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [a])
+    assert names[0] != names[1]
+    assert all(n.startswith("customizable-transcription-offpeak-") for n in names)
+
+
+def test_aggregate_cap_is_conservative():
+    assert bt.MAX_BATCH_AGGREGATE_BYTES == 500_000_000
+
+
+def test_failed_job_state_write_is_reported_not_silent(tmp_path, monkeypatch, sandboxed_user_data):
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(app_state, "atomic_write_text", boom)
+    assert app_state.write_off_peak_job_state(job_id="j1") is False
+    with app_state.lock:
+        assert any("could not save the off-peak job record" in line for line in app_state.state["log"])

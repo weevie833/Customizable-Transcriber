@@ -11,10 +11,10 @@ import zipfile
 from xml.etree import ElementTree
 
 import pytest
-from xls_conversion.ai_parser import RECORD_TYPES
 
 from index_compare.report_docx import build_index_compare_report
 from index_compare.scoring import compare_indexes
+from xls_conversion.ai_parser import RECORD_TYPES
 
 MATRIMONI = RECORD_TYPES["matrimoni"]
 _NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"

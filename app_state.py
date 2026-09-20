@@ -189,17 +189,24 @@ def clear_source_folder() -> None:
         APP_SETTINGS_FILE.unlink(missing_ok=True)
 
 
-def write_off_peak_job_state(**fields: object) -> None:
+def write_off_peak_job_state(**fields: object) -> bool:
     """Best-effort persistence of non-secret off-peak batch job metadata --
     see OFF_PEAK_JOB_FILE's own comment above. Never fatal to the run itself
     if the write fails (a full disk, a permissions problem): losing this
     file only means a crash won't be recoverable, not that the in-flight
     job breaks, matching delete_gemini_prompt_cache()'s own best-effort
-    philosophy (core.py)."""
+    philosophy (core.py). Returns whether the write succeeded, so a caller
+    never tells the user a job id "is saved" when it isn't (CODEX_REVIEW.md
+    L-1); a failure is also written to the run log."""
     try:
         atomic_write_text(OFF_PEAK_JOB_FILE, json.dumps(fields, indent=2) + "\n")
-    except OSError:
-        pass
+    except OSError as exc:
+        add_log(
+            f"Warning: could not save the off-peak job record to disk ({exc}). "
+            "If this app closes, the job id will not be shown again -- copy it from this log now."
+        )
+        return False
+    return True
 
 
 def clear_off_peak_job_state() -> None:
@@ -233,6 +240,16 @@ def surface_stale_off_peak_job() -> None:
     reset_ui_state()'s own call to clear_off_peak_job_state() below."""
     job = read_off_peak_job_state()
     if not job:
+        if OFF_PEAK_JOB_FILE.exists():
+            # A record is on disk but unreadable (corrupt/permissions) -- say so
+            # rather than silently forgetting a possibly-still-billing job.
+            with lock:
+                state["log"].append(
+                    f"An off-peak job record exists at {OFF_PEAK_JOB_FILE} but could not be read. "
+                    "It may describe a batch still running on the provider's servers -- open the file "
+                    "or check the provider's own console/dashboard."
+                )
+                state["log"] = state["log"][-300:]
         return
     message = (
         "An off-peak batch job from a previous session may still be unresolved: "

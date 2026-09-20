@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import threading
 
-from app_state import lock, load_source_folder, state, stop_event
+from app_state import load_source_folder, lock, state, stop_event
 from batch_transcription import run_off_peak_job
 from customizable_transcription.core import provider_for_model
 from http_utils import parse_post_form, pasted_value

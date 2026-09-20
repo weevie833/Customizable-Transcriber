@@ -12,6 +12,7 @@ import anthropic
 import httpx
 from google import genai
 from google.genai import types
+
 from customizable_transcription.core import (
     MAX_TRANSIENT_RETRIES,
     RETRY_BASE_DELAY_SECONDS,
@@ -23,7 +24,6 @@ from customizable_transcription.core import (
     provider_for_model,
 )
 from xls_conversion.spreadsheet_export import SheetSpec, rows_to_csv, rows_to_xlsx, rows_to_xlsx_multi
-
 
 # Neither SDK had a timeout configured before this -- a genuinely stuck
 # provider response could hang a preflight/parse request indefinitely, with
@@ -1691,6 +1691,52 @@ def _says_continues_on_next(text: str) -> bool:
     return _mentions_continuation(text) and bool(_NEXT_IMAGE_RE.search(text))
 
 
+# Fields that identify WHICH entry a row is. If the continuation merge returns a
+# different non-empty value for one of these, it is not the same record and the
+# merge is rejected (both rows are kept).
+_MERGE_IDENTITY_FIELDS = ("act_number", "page_number", "entry_number")
+# Handled by their own logic in the merge paths (notes via merge_notes(), locators
+# copied from the departure row).
+_MERGE_BOOKKEEPING_FIELDS = frozenset({"notes", "image_link", "image_number"})
+
+
+def apply_merge_invariants(
+    config: RecordTypeConfig, previous_row: dict[str, str], merged_row: dict[str, str]
+) -> tuple[dict[str, str] | None, list[str]]:
+    """Field-level guard for a continuation merge (CODEX_REVIEW.md H-2 / HD-2:
+    "original wins, conflict logged"). The merge call returns a whole new row that
+    replaces the departure row, so without this a model could silently drop or
+    change what the departure image already yielded.
+
+    - A blank never erases a value the departure row already had.
+    - A conflicting non-empty value keeps the ORIGINAL and is reported.
+    - A blank on the departure row is filled from the continuation.
+    - A different non-empty identity value (act/page/entry number) means this is
+      not the same record: returns (None, conflicts) so the caller keeps both rows.
+
+    Returns (merged_row_with_invariants_applied, conflict_descriptions)."""
+
+    def norm(value: object) -> str:
+        return " ".join(str(value or "").split()).casefold()
+
+    conflicts: list[str] = []
+    for key in config.fields:
+        if key in _MERGE_BOOKKEEPING_FIELDS or key.startswith("_"):
+            continue
+        original = str(previous_row.get(key) or "").strip()
+        returned = str(merged_row.get(key) or "").strip()
+        if not original or norm(original) == norm(returned):
+            continue
+        if not returned:
+            merged_row[key] = previous_row[key]
+            continue
+        conflicts.append(f'{key}: kept "{original}" (continuation returned "{returned}")')
+        if key in _MERGE_IDENTITY_FIELDS:
+            return None, conflicts
+        merged_row[key] = previous_row[key]
+    return merged_row, conflicts
+
+
 def merge_notes(previous_notes: str, merged_notes: str) -> str:
     """Notes for a row that absorbed its continuation: the merge call sometimes
     returns only its own note ("continued from previous image") and drops the
@@ -1849,6 +1895,13 @@ def parse_generic(
         # merge.
         if not candidate_rows or not _confirms_continuation_merge(candidate_rows[0]):
             return candidate_rows, False
+        # Field-level invariants (CODEX_REVIEW.md H-2): never let the merge call erase or
+        # silently change what the departure row already had.
+        checked_row, merge_conflicts = apply_merge_invariants(config, rows[-1], candidate_rows[0])
+        for conflict in merge_conflicts:
+            exceptions.append(f"Image {image_number or 'unknown'}: continuation merge conflict -- {conflict}")
+        if checked_row is None:
+            return candidate_rows, False
         previous_row = rows.pop()
         merged_row = candidate_rows[0]
         if "notes" in merged_row:
@@ -1916,6 +1969,17 @@ def parse_generic(
                         "extracting the whole block without merging."
                     )
                 else:
+                    checked_row, merge_conflicts = apply_merge_invariants(config, rows[-1], fragment_rows[0])
+                    for conflict in merge_conflicts:
+                        exceptions.append(f"Image {image_number or 'unknown'}: continuation merge conflict -- {conflict}")
+                    if checked_row is None:
+                        exceptions.append(
+                            f"Image {image_number or 'unknown'}: the continuation returned a different "
+                            "act/entry number than the row it should complete; extracting the whole block "
+                            "without merging."
+                        )
+                        fragment_rows = []
+                if fragment_rows:
                     previous_row = rows.pop()
                     merged_row = fragment_rows[0]
                     if "notes" in merged_row:

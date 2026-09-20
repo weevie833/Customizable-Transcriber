@@ -7,13 +7,38 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from app_state import (
+    APP_SETTINGS_FILE,
+    USER_OUTPUTS_DIR,
+    load_source_folder,
+    lock,
+    new_test_run_state,  # noqa: F401 -- re-exported; see tests/test_test_mode_key_scoping_and_failure_isolation.py
+    state,
+    surface_stale_off_peak_job,
+    test_lock,  # noqa: F401 -- re-exported for tests
+    test_state,  # noqa: F401 -- re-exported for tests
+)
+from batch_transcription import estimate_off_peak_savings
 from customizable_transcription.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
     MODELS,
     count_source_files_by_type,
 )
-from batch_transcription import estimate_off_peak_savings
+from handlers.index_compare import IndexCompareHandlerMixin
+from handlers.profiles import ProfilesHandlerMixin
+from handlers.settings import SettingsHandlerMixin
+from handlers.test_mode_run import TestModeRunHandlerMixin
+from handlers.transcribe_offpeak import TranscribeOffPeakHandlerMixin
+from handlers.transcribe_run import TranscribeRunHandlerMixin
+from handlers.xls_conversion import XlsConversionHandlerMixin
+from http_utils import MAX_DOCX_XML_BYTES, FormData, extract_docx_text  # noqa: F401 -- re-exported for tests
+from pages import FOOTER_HTML
+from pages.home import home_page
+from pages.privacy import privacy_page
+from pages.prompt_builder import prompt_builder_page
+from pages.test_mode import test_mode_page
+from pages.transcribe import page
 from profiles_store import (
     PROFILES_DIR,  # noqa: F401 -- re-exported for test monkeypatching, see comment below
     PROJECT_DIR,
@@ -28,35 +53,9 @@ from profiles_store import (
     USER_PROFILES_DIR,  # noqa: F401 -- re-exported for test monkeypatching, see comment above
     ensure_profiles_dir,
     load_profile,
-    save_custom_profile,
+    save_custom_profile,  # noqa: F401 -- re-exported for tests
 )
-from app_state import (
-    APP_SETTINGS_FILE,
-    USER_OUTPUTS_DIR,
-    load_source_folder,
-    lock,
-    new_test_run_state,  # noqa: F401 -- re-exported; see tests/test_test_mode_key_scoping_and_failure_isolation.py
-    state,
-    surface_stale_off_peak_job,
-    test_lock,
-    test_state,
-)
-from http_utils import FormData, MAX_DOCX_XML_BYTES, extract_docx_text  # noqa: F401 -- re-exported for tests
 from run_support import run_test_job  # noqa: F401 -- re-exported for tests
-from pages import FOOTER_HTML
-from pages.privacy import privacy_page
-from pages.home import home_page
-from pages.transcribe import page
-from pages.test_mode import test_mode_page
-from pages.prompt_builder import prompt_builder_page
-from handlers.xls_conversion import XlsConversionHandlerMixin
-from handlers.index_compare import IndexCompareHandlerMixin
-from handlers.profiles import ProfilesHandlerMixin
-from handlers.transcribe_run import TranscribeRunHandlerMixin
-from handlers.transcribe_offpeak import TranscribeOffPeakHandlerMixin
-from handlers.test_mode_run import TestModeRunHandlerMixin
-from handlers.settings import SettingsHandlerMixin
-
 
 HOST = "127.0.0.1"
 PORT = 8765

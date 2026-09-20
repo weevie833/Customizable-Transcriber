@@ -14,6 +14,7 @@ import hashlib
 import secrets
 from pathlib import Path
 
+from app_state import xls_ai_lock, xls_preflight_cache, xls_preflight_lock
 from customizable_transcription.core import (
     MODELS,
     api_key,
@@ -22,15 +23,14 @@ from customizable_transcription.core import (
     provider_for_model,
     validate_api_key_with_retry,
 )
+from http_utils import PREFLIGHT_TIMEOUT_SECONDS, extract_docx_text, parse_json_body, uploaded_docx
+from profiles_store import PROJECT_DIR
 from xls_conversion.ai_parser import (
     combine_language_xlsx,
     detect_languages,
     parse_records_with_ai,
     preflight_records_with_ai,
 )
-from profiles_store import PROJECT_DIR
-from app_state import xls_ai_lock, xls_preflight_cache, xls_preflight_lock
-from http_utils import PREFLIGHT_TIMEOUT_SECONDS, extract_docx_text, parse_json_body, uploaded_docx
 
 XLS_CONVERSION_DIR = PROJECT_DIR / "xls_conversion"
 

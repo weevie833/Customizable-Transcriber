@@ -279,6 +279,14 @@
     return out;
   }
 
+  // Ground truth for Preflight Test (one uploaded image, CODEX_REVIEW.md M-1 / HD-3):
+  // the example's Date line, Main entry and applicable Baptism / Church Wedding
+  // Record -- everything visible on that one image. The Continuation is left out on
+  // purpose: it is the opening of the NEXT image, which was not uploaded.
+  function exampleAsPreflightText(example) {
+    return exampleAsPromptText({ date: example.date, text: example.text, wedding: example.wedding, baptism: example.baptism, continuation: "" });
+  }
+
   function exampleFormatNotes(examples) {
     var notes = [];
     if (examples.some(function (e) { return e.date; })) {
@@ -1565,7 +1573,7 @@
     }
     var exampleSelect = document.getElementById("pb-preflight-example-select");
     var selectedIndex = examples.length > 1 && exampleSelect ? Number(exampleSelect.value || 0) : 0;
-    var exampleEntry = (examples[selectedIndex] || examples[0]).text;
+    var exampleEntry = exampleAsPreflightText(examples[selectedIndex] || examples[0]);
 
     var modelSelect = document.getElementById("pb-preflight-model");
     var apiKeyInput = document.getElementById("pb-preflight-api-key");

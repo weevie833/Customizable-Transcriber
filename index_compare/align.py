@@ -4,9 +4,8 @@ from dataclasses import dataclass, field
 
 from rapidfuzz import fuzz
 
-from xls_conversion.ai_parser import RecordTypeConfig
-
 from index_compare.text_utils import is_blank_or_illegible, normalize_for_comparison
+from xls_conversion.ai_parser import RecordTypeConfig
 
 Row = dict[str, str]
 

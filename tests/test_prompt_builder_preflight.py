@@ -37,18 +37,18 @@ def _multipart_body(fields: dict[str, str], files: dict[str, tuple[str, bytes]])
     parts: list[bytes] = []
     for name, value in fields.items():
         parts.append(
-            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode("utf-8")
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
         )
     for name, (filename, content) in files.items():
         parts.append(
             (
                 f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
                 "Content-Type: application/octet-stream\r\n\r\n"
-            ).encode("utf-8")
+            ).encode()
             + content
             + b"\r\n"
         )
-    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    parts.append(f"--{boundary}--\r\n".encode())
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
@@ -128,3 +128,25 @@ def test_preflight_test_runs_the_real_call_when_the_key_check_passes(live_server
     data = json.loads(response.read())
     assert data["raw_output"] == "raw transcription"
     assert data["suggestions"] == ["looks good"]
+
+
+def test_preflight_critique_prompt_explains_labelled_example_parts(monkeypatch):
+    """CODEX_REVIEW.md M-1: the example may arrive as labelled Date / Main entry /
+    side-block parts (never the continuation); the critique model is told how to read it."""
+    from handlers import profiles as profiles_handlers
+
+    captured = {}
+
+    def fake_call_ai_json(key, model, system_prompt, user_message, *_a, **_k):
+        captured["system"] = system_prompt
+        captured["user"] = user_message
+        return []
+
+    monkeypatch.setattr(profiles_handlers, "call_ai_json", fake_call_ai_json)
+    example = "Date:\n\n2 Gennaro 1823\n\nMain entry:\n\nbody\n\nBaptism Record:\n\nbaptism"
+    profiles_handlers.critique_prompt_gap(
+        "gemini-2.5-pro", "full prompt", example, "output", "civil_birth", api_key_override="k"
+    )
+    assert "labelled parts" in captured["system"]
+    assert "never includes the entry's continuation" in captured["system"]
+    assert example in captured["user"]

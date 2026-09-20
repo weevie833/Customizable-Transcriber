@@ -11,7 +11,7 @@ import anthropic
 import pytest
 from google.genai import errors as genai_errors
 
-import xls_conversion.ai_parser as ai_parser
+from xls_conversion import ai_parser
 
 
 @pytest.fixture(autouse=True)

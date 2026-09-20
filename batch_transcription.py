@@ -44,6 +44,7 @@ else this app persists to disk.
 from __future__ import annotations
 
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -258,7 +259,12 @@ MAX_BATCH_IMAGE_COUNT = 1000
 # the cost of using that provider, not built into the number itself, so
 # both providers are held to the same real "how many original-file bytes
 # can this batch contain" limit.
-MAX_BATCH_AGGREGATE_BYTES = 2_000_000_000  # ~2GB of combined raw source-file bytes
+# Lowered from 2 GB to 500 MB (CODEX_REVIEW.md M-2 / HD-4): Claude's base64 expansion
+# (~1.33x) plus request-serialization copies made 2 GB a real memory-exhaustion risk
+# on an ordinary 8 GB machine, and the old number was never measured. Larger folders
+# are rejected up front with a message to split them; revisit with measured peak
+# memory per provider if this proves too tight.
+MAX_BATCH_AGGREGATE_BYTES = 500_000_000  # 500 MB of combined raw source-file bytes
 
 
 def validated_images(image_folder: Path, extensions, reverse_order: bool = False) -> list[Path]:
@@ -325,7 +331,11 @@ def submit_gemini_batch(
     job = client.batches.create(
         model=model,
         src=requests,
-        config=genai_types.CreateBatchJobConfig(display_name="customizable-transcription-offpeak"),
+        # Unique per submission (H-1): if the response is lost, the job can still be
+        # found in the provider's own console by this name.
+        config=genai_types.CreateBatchJobConfig(
+            display_name=f"customizable-transcription-offpeak-{uuid.uuid4().hex[:12]}"
+        ),
     )
     return job.name
 
@@ -435,7 +445,10 @@ def submit_claude_batch(
                 },
             }
         )
-    batch = client.messages.batches.create(requests=requests)
+    # The SDK retries a failed/timed-out request by default (twice). Batch creation is
+    # not idempotent, so a retry after a lost response would create a SECOND paid
+    # batch (CODEX_REVIEW.md H-1) -- never retry this call automatically.
+    batch = client.with_options(max_retries=0).messages.batches.create(requests=requests)
     return batch.id
 
 
@@ -551,19 +564,25 @@ def run_off_peak_job(
                 job_id = submit_claude_batch(heavy_client, model, system_prompt, images)
             else:
                 job_id = submit_gemini_batch(heavy_client, model, system_prompt, images)
-        except httpx.TimeoutException as exc:
+        except (httpx.TimeoutException, httpx.RemoteProtocolError, anthropic.APIConnectionError) as exc:
+            # Outcome UNKNOWN, not failure (CODEX_REVIEW.md H-1 / HD-1): the provider may
+            # have accepted the batch even though its response never arrived, and it may
+            # already be running -- and billing.
             elapsed = time.monotonic() - submit_started
             raise BatchSubmissionError(
                 f"Submitting the off-peak batch ({len(images)} image(s)) did not finish within "
                 f"{BATCH_SUBMIT_TIMEOUT_SECONDS}s (waited {elapsed:.0f}s) -- the connection stalled "
-                "while uploading. Try again, or with a smaller batch."
+                "or dropped. Submission outcome unknown: the provider may already have accepted "
+                f"this batch and be running (and billing) it. Check your {provider.capitalize()} "
+                "account's batch list/dashboard for a job submitted around now BEFORE trying "
+                "again, so you don't pay for the same batch twice."
             ) from exc
 
         submitted_at_iso = datetime.now().isoformat(timespec="seconds")
         write_off_peak_job_state(
             provider=provider, model=model, job_id=job_id,
             submitted_at=submitted_at_iso, status="running",
-        )
+        )  # a failed write is logged by write_off_peak_job_state itself (L-1)
         with lock:
             state["batch_provider"] = provider
             state["batch_job_id"] = job_id
@@ -691,18 +710,23 @@ def run_off_peak_job(
             # means nothing to collect results from, so this ends the run
             # here rather than falling through to output-writing below.
             minutes = CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS // 60
-            write_off_peak_job_state(
+            saved = write_off_peak_job_state(
                 provider=provider, model=model, job_id=job_id,
                 submitted_at=submitted_at_iso, status="status_unknown",
+            )
+            recovery_note = (
+                "This job's id is saved and will be shown again the next time this app starts, "
+                "until you dismiss it (Reset All)."
+                if saved
+                else "The job id could NOT be saved to disk, so it will not be shown again after "
+                "a restart -- copy it from this message now."
             )
             with lock:
                 state["summary"] = (
                     f"Off-peak batch cancellation could not be confirmed after {minutes} minutes -- "
                     f"job {job_id} ({provider}) may still be running (and billing) on the provider's "
                     "own servers. This app has no way to force-stop it from here: check the "
-                    "provider's own console/dashboard for its actual status. This job's id is saved "
-                    "and will be shown again the next time this app starts, until you dismiss it "
-                    "(Reset All)."
+                    f"provider's own console/dashboard for its actual status. {recovery_note}"
                 )
                 state["log"].append(f"[{_log_timestamp()}] {state['summary']}")
                 state["log"] = state["log"][-300:]

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-import xls_conversion.ai_parser as ai_parser
+from xls_conversion import ai_parser
 from xls_conversion.ai_parser import (
     MAX_IMAGE_RANGE_SPAN,
     MAX_IMAGES_PER_REQUEST,

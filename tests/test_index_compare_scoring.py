@@ -11,9 +11,9 @@ own docstring."""
 from __future__ import annotations
 
 import pytest
-from xls_conversion.ai_parser import RECORD_TYPES
 
 from index_compare.scoring import compare_indexes, fields_with_ground_truth_data, score_candidate
+from xls_conversion.ai_parser import RECORD_TYPES
 
 MATRIMONI = RECORD_TYPES["matrimoni"]
 

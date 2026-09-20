@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import json
 
-from xls_conversion.ai_parser import RECORD_TYPES
+from http_utils import parse_json_body, parse_multipart_form
 from index_compare.reader import NeedsMapping, resolve_index_file, suggest_mapping
 from index_compare.report_docx import build_index_compare_report
 from index_compare.scoring import compare_indexes
-from http_utils import parse_json_body, parse_multipart_form
+from xls_conversion.ai_parser import RECORD_TYPES
 
 
 class IndexCompareHandlerMixin:

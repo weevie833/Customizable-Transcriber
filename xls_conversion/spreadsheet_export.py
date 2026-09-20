@@ -10,7 +10,6 @@ from xml.sax.saxutils import escape
 
 from docx_package import strip_xml_illegal_chars
 
-
 # Battesimi's own numeric columns / zero-padded Image# column / hand-tuned
 # widths -- kept as explicit defaults so its existing call site (and output
 # bytes) are unaffected by the other 5 record types now passing their own.

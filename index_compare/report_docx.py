@@ -30,9 +30,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from xls_conversion.ai_parser import RecordTypeConfig
-
 from report_docx_builder import assemble_docx_bytes, report_document_xml, report_paragraph, report_table
+from xls_conversion.ai_parser import RecordTypeConfig
 
 Row = dict[str, str]
 

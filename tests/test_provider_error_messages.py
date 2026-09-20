@@ -22,8 +22,8 @@ import anthropic
 import pytest
 from google.genai import errors as genai_errors
 
-import customizable_transcription.core as core
-import xls_conversion.ai_parser as ai_parser
+from customizable_transcription import core
+from xls_conversion import ai_parser
 
 
 @pytest.fixture(autouse=True)
@@ -206,7 +206,6 @@ def test_validate_api_key_with_retry_retries_transient_claude_error(monkeypatch)
         calls["n"] += 1
         if calls["n"] < 2:
             raise _claude_500()
-        return None
 
     monkeypatch.setattr(core, "validate_api_key", fake_validate)
     core.validate_api_key_with_retry(core.Path("."), "claude-sonnet-5")

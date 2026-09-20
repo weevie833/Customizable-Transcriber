@@ -12,10 +12,9 @@ import urllib.error
 import urllib.request
 from http.cookiejar import CookieJar
 
+from index_compare import scoring
 from xls_conversion.ai_parser import RECORD_TYPES
 from xls_conversion.spreadsheet_export import rows_to_xlsx
-
-import index_compare.scoring as scoring
 
 MATRIMONI = RECORD_TYPES["matrimoni"]
 
@@ -44,18 +43,18 @@ def _multipart_body(fields: dict[str, str], files: dict[str, tuple[str, bytes]])
     parts: list[bytes] = []
     for name, value in fields.items():
         parts.append(
-            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode("utf-8")
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
         )
     for name, (filename, content) in files.items():
         parts.append(
             (
                 f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
                 "Content-Type: application/octet-stream\r\n\r\n"
-            ).encode("utf-8")
+            ).encode()
             + content
             + b"\r\n"
         )
-    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    parts.append(f"--{boundary}--\r\n".encode())
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 

@@ -462,6 +462,8 @@
     "Example entries": "Voci di esempio",
     "Add another example": "Aggiungi un altro esempio",
     "Date line": "Riga della data",
+    "Preflight checks the one image you upload: it compares the selected example's Date line, Main entry and Baptism / Church Wedding Record against that image. The example's Continuation is not included, because it belongs to the next image.":
+      "Il Preflight verifica l'unica immagine che carichi: confronta la riga della data, la voce principale e il registro del battesimo / matrimonio religioso dell'esempio selezionato con quell'immagine. La continuazione dell'esempio non è inclusa, perché appartiene all'immagine successiva.",
     "Date exactly as written, then the standard form in brackets -- e.g. due del mese di Gennaro milleottocentoventitre [2 January 1823]":
       "La data esattamente come scritta, seguita dalla forma standard tra parentesi quadre -- ad es. due del mese di Gennaro milleottocentoventitre [2 January 1823]",
     "Main entry": "Voce principale",

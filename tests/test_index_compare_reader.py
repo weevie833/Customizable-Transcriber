@@ -7,9 +7,6 @@ name and date, with no page/act-number column filled in at all."""
 
 from __future__ import annotations
 
-from xls_conversion.ai_parser import RECORD_TYPES
-from xls_conversion.spreadsheet_export import rows_to_xlsx
-
 from index_compare.reader import (
     NeedsMapping,
     detect_schema,
@@ -18,6 +15,8 @@ from index_compare.reader import (
     resolve_index_file,
     suggest_mapping,
 )
+from xls_conversion.ai_parser import RECORD_TYPES
+from xls_conversion.spreadsheet_export import rows_to_xlsx
 
 MATRIMONI = RECORD_TYPES["matrimoni"]
 

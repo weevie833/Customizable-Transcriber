@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from collections import Counter
 
-from test_mode.comparison import character_edit_stats
-from xls_conversion.ai_parser import RecordTypeConfig
-
 from index_compare.align import align_rows, identity_fields
 from index_compare.heuristics import classify_diff
 from index_compare.text_utils import is_blank_or_illegible
+from test_mode.comparison import character_edit_stats
+from xls_conversion.ai_parser import RecordTypeConfig
 
 Row = dict[str, str]
 

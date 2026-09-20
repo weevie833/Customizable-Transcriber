@@ -249,6 +249,10 @@ function strings(lang) {
       ? "Incolla o scrivi cognomi e nomi noti, nel formato \"Nome Cognome\" oppure \"Cognome, Nome\" — uno per riga. L'app li suddivide automaticamente in elenchi separati di cognomi e nomi."
       : "Paste or write known family names and given names, either as \"Given Surname\" or \"Surname, Given name\" -- one per line. The app automatically splits these into separate surname and given-name lists.",
 
+    exampleDateLabel: it ? "Riga della data" : "Date line",
+    exampleDateNote: it
+      ? "la data come scritta, seguita dalla forma standard tra parentesi quadre, ad es. due del mese di Gennaro milleottocentoventitre [2 January 1823]"
+      : "the date exactly as written, then the standard form in brackets, e.g. due del mese di Gennaro milleottocentoventitre [2 January 1823]",
     exampleMainLabel: it ? "Voce principale" : "Main entry",
     exampleWeddingLabel: it ? "Registro del matrimonio religioso (se presente)" : "Church Wedding Record (if any)",
     exampleWeddingNote: it
@@ -716,6 +720,8 @@ function exampleParts(S, includeWedding, includeBaptism) {
     ],
   });
   return [
+    sub(S.exampleDateLabel, S.exampleDateNote),
+    writingBox(S, 1, null),
     sub(S.exampleMainLabel),
     writingBox(S, 8, null),
     ...(includeWedding ? [sub(S.exampleWeddingLabel, S.exampleWeddingNote), writingBox(S, 4, null)] : []),

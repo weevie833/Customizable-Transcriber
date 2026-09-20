@@ -2,7 +2,8 @@
 
 DOCX-to-spreadsheet interface that turns a completed transcription into the
 official index template for one of 6 record types: Church Battesimi, Church
-Matrimoni, Church Morti, Civil Birth, Civil Marriage, Civil Death.
+Matrimoni, Church Morti, Civil Nati, Civil Matrimoni, Civil Morti (the Excel
+tab names still read Civil Birth / Civil Marriage / Civil Death).
 
 The page uploads a local DOCX file to the localhost server and extracts its
 text. Preflight requires an API key, an uploaded source transcription, and a
@@ -32,3 +33,17 @@ tests under `xls_conversion/tests/` (`harness.js` loads it directly, and no
 other file references either of the other two) -- `matrimony-parser.js`
 and `morti-parser.js` are unmaintained reference code with no test
 coverage and no execution path anywhere in this app.
+
+## Entries that span two images
+
+The transcription marks a split entry with two preset Notes lines (written by
+the transcription app, not the model): `ENTRY CONTINUES ON THE NEXT IMAGE -- ...`
+as the last line of the record where the entry starts, and
+`ENTRY CONTINUES FROM THE PREVIOUS IMAGE -- ...` as the first Notes line of the
+record that picks it up. The converter recognises both (also the older
+"Entry appears to continue ..." wording, and Italian equivalents in extracted
+notes), splits the leading fragment off the next image, merges it into the
+previous row in its own AI call, and keeps the departure row's own notes. A row
+still open at the end of the run gets an explicit "continues on the next image
+(not included in this conversion)" note. `ai_parser.py`'s `split_leading_continuation()`,
+`block_ends_with_open_entry()` and `merge_notes()` are the relevant functions.

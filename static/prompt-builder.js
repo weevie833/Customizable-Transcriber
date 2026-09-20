@@ -253,14 +253,14 @@
     return !!(box && box.checked);
   }
 
-  // The baptism part is the last class name so a row saved before it existed
-  // (four values) still loads into the right fields.
+  // The baptism and date parts are the last class names so a row saved before
+  // they existed (four values) still loads into the right fields.
   function pbExampleEntries() {
     var weddingActive = churchWeddingColumnActive();
     var baptismActive = baptismColumnActive();
-    return pbRows("pb-example-rows", ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation", "pb-example-baptism"])
+    return pbRows("pb-example-rows", ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation", "pb-example-baptism", "pb-example-date"])
       .map(function (row) {
-        return { label: row[0], text: row[1], wedding: weddingActive ? row[2] : "", continuation: row[3], baptism: baptismActive ? row[4] : "" };
+        return { label: row[0], text: row[1], wedding: weddingActive ? row[2] : "", continuation: row[3], baptism: baptismActive ? row[4] : "", date: row[5] };
       })
       .filter(function (example) { return example.text; });
   }
@@ -269,8 +269,8 @@
   // text; with either optional part the parts are labelled, so the model can
   // tell the act from the separate column and from the next image's opening.
   function exampleAsPromptText(example) {
-    if (!example.wedding && !example.baptism && !example.continuation) return example.text;
-    var out = "Main entry:\n\n" + example.text;
+    if (!example.date && !example.wedding && !example.baptism && !example.continuation) return example.text;
+    var out = (example.date ? "Date:\n\n" + example.date + "\n\n" : "") + "Main entry:\n\n" + example.text;
     if (example.wedding) out += "\n\nChurch Wedding Record:\n\n" + example.wedding;
     if (example.baptism) out += "\n\nBaptism Record:\n\n" + example.baptism;
     if (example.continuation) {
@@ -281,6 +281,9 @@
 
   function exampleFormatNotes(examples) {
     var notes = [];
+    if (examples.some(function (e) { return e.date; })) {
+      notes.push("Where an example shows a Date, that is the entry's own `Date:` block: copy its form exactly -- the date as written in the entry, then the standard `[<day> <Month> <year>]` form in brackets -- for every entry you transcribe.");
+    }
     if (examples.some(function (e) { return e.wedding; })) {
       notes.push("Where an example shows a Church Wedding Record, that is the text of the separate right-hand column: in your own output it goes in its own `Church Wedding Record:` block, never inside the entry's text.");
     }
@@ -1170,6 +1173,8 @@
     var row = addRow(
       "pb-example-rows",
       '<input type="text" class="pb-example-label" placeholder="Label (optional), e.g. Image 193 Entry 1">' +
+      '<label class="pb-example-part"><span>Date line</span>' +
+      '<input type="text" class="pb-example-date" placeholder="Date exactly as written, then the standard form in brackets -- e.g. due del mese di Gennaro milleottocentoventitre [2 January 1823]"></label>' +
       '<label class="pb-example-part"><span>Main entry</span>' +
       '<textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea></label>' +
       '<label class="pb-example-part pb-example-wedding-part" hidden><span>Church Wedding Record (if any)</span>' +
@@ -1209,7 +1214,7 @@
   var PB_ROW_CONTAINERS = {
     "pb-variant-rows": { classNames: ["pb-variant-name", "pb-variant-markers"], build: addVariantRow },
     "pb-abbrev-rows": { classNames: ["pb-abbrev-written", "pb-abbrev-expansion", "pb-abbrev-meaning"], build: addAbbrevRow },
-    "pb-example-rows": { classNames: ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation", "pb-example-baptism"], build: addExampleRow },
+    "pb-example-rows": { classNames: ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation", "pb-example-baptism", "pb-example-date"], build: addExampleRow },
     "pb-relativedate-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-relativedate-rows", "Add another term"); } },
     "pb-scribal-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-scribal-rows", "Add another quirk"); } },
     "pb-honorific-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-honorific-rows", "Add another honorific"); } },

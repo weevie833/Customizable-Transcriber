@@ -657,6 +657,8 @@ def prompt_builder_page(
         <div id="pb-example-rows">
           <div class="pb-row pb-example-row">
             <input type="text" class="pb-example-label" placeholder="Label (optional), e.g. Image 193 Entry 1">
+            <label class="pb-example-part"><span>Date line</span>
+              <input type="text" class="pb-example-date" placeholder="Date exactly as written, then the standard form in brackets -- e.g. due del mese di Gennaro milleottocentoventitre [2 January 1823]"></label>
             <label class="pb-example-part"><span>Main entry</span>
               <textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea></label>
             <label class="pb-example-part pb-example-wedding-part" hidden><span>Church Wedding Record (if any)</span>

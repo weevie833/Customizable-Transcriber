@@ -403,7 +403,11 @@ A few decisions worth calling out:
   brand-new user with no prior transcription had nothing to paste in on
   their first profile. The requirement was dropped; a user who wants that
   benefit can still append a worked example to a saved profile's
-  reference/output fields by hand.
+  reference/output fields by hand. (The optional Example entries field
+  itself still exists: a Main entry plus optional Date line, Baptism /
+  Church Wedding Record and Continuation parts. A Date line is worth adding --
+  without one the model has no pattern for the `Date:` block's exact form
+  and drifts between entries.)
 
 ## Test Mode scoring
 
@@ -415,11 +419,17 @@ accuracy specifically; scoring the full raw text conflates that with
 translation-phrasing style and note-writing style, neither of which
 reflects how well a model reads handwriting.
 
-A separate `continuation_merge` step in the transcription pipeline handles
-an entry whose content spans two consecutive source images (a register
+An entry whose content spans two consecutive source images (a register
 entry that starts at the bottom of one photographed page and continues
-onto the next) — recognizing and merging the split rather than scoring
-or exporting it as two separate, truncated entries.
+onto the next) is flagged in the transcript by two preset Notes lines that
+the app itself writes (`render_entry()` in `customizable_transcription/core.py`),
+not the model: `ENTRY CONTINUES ON THE NEXT IMAGE -- ...` as the very last line
+of the record where the entry starts, and `ENTRY CONTINUES FROM THE PREVIOUS
+IMAGE -- ...` at the top of the record that picks it up. Both name the
+neighbouring image's record so a reader knows where to look, and together they
+sit at the `START OF RECORD` boundary. XLS Conversion keys off the same notes to
+merge the two halves into one row rather than exporting two truncated ones
+(`xls_conversion/README.md`).
 
 ## Accessibility
 

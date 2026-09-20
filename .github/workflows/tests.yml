@@ -1,10 +1,23 @@
 name: Tests
 
+# Actions minutes are the constraint on a private free-tier repo (2,000/month;
+# macOS bills 10x, Windows 2x -- one full three-OS run costs ~50 billed
+# minutes). So a normal push/PR runs only the cheap Linux matrix, and the
+# full cross-platform matrix runs weekly, on demand (workflow_dispatch:
+# Actions tab -> Tests -> Run workflow), and on version tags.
 on:
   push:
     branches: [main]
+    tags: ["v*"]
+    # Docs-only changes can't break tests.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
   # Also run weekly on main even with no code changes -- a dependency
   # already pinned and unchanged can still get a new CVE disclosed against
@@ -14,17 +27,57 @@ on:
   schedule:
     - cron: "17 6 * * 1"
 
+# A newer push to the same branch cancels the still-running older run (never
+# a scheduled run, which has no "newer" version of itself to defer to).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
 jobs:
+  # Every push/PR: Linux only (1x billing). 3.10 is the documented floor
+  # (pyproject.toml's requires-python) -- google-genai, anthropic, and
+  # rapidfuzz all need it -- and 3.12 is the newer version we also support.
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        # 3.10 is the documented floor (pyproject.toml's requires-python) --
-        # google-genai, anthropic, and rapidfuzz all need it, higher than
-        # the 3.9 this used to claim. Also covers 3.12 so the matrix isn't
-        # only ever testing the oldest supported version.
         python-version: ["3.10", "3.12"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Node (for the offline baptism-parser.js regression suite)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Run pytest suite (tests/)
+        run: python -m pytest tests/ -v
+
+      - name: Run offline parser regression suite (xls_conversion/tests/)
+        run: python xls_conversion/tests/run_parser_test.py
+
+  # Weekly / manual / version-tag only (see the top-level comment): Windows and
+  # macOS, where path handling, native file dialogs' subprocess calls and
+  # line endings can differ. macOS runs one Python version only -- it is the
+  # expensive one (10x).
+  test-cross-platform:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, python-version: "3.10"}
+          - {os: windows-latest, python-version: "3.12"}
+          - {os: macos-latest, python-version: "3.12"}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

@@ -461,6 +461,9 @@
     // Prompt Builder — Example entries & Preflight Test
     "Example entries": "Voci di esempio",
     "Add another example": "Aggiungi un altro esempio",
+    "Date line": "Riga della data",
+    "Date exactly as written, then the standard form in brackets -- e.g. due del mese di Gennaro milleottocentoventitre [2 January 1823]":
+      "La data esattamente come scritta, seguita dalla forma standard tra parentesi quadre -- ad es. due del mese di Gennaro milleottocentoventitre [2 January 1823]",
     "Main entry": "Voce principale",
     "Church Wedding Record (if any)": "Registro del matrimonio religioso (se presente)",
     "Baptism Record (if any)": "Registro del battesimo (se presente)",

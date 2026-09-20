@@ -425,7 +425,8 @@ styling has diverged too much from Transcribe/Test Mode's shared shell. */
       display: block;
       font-weight: 600;
     }
-    .pb-example-row .pb-example-part textarea {
+    .pb-example-row .pb-example-part textarea,
+    .pb-example-row .pb-example-part input[type="text"] {
       width: 100%;
       box-sizing: border-box;
       margin-top: 4px;

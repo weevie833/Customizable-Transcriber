@@ -162,7 +162,7 @@ XLSX and CSV files. Select the source type, image range, model, and API key,
 then run the semantic preflight before conversion. The preflight reviews the
 requested image range for existing English translations without changing the
 source content. Six record types are configured: Church Battesimi, Church
-Matrimoni, Church Morti, Civil Birth, Civil Marriage, and Civil Death.
+Matrimoni, Church Morti, Civil Nati, Civil Matrimoni, and Civil Morti.
 
 Choose the source folder with the `Browse…` button on the Transcribe or Test Mode page (native folder dialog); it's saved locally on your machine, not in the repo, and reused until you change it. Select a saved prompt profile before running; the selected profile controls the role/local context, reference material, and output format.
 
@@ -227,6 +227,9 @@ Prompt behavior:
 - The app adds the source-relative `START OF RECORD` header automatically.
 - Prompts tell the model not to add duplicate record headers or filenames.
 - Source line breaks are collapsed into continuous paragraph text.
+- An entry that runs across two consecutive images gets preset continuation notes: the record where it starts ends with `Notes: ENTRY CONTINUES ON THE NEXT IMAGE -- ...` (naming the next image's record), and the next record opens with `Notes: ENTRY CONTINUES FROM THE PREVIOUS IMAGE -- ...`. The app writes these itself, so both sit at the `START OF RECORD` boundary between the images, and XLS Conversion uses them to merge the two halves into one row.
+- Civil Nati and Civil Matrimoni can describe a separate baptism / church-wedding column on the register page; Prompt Builder then asks for that column's formula and the transcript gets its own `Baptism Record:` / `Church Wedding Record:` block.
+- Prompt Builder's Example entries take an optional Date line, a Main entry, an optional Baptism / Church Wedding Record, and an optional Continuation, so the model can copy the exact `Date:` and block layout.
 - Italian transcriptions preserve source abbreviations such as `Ant:o`.
 - English translations expand clear abbreviations, for example `Ant:o` as `Antonio`.
 
@@ -239,6 +242,7 @@ Prompt behavior:
 - `prompt_builder_content.py`: static reference content (record-type formulas, vocabulary checklists) for the Prompt Builder page.
 - `docx_package.py` / `test_mode/report_docx.py`: DOCX-writing helpers — generic OOXML package XML, and the Test Mode comparison-report builder specifically.
 - `customizable_transcription/core.py`: shared transcription logic, model registry, and selected source-type scanning.
+- `profiles/worksheets/`: source (`build.js`) and generated EN/IT Prompt Builder DOCX worksheets, one per record type; `static/prompt-builder-worksheets/` holds the downloadable zips. After changing the Prompt Builder questionnaire, rebuild with `node build.js .` in that folder and re-zip.
 - `profiles/`: saved JSON prompt profiles — the single source of truth the app reads. `profiles/sources/` holds source material (lexicons, corrections, build scripts) that generates specific profiles; it is not itself loaded by the app.
 - `xls_conversion/`: unified DOCX-to-XLSX/CSV page and source-specific extraction helpers.
 - `static/`: shared CSS/JS every page loads (`base.css`, `app-shell.css`, `app-common.js`) plus page-specific scripts (`i18n.js`, `prompt-builder.js`).
@@ -272,8 +276,10 @@ access:
 python3 xls_conversion/tests/run_parser_test.py
 ```
 
-Both run automatically on every push and pull request via GitHub Actions
-(`.github/workflows/tests.yml`), across Linux, Windows, and macOS.
+Both run via GitHub Actions (`.github/workflows/tests.yml`). Every push and pull
+request runs them on Linux (Python 3.10 and 3.12); Windows and macOS run weekly,
+on demand (Actions tab -> Tests -> Run workflow) and on `v*` tags, to stay within
+the free tier's Actions minutes on a private repo. Docs-only changes skip CI.
 
 ## Data & Privacy
 

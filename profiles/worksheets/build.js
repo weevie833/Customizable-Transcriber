@@ -320,6 +320,9 @@ function strings(lang) {
       ? "I registri civili di questo periodo si presentano in due forme visivamente diverse: una narrazione interamente manoscritta (comune prima dell'adozione dei moduli prestampati nazionali), oppure un modulo prestampato con la formula legale fissa già presente sulla pagina e solo i nomi, le date e gli altri dettagli compilati a mano. Se il tuo registro è un modulo prestampato, l'IA viene istruita ad aspettarsi due grafie diverse sulla stessa pagina — il testo prestampato e la scrittura a mano del funzionario — e a dare priorità di accuratezza alle parti compilate a mano, poiché è lì che si trovano i nomi e le date rilevanti per l'indicizzazione."
       : "Civil registers from this period take two visibly different forms: an entirely handwritten narrative (common before national printed templates were adopted), or a printed form with the fixed legal wording already on the page and only the names, dates, and other specifics filled in by hand. If your register is a printed form, the AI is told to expect two different scripts on the same page -- the printed boilerplate and the clerk's handwriting -- and to weigh transcription accuracy toward the handwritten fill-ins, since that is where the names and dates that matter for indexing are recorded.",
 
+    churchWeddingFormulaLabel: it ? "Formula del registro del matrimonio religioso" : "Church wedding record formula",
+    churchWeddingFormulaNote: it ? "Necessaria solo se hai selezionato la casella della colonna del matrimonio religioso sopra." : "Only needed if you checked the church-wedding column box above.",
+    churchWeddingFormulaPlaceholder: "the church-wedding column formula, e.g. \"[DATE]: the parish priest of [PARISH] confirms that the wedding of [GROOM] and [BRIDE] took place on [DATE], in the presence of [WITNESS1] and [WITNESS2]\"",
     baptismFormulaLabel: it ? "Formula del registro del battesimo" : "Baptism record formula",
     baptismFormulaNote: it ? "Necessaria solo se hai selezionato la casella della colonna del battesimo sopra." : "Only needed if you checked the baptism column box above.",
     baptismFormulaPlaceholder: "the baptism-column formula, e.g. \"[DATE]: baptism administered to [CHILD] by [PRIEST] in the parish of [PARISH]\"",
@@ -633,8 +636,9 @@ function section2Civil(S, type) {
     writingBox(S, 3, type.marginalPlaceholder),
   ];
 
-  // The baptism column question (Civil Nati only) sits right under the first
-  // formula field, the Act formula -- same position as in the app.
+  // The baptism (Civil Nati) / church wedding (Civil Matrimoni) column question
+  // sits right under the first formula field, the Act formula -- same position
+  // as in the app.
   type.formulaFields.forEach((f, index) => {
     out.push(fieldLabel(f.label, f.optional ? { note: S.formulaOptionalNote } : undefined));
     out.push(infoNote(S, S.formulaInfo));
@@ -645,16 +649,17 @@ function section2Civil(S, type) {
       out.push(fieldLabel(S.baptismFormulaLabel, { note: S.baptismFormulaNote }));
       out.push(writingBox(S, 3, S.baptismFormulaPlaceholder));
     }
+    if (index === 0 && type.hasChurchWeddingColumn) {
+      out.push(soloCheckbox(S, S.churchWeddingColumnItem));
+      out.push(infoNote(S, S.churchWeddingColumnInfo));
+      out.push(fieldLabel(S.churchWeddingFormulaLabel, { note: S.churchWeddingFormulaNote }));
+      out.push(writingBox(S, 3, S.churchWeddingFormulaPlaceholder));
+    }
   });
 
   out.push(fieldLabel(S.civilPageFormatLabel));
   out.push(infoNote(S, S.civilPageFormatInfo));
   out.push(...choiceList(S.civilPageFormatOptions));
-
-  if (type.hasChurchWeddingColumn) {
-    out.push(soloCheckbox(S, S.churchWeddingColumnItem));
-    out.push(infoNote(S, S.churchWeddingColumnInfo));
-  }
 
   out.push(fieldLabel(S.roleVocabLabel(type.label), { note: S.roleVocabNote }));
   out.push(infoNote(S, S.roleVocabInfo));

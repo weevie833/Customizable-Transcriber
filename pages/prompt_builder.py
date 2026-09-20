@@ -184,6 +184,44 @@ def pb_baptism_block_html(type_key: str) -> str:
 """
 
 
+# Civil Marriage only, confirmed against a real 1823 Napoli register: the
+# act is printed as a two-column form, the marriage promise on the left and
+# a separate right-hand column in which the parish confirms the church
+# ceremony took place (parish, date, its own witnesses, and the officer's
+# filing note). Left unchecked, that text is handled by the inline
+# `[marginal]` rule instead, which splices it into the middle of the act's
+# body wherever the page happens to break.
+PB_CHURCH_WEDDING_COLUMN_INFO = (
+    "Some civil marriage registers print a two-column form: the marriage promise on the left, and a separate "
+    "column on the right in which the parish priest confirms the church wedding took place, with its own date "
+    "and witnesses. If your register does this, check the box. The AI will transcribe that column as its own "
+    "\"Church Wedding Record\" block, kept separate from the main act -- rather than inserting it into the "
+    "middle of the act's text, which is what happens when this box is left unchecked and the column is treated "
+    "as a margin note. Witnesses named in that column attended the church wedding; they are not additional "
+    "witnesses to the civil marriage promise."
+)
+
+PB_CHURCH_WEDDING_FORMULA_DEFAULT = (
+    'the church-wedding column formula, e.g. "[DATE]: the parish priest of [PARISH] confirms that the wedding of [GROOM] and [BRIDE] took place on [DATE], in the presence of [WITNESS1] and [WITNESS2]"'
+)
+
+
+def pb_church_wedding_block_html(type_key: str) -> str:
+    # Civil Matrimoni only. Same checkbox-then-field pattern as the baptism
+    # block; also switches on the Church Wedding Record block and example part.
+    if type_key != "civil_marriage":
+        return ""
+    return f"""      <div class="pb-inline-row">
+        <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasChurchWeddingColumn" class="pb-church-wedding-toggle"> This register has a separate right-hand column recording the parish's confirmation of the church wedding</label>{pb_info_button_html(f"pb-info-churchweddingcolumn-{type_key}", PB_CHURCH_WEDDING_COLUMN_INFO)}
+      </div>
+      <div class="pb-church-wedding-formula" hidden>
+        <label><span>Church wedding record formula{pb_info_button_html(f"pb-info-church-wedding-formula-{type_key}", PB_FORMULA_INFO_TEXT)}</span>
+          <textarea name="{type_key}_formula_churchWedding" rows="2">{html.escape(PB_CHURCH_WEDDING_FORMULA_DEFAULT)}</textarea>
+        </label>
+      </div>
+"""
+
+
 def pb_civil_fields_html(type_key: str, config: dict) -> str:
     # Civil-only structural questions -- framed by what the page visibly looks
     # like, not by which historical/legal era produced it. A non-expert user
@@ -199,28 +237,6 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
         "and the clerk's handwriting -- and to weigh transcription accuracy toward the handwritten fill-ins, since "
         "that is where the names and dates that matter for indexing are recorded."
     )
-    # Civil Marriage only, confirmed against a real 1823 Napoli register: the
-    # act is printed as a two-column form, the marriage promise on the left and
-    # a separate right-hand column in which the parish confirms the church
-    # ceremony took place (parish, date, its own witnesses, and the officer's
-    # filing note). Left unchecked, that text is handled by the inline
-    # `[marginal]` rule instead, which splices it into the middle of the act's
-    # body wherever the page happens to break.
-    church_wedding_column_info = (
-        "Some civil marriage registers print a two-column form: the marriage promise on the left, and a separate "
-        "column on the right in which the parish priest confirms the church wedding took place, with its own date "
-        "and witnesses. If your register does this, check the box. The AI will transcribe that column as its own "
-        "\"Church Wedding Record\" block, kept separate from the main act -- rather than inserting it into the "
-        "middle of the act's text, which is what happens when this box is left unchecked and the column is treated "
-        "as a margin note. Witnesses named in that column attended the church wedding; they are not additional "
-        "witnesses to the civil marriage promise."
-    )
-    church_wedding_column_html = ""
-    if type_key == "civil_marriage":
-        church_wedding_column_html = f"""
-        <div class="pb-inline-row">
-          <label class="pb-checkbox"><input type="checkbox" name="{type_key}_hasChurchWeddingColumn"> This register has a separate right-hand column recording the parish's confirmation of the church wedding</label>{pb_info_button_html(f"pb-info-churchweddingcolumn-{type_key}", church_wedding_column_info)}
-        </div>"""
     return f"""      <div class="pb-civil-fields">
         <fieldset>
           <legend>Page format{pb_info_button_html(f"pb-info-pageformat-{type_key}", page_format_info)}</legend>
@@ -228,7 +244,7 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
             <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="printed_form" checked> Printed form with handwritten entries filled in</label>
             <label class="pb-radio"><input type="radio" name="{type_key}_pageFormat" value="handwritten"> Entirely handwritten — no printed form on the page</label>
           </div>
-        </fieldset>{church_wedding_column_html}
+        </fieldset>
       </div>"""
 
 
@@ -237,7 +253,7 @@ def pb_section2_type_group_html(type_key: str) -> str:
     checked = " checked" if config["has_marginal_heading_default"] else ""
     formula_hidden = "" if config["has_marginal_heading_default"] else " hidden"
     marginal_placeholder = html.escape(config["marginal_heading_placeholder"])
-    formula_html = pb_formula_fields_html(type_key, config, after_first=pb_baptism_block_html(type_key))
+    formula_html = pb_formula_fields_html(type_key, config, after_first=pb_baptism_block_html(type_key) + pb_church_wedding_block_html(type_key))
     role_vocab_html = pb_checklist_html(f"{type_key}_roleVocab", config["role_vocab"])
     # Both info-button texts below are generic on purpose -- they used to hardcode
     # Battesimi's own example ("[child's name] filius/filia...", "P.nus"/"PP.") and

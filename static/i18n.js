@@ -353,6 +353,7 @@
     "This register has a separate margin for each entry that states the name": "Questo registro ha un margine separato per ogni voce che riporta il nome",
     "Marginal heading structure": "Struttura dell'intestazione marginale",
     "Baptism record formula": "Formula del registro del battesimo",
+    "Church wedding record formula": "Formula del registro del matrimonio religioso",
     "Entry structure - write out the structure used in each entry": "Struttura della voce - descrivi la struttura usata in ogni voce",
     "Groom's formula": "Formula dello sposo",
     "Bride's formula": "Formula della sposa",

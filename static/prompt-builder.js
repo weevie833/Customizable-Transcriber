@@ -559,6 +559,10 @@
       var value = pbVal(typeField(key));
       if (value) formulaLines.push(value, "");
     });
+    if (churchWeddingColumnActive()) {
+      var churchWeddingFormula = pbVal(typeField("formula_churchWedding"));
+      if (churchWeddingFormula) formulaLines.push("Church Wedding Record formula (the separate right-hand column):\n\n    " + churchWeddingFormula, "");
+    }
     if (baptismColumnActive()) {
       var baptismFormula = pbVal(typeField("formula_baptism"));
       if (baptismFormula) formulaLines.push("Baptism Record formula (the separate baptism column):\n\n    " + baptismFormula, "");
@@ -940,6 +944,8 @@
     if (box) box.hidden = !(toggle && toggle.checked);
     var baptismBox = group ? group.querySelector(".pb-baptism-formula") : null;
     if (baptismBox) baptismBox.hidden = !baptismColumnActive();
+    var churchWeddingBox = group ? group.querySelector(".pb-church-wedding-formula") : null;
+    if (churchWeddingBox) churchWeddingBox.hidden = !churchWeddingColumnActive();
   }
 
   function updateRecordTypeVisibility() {
@@ -1874,7 +1880,7 @@
       if (event.target.name === "recordType") { updateRecordTypeVisibility(); return; }
       if (event.target.name === "language") { event.target.dataset.touched = "1"; updateLanguageDefaults(); return; }
       if (event.target.name === "pageNumberScheme" || event.target.name === "pageLayout") { updateRecordTypeVisibility(); return; }
-      if (event.target.classList.contains("pb-marginal-toggle") || event.target.classList.contains("pb-baptism-toggle")) { updateMarginalHeadingVisibility(); pbRefresh(); return; }
+      if (event.target.classList.contains("pb-marginal-toggle") || event.target.classList.contains("pb-baptism-toggle") || event.target.classList.contains("pb-church-wedding-toggle")) { updateMarginalHeadingVisibility(); pbRefresh(); return; }
       if (event.target.name === "translateEnglish" || event.target.name === "translateItalian") { updateTranslationVisibility(); return; }
       if (event.target.name === "monthConvention") { event.target.dataset.touched = "1"; updateRecordTypeVisibility(); return; }
       pbRefresh();

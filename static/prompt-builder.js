@@ -1013,6 +1013,11 @@
     if (monthOtherRow) monthOtherRow.hidden = pbVal("monthConvention") !== "other" || !!(monthField && monthField.hidden);
     var spanRow = document.getElementById("pb-span-images-row");
     if (spanRow) spanRow.hidden = pbVal("pageLayout") !== "two_facing";
+    // Page zoom is a run setting saved on the profile, not prompt text --
+    // nothing in the assembly functions reads it (see profile_zoom_pages()
+    // in profiles_store.py for how Transcribe uses it).
+    var zoomRow = document.getElementById("pb-zoom-pages-row");
+    if (zoomRow) zoomRow.hidden = pbVal("pageLayout") !== "two_facing";
   }
 
   // Church records default to Latin, civil records to Italian -- a starting

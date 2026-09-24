@@ -587,7 +587,20 @@ def profile_options_html(selected_profile: str) -> str:
     return "\n".join(options)
 
 
-def profiles_for_browser() -> dict[str, dict[str, str]]:
+def profile_zoom_pages(profile: dict) -> bool:
+    """The profile's saved Page zoom default: Prompt Builder's "zoomPages"
+    checkbox, stored in pb_answers like every other questionnaire answer, and
+    only meaningful for a two-facing-pages layout (the checkbox is hidden for
+    any other layout, so a stale checked value there is ignored)."""
+    answers = profile.get("pb_answers") or {}
+    if not isinstance(answers, dict):
+        return False
+    fields = answers.get("fields") or {}
+    checked = answers.get("checked") or {}
+    return fields.get("pageLayout") == "two_facing" and bool(checked.get("zoomPages"))
+
+
+def profiles_for_browser() -> dict[str, dict[str, object]]:
     return {
         profile["id"]: {
             "id": profile["id"],
@@ -596,6 +609,7 @@ def profiles_for_browser() -> dict[str, dict[str, str]]:
             "role_context": profile.get("role_context", ""),
             "reference_context": profile.get("reference_context", ""),
             "output_format": profile.get("output_format", ""),
+            "zoom_pages": profile_zoom_pages(profile),
         }
         for profile in profiles_with_display_labels()
     }

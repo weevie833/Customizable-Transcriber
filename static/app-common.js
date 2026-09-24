@@ -87,6 +87,8 @@ function resetPreflight() {
   const costEstimate = document.getElementById("offpeak-cost-estimate");
   if (offPeakButton) offPeakButton.disabled = true;
   if (costEstimate) costEstimate.hidden = true;
+  const zoomAdvice = document.getElementById("page-zoom-advice");
+  if (zoomAdvice) zoomAdvice.hidden = true;
 }
 
 function applySourceFolder(path) {

@@ -21,6 +21,17 @@ OFF_PEAK_INFO_TEXT = (
     "provider's side: any images not yet completed are lost, not paused."
 )
 
+PAGE_ZOOM_INFO_TEXT = (
+    "Page zoom sends each photo to Gemini together with a full-resolution crop of each page. "
+    "AI models shrink large photos before reading them, so on a high-resolution photo of two "
+    "facing pages the handwriting loses detail; the page crops give it back. Use it with Gemini "
+    "models on photos of two facing pages at least about 3000 pixels wide. In tests on two "
+    "registers it corrected misread capital letters and names, at little or no extra cost. It "
+    "does not help Claude models, single-page photos, or small photos, and a photo with no clear "
+    "gutter between the pages is sent whole. It is new: before a large run, compare a few images "
+    "with and without it."
+)
+
 # Only used on this page -- moved here rather than left as an app.py
 # constant, since importing it from app.py would be circular (app.py
 # imports this module's page() function).
@@ -51,6 +62,7 @@ def page() -> str:
         reference_context = str(state["reference_context"])
         output_format = str(state["output_format"])
         off_peak = bool(state["off_peak"])
+        zoom_pages = bool(state["zoom_pages"])
 
     if profile_id:
         active_profile = load_profile(profile_id)
@@ -90,6 +102,8 @@ def page() -> str:
         {"profiles": profiles_for_browser(), "running": running, "off_peak": off_peak},
     )
     off_peak_info_html = info_button_html("offpeak-info-panel", OFF_PEAK_INFO_TEXT)
+    page_zoom_info_html = info_button_html("page-zoom-info-panel", PAGE_ZOOM_INFO_TEXT)
+    zoom_checked = "checked" if zoom_pages else ""
     download_disabled_class = "" if download else " disabled-link"
     download_aria_disabled = "false" if download else "true"
 
@@ -181,6 +195,13 @@ def page() -> str:
         <p class="hint">JPEG includes .jpg and .jpeg files.</p>
       </fieldset>
     </div>
+    <fieldset class="page-zoom-option">
+      <legend>Page zoom</legend>
+      <span class="page-zoom-row">
+        <label class="check"><input type="checkbox" name="zoom_pages" value="on" {zoom_checked}>Zoom into each page (Gemini, photos of two facing pages)</label>
+        {page_zoom_info_html}
+      </span>
+    </fieldset>
     <label>Prompt profile
       <div class="profile-select-row">
         <select name="profile_id">
@@ -207,6 +228,8 @@ def page() -> str:
           <span>Order: <strong id="confirm-order"></strong></span>
           <span>File type: <strong id="confirm-file-type"></strong></span>
           <span>Prompt Profile: <strong id="confirm-profile"></strong></span>
+          <span>Page zoom: <strong id="confirm-zoom"></strong></span>
+          <span id="page-zoom-advice" class="page-zoom-advice" hidden></span>
           <span id="offpeak-cost-estimate" hidden></span>
         </span>
         <span id="run-status" class="run-status" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>

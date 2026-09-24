@@ -16,7 +16,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from customizable_transcription import usage_ledger
+from customizable_transcription import page_zoom, usage_ledger
 
 FILE_TYPE_EXTENSIONS = {
     "jpeg": frozenset({".jpg", ".jpeg"}),
@@ -148,6 +148,8 @@ class TranscriptionConfig:
     system_prompt: str | None = None
     api_key_override: str | None = None
     source_extensions: frozenset[str] = field(default_factory=lambda: SUPPORTED_SOURCE_EXTENSIONS)
+    # Page zoom (page_zoom.py): Gemini only; ignored for Claude.
+    zoom_pages: bool = False
     # Labels for the usage ledger only; nothing else reads them.
     profile_id: str = ""
     profile_label: str = ""
@@ -704,6 +706,7 @@ def _transcribe_image_gemini(
     include_thoughts: bool,
     max_thinking_level: str | None = None,
     cached_content: str | None = None,
+    page_images: tuple[bytes, bytes] | None = None,
 ) -> str:
     # cached_content is an explicit Gemini context cache's resource name (see
     # create_gemini_prompt_cache()) holding this exact system_prompt --
@@ -743,7 +746,13 @@ def _transcribe_image_gemini(
             config_kwargs["thinking_config"] = thinking_config
             config_kwargs_no_cache["thinking_config"] = thinking_config
 
-    contents = [types.Part.from_bytes(data=data, mime_type=mime_type), USER_INSTRUCTION]
+    contents: list[object] = [types.Part.from_bytes(data=data, mime_type=mime_type)]
+    if page_images:
+        # Page zoom: full photo first, then each page's crop -- see page_zoom.py.
+        contents += [types.Part.from_bytes(data=crop, mime_type="image/jpeg") for crop in page_images]
+        contents.append(USER_INSTRUCTION + page_zoom.PAGE_ZOOM_INSTRUCTION)
+    else:
+        contents.append(USER_INSTRUCTION)
     started = time.monotonic()
     if cached_content:
         response = _generate_content_with_cache_fallback(
@@ -853,6 +862,8 @@ def transcribe_image(
     max_thinking_level: str | None = None,
     cached_content: str | None = None,
     use_prompt_cache: bool = False,
+    zoom_pages: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> str:
     data = image_path.read_bytes()
     # Detected from the file's own leading bytes, not its extension -- same
@@ -877,6 +888,11 @@ def transcribe_image(
         return _transcribe_image_claude(
             client.claude, data, mime_type, system_prompt, model, use_prompt_cache
         )
+    page_images = None
+    if zoom_pages and detected_type in ("jpeg", "png"):
+        page_images = page_zoom.page_crops(data)
+        if page_images is None and progress:
+            progress(f"{image_path.name}: no clear gutter between two pages found; sent the full photo only.")
     return _transcribe_image_gemini(
         client.gemini,
         data,
@@ -886,6 +902,7 @@ def transcribe_image(
         include_thoughts,
         max_thinking_level,
         cached_content,
+        page_images,
     )
 
 
@@ -899,6 +916,7 @@ def transcribe_image_with_retry(
     progress: Callable[[str], None] | None = None,
     cached_content: str | None = None,
     use_prompt_cache: bool = False,
+    zoom_pages: bool = False,
 ) -> str:
     text = _with_transient_retry(
         lambda: transcribe_image(
@@ -910,6 +928,8 @@ def transcribe_image_with_retry(
             max_thinking_level,
             cached_content,
             use_prompt_cache,
+            zoom_pages=zoom_pages,
+            progress=progress,
         ),
         progress=progress,
     )
@@ -957,6 +977,7 @@ def transcribe_image_with_retry(
                 "LOW",
                 cached_content,
                 use_prompt_cache,
+                zoom_pages=zoom_pages,
             ),
             progress=progress,
         )
@@ -1202,6 +1223,11 @@ def run_batch(
     # creation cost against, and always cleaned up afterward regardless of
     # how the loop ends (Stop, an exception, or normal completion).
     use_prompt_cache = client.provider == "claude" and len(files) > 1
+    zoom_pages = config.zoom_pages and client.provider == "gemini"
+    if zoom_pages:
+        log("Page zoom is on: each two-page photo is sent with a crop of each page.")
+    elif config.zoom_pages:
+        log("Page zoom only applies to Gemini models; sending full photos for this run.")
     gemini_cache_name: str | None = None
     if client.provider == "gemini" and len(files) > 1:
         gemini_cache_name = create_gemini_prompt_cache(client.gemini, config.model, prompt, progress=log)
@@ -1234,6 +1260,7 @@ def run_batch(
                             progress=log,
                             cached_content=gemini_cache_name,
                             use_prompt_cache=use_prompt_cache,
+                            zoom_pages=zoom_pages,
                         )
                     output.write(render_entry(name, text, next_name, previous_name))
                     output.flush()

@@ -111,6 +111,14 @@ PB_SPAN_IMAGES_INFO_TEXT = (
     "page layout is two facing pages."
 )
 
+PB_ZOOM_PAGES_INFO_TEXT = (
+    "Saved with this profile. When you select the profile on the Transcribe page, its Page zoom "
+    "checkbox is turned on for you (you can still turn it off for one run). Page zoom sends each "
+    "photo to Gemini together with a full-resolution crop of each page, which helps the model read "
+    "small or ornate handwriting on high-resolution photos of two facing pages. It has no effect with "
+    "Claude models, and it does not change the prompt text."
+)
+
 PB_HONORIFICS_INFO_TEXT = (
     "This is about how a person's title gets written in a translation when they're named in a role -- a "
     "godparent, a witness, an informant. A \"role clause\" is the little phrase that introduces that person "
@@ -542,6 +550,9 @@ def prompt_builder_page(
       </div>
       <div class="pb-inline-row" id="pb-span-images-row">
         <label class="pb-checkbox"><input type="checkbox" name="entriesSpanFacingImages"> Entries start on the right page of an image and continue on the left page of the next image</label>{pb_info_button_html("pb-info-span-images", PB_SPAN_IMAGES_INFO_TEXT)}
+      </div>
+      <div class="pb-inline-row" id="pb-zoom-pages-row">
+        <label class="pb-checkbox"><input type="checkbox" name="zoomPages"> Turn on Page zoom when this profile is used (Gemini, high-resolution photos)</label>{pb_info_button_html("pb-info-zoom-pages", PB_ZOOM_PAGES_INFO_TEXT)}
       </div>
 
       <div class="pb-field-grid">

@@ -43,6 +43,7 @@ from run_support import (
     selected_file_type,
     selected_model_pair,
     selected_profile_id,
+    selected_zoom_pair,
     test_destination_output_file,
 )
 from test_mode.comparison import score_transcription
@@ -64,6 +65,7 @@ class TestModeRunHandlerMixin:
         try:
             form = parse_post_form(self)
             model_a, model_b = selected_model_pair(form)
+            zoom_a, zoom_b = selected_zoom_pair(form)
             label = pasted_value(form, "batch_label")
             with test_lock:
                 ordinal = len(test_state["queue"]) + 1
@@ -73,10 +75,14 @@ class TestModeRunHandlerMixin:
                         "label": label or f"Batch {ordinal}",
                         "model_a": model_a,
                         "model_b": model_b,
+                        "zoom_a": zoom_a,
+                        "zoom_b": zoom_b,
                     }
                 )
                 test_state["model_a"] = model_a
                 test_state["model_b"] = model_b
+                test_state["zoom_a"] = zoom_a
+                test_state["zoom_b"] = zoom_b
         except Exception as exc:
             with test_lock:
                 test_state["summary"] = f"Fatal error: {exc}"
@@ -169,12 +175,15 @@ class TestModeRunHandlerMixin:
 
         stem = output_stem()
         run_specs: list[tuple[str, str, str, str, Path, Path]] = []
-        runs_init: dict[str, dict[str, str]] = {}
+        runs_init: dict[str, dict[str, str | bool]] = {}
         for batch in batches:
             for slot, model in (("a", batch["model_a"]), ("b", batch["model_b"])):
                 api_key_value = api_key_claude if provider_for_model(model) == "claude" else api_key_gemini
                 run_id = f"{batch['batch_id']}-{slot}"
-                label = f"{batch['label']} · Model {slot.upper()}"
+                zoom_pages = bool(batch.get(f"zoom_{slot}"))
+                # The label names Page zoom so the comparison report can tell
+                # "same model, with and without zoom" apart.
+                label = f"{batch['label']} · Model {slot.upper()}" + (" (Page zoom)" if zoom_pages else "")
                 output_file = test_destination_output_file(profile_id, run_id, model, stem)
                 markdown_file = USER_OUTPUTS_DIR / f"{output_file.stem}.md"
                 run_specs.append((run_id, label, model, api_key_value, markdown_file, output_file))
@@ -185,6 +194,7 @@ class TestModeRunHandlerMixin:
                         "label": label,
                         "model": model,
                         "output": str(output_file),
+                        "zoom_pages": zoom_pages,
                     }
                 )
                 runs_init[run_id] = run_state

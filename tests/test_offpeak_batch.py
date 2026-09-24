@@ -820,9 +820,9 @@ def test_run_off_peak_job_honors_newest_first_order(tmp_path, monkeypatch, sandb
     submitted_names: list[str] = []
     real_submit = bt.submit_gemini_batch
 
-    def spying_submit(client, model, system_prompt, images):
+    def spying_submit(client, model, system_prompt, images, **kwargs):
         submitted_names.extend(path.name for path in images)
-        return real_submit(client, model, system_prompt, images)
+        return real_submit(client, model, system_prompt, images, **kwargs)
 
     monkeypatch.setattr(bt, "submit_gemini_batch", spying_submit)
     monkeypatch.setattr(
@@ -919,7 +919,7 @@ def test_run_off_peak_job_submission_timeout_produces_a_clear_error(tmp_path, mo
     monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: _FakeGeminiClient())
     monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
 
-    def raise_timeout(client, model, system_prompt, images):
+    def raise_timeout(client, model, system_prompt, images, **_kwargs):
         raise bt.httpx.TimeoutException("connect timed out")
 
     monkeypatch.setattr(bt, "submit_gemini_batch", raise_timeout)

@@ -58,6 +58,8 @@ state = {
     "model": DEFAULT_MODEL,
     "order": "oldest",
     "file_type": "jpeg",
+    # Transcribe page's Page zoom checkbox, remembered like order/file_type.
+    "zoom_pages": False,
     "profile_id": "",
     "new_profile_name": "",
     "role_context": "",
@@ -100,7 +102,7 @@ xls_preflight_cache: dict[str, dict[str, object]] = {}
 xls_ai_lock = threading.Lock()
 
 
-def new_test_run_state() -> dict[str, str]:
+def new_test_run_state() -> dict[str, str | bool]:
     return {
         "batch_label": "",
         "label": "",
@@ -109,6 +111,8 @@ def new_test_run_state() -> dict[str, str]:
         "download": "",
         "markdown": "",
         "summary": "",
+        # Page zoom for this run (page_zoom.py); read by run_test_job().
+        "zoom_pages": False,
     }
 
 
@@ -119,6 +123,8 @@ test_state = {
     "summary": "",
     "model_a": DEFAULT_MODEL,
     "model_b": DEFAULT_MODEL,
+    "zoom_a": False,
+    "zoom_b": False,
     "order": "oldest",
     "file_type": "jpeg",
     "profile_id": "",
@@ -276,6 +282,7 @@ def reset_ui_state() -> None:
         state["model"] = DEFAULT_MODEL
         state["order"] = "oldest"
         state["file_type"] = "jpeg"
+        state["zoom_pages"] = False
         state["profile_id"] = ""
         state["new_profile_name"] = ""
         state["role_context"] = ""
@@ -297,6 +304,8 @@ def reset_test_ui_state() -> None:
         test_state["summary"] = ""
         test_state["model_a"] = DEFAULT_MODEL
         test_state["model_b"] = DEFAULT_MODEL
+        test_state["zoom_a"] = False
+        test_state["zoom_b"] = False
         test_state["order"] = "oldest"
         test_state["file_type"] = "jpeg"
         test_state["profile_id"] = ""

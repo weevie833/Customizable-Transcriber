@@ -99,6 +99,7 @@ GENERAL_EXTRACTION_RULES = f"""GENERAL RULES:
 - Preserve source name spellings exactly. Do not translate, modernize, anglicize, or silently correct names.
 - Split given names from surnames. Keep Italian surname prefixes such as da, dal, de, del, della, di, la, le, li, and lo with the surname.
 - Strip honorifics from name fields, but retain relevant titles, occupations, status, age, residence, origin, legitimacy, and relationship information in the appropriate field.
+- A place of origin written after a person's full name (for example "Antonius Mauro di Lany" or "Petrus Carpenterio da Nocera") is not part of the surname: the surname is "Mauro" or "Carpenterio", and the origin stays with the given name ("Antonius di Lany", "Petrus da Nocera"). This is different from a surname prefix, which stands directly before the surname itself with no other surname before it ("Joseph di Natale").
 - A Marginal Heading block may begin with an "Entry N - " locator prefix immediately before a name (for example "Entry 4 - Laurentius Sansone"). That number is the register's own entry number, not part of the name -- exclude it from every name field.
 - image_link must always be "".
 - A final "Notes:" line at the very end of a block, after the last entry's other blocks (for example "Notes: ENTRY CONTINUES ON THE NEXT IMAGE -- ..."), is that last entry's note. It is never an entry of its own.
@@ -106,6 +107,7 @@ GENERAL_EXTRACTION_RULES = f"""GENERAL RULES:
 - A PREVIOUS RECORD CONTEXT may be supplied for the first entry in a block. Use it only when the source explicitly refers back to a preceding date.
 - CROSSED-OUT ENTRIES: if the entry's transcribed text contains the marker "[ENTRY CROSSED OUT BY SCRIBE]" anywhere, set crossed_out to "true" and still extract every other field normally from the rest of that entry's transcribed content -- do not skip the entry or blank its fields. If no such marker is present, set crossed_out to "false", even if the entry has an ordinary correction, insertion, or a strikethrough affecting only part of it.
 - REGISTER FRONT MATTER: a block introduced with the locator "Front Matter:" (instead of the usual page/act locator) is the register's own opening or administrative material -- a title page, volume-covered date range, page count, judicial delegation, or similar -- not an individual record. Do not extract it as an entry; it contributes zero objects to the output array.
+- An annotation that is not itself a record of an individual -- for example a bishop's visitation note, a page total, or a certification of the register -- is not an entry either and contributes zero objects.
 """
 
 

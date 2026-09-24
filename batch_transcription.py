@@ -60,7 +60,7 @@ from app_state import (
     stop_event,
     write_off_peak_job_state,
 )
-from customizable_transcription import usage_ledger
+from customizable_transcription import page_zoom, usage_ledger
 from customizable_transcription.core import (
     BATCH_REQUEST_TIMEOUT_SECONDS,
     FILE_TYPE_MIME,
@@ -268,7 +268,9 @@ MAX_BATCH_IMAGE_COUNT = 1000
 MAX_BATCH_AGGREGATE_BYTES = 500_000_000  # 500 MB of combined raw source-file bytes
 
 
-def validated_images(image_folder: Path, extensions, reverse_order: bool = False) -> list[Path]:
+def validated_images(
+    image_folder: Path, extensions, reverse_order: bool = False, aggregate_limit: int | None = None
+) -> list[Path]:
     """Same discovery + per-file validation run_batch() already applies to
     every image before sending it anywhere -- reused here rather than
     duplicated, so a batch job gets identical symlink/size/type protection
@@ -282,6 +284,8 @@ def validated_images(image_folder: Path, extensions, reverse_order: bool = False
     filesystem at all; the aggregate-byte running total is accumulated
     alongside the existing per-file validate_batch_source_file() calls
     (which already stat() every file) rather than statting each file twice."""
+    if aggregate_limit is None:
+        aggregate_limit = MAX_BATCH_AGGREGATE_BYTES
     files = source_files(image_folder, extensions, reverse_order=reverse_order)
     if len(files) > MAX_BATCH_IMAGE_COUNT:
         raise BatchSubmissionError(
@@ -293,9 +297,9 @@ def validated_images(image_folder: Path, extensions, reverse_order: bool = False
     for path in files:
         validate_batch_source_file(path, image_folder)
         total_bytes += path.stat().st_size
-        if total_bytes > MAX_BATCH_AGGREGATE_BYTES:
+        if total_bytes > aggregate_limit:
             raise BatchSubmissionError(
-                f"This folder's source images total over {MAX_BATCH_AGGREGATE_BYTES / 1_000_000:,.0f} MB "
+                f"This folder's source images total over {aggregate_limit / 1_000_000:,.0f} MB "
                 "combined, over the aggregate limit for a single off-peak batch. Split it into smaller "
                 "batches (e.g. by sub-folder or date range) and run each one separately."
             )
@@ -307,7 +311,7 @@ def validated_images(image_folder: Path, extensions, reverse_order: bool = False
 # ---------------------------------------------------------------------------
 
 def submit_gemini_batch(
-    client: genai.Client, model: str, system_prompt: str, images: list[Path]
+    client: genai.Client, model: str, system_prompt: str, images: list[Path], zoom_pages: bool = False
 ) -> str:
     requests = []
     for index, path in enumerate(images):
@@ -318,13 +322,17 @@ def submit_gemini_batch(
                 f"{path.name} does not look like a JPEG, PNG, or PDF file (checked its content, "
                 "not just its extension) -- aborting before submission."
             )
+        contents: list[object] = [genai_types.Part.from_bytes(data=data, mime_type=FILE_TYPE_MIME[detected])]
+        crops = page_zoom.page_crops(data) if zoom_pages and detected in ("jpeg", "png") else None
+        if crops:
+            contents += [genai_types.Part.from_bytes(data=crop, mime_type="image/jpeg") for crop in crops]
+            contents.append(USER_INSTRUCTION + page_zoom.PAGE_ZOOM_INSTRUCTION)
+        else:
+            contents.append(USER_INSTRUCTION)
         requests.append(
             genai_types.InlinedRequest(
                 model=model,
-                contents=[
-                    genai_types.Part.from_bytes(data=data, mime_type=FILE_TYPE_MIME[detected]),
-                    USER_INSTRUCTION,
-                ],
+                contents=contents,
                 config=genai_types.GenerateContentConfig(system_instruction=system_prompt, temperature=0),
                 metadata={"index": str(index)},
             )
@@ -609,6 +617,7 @@ def run_off_peak_job(
     docx_file: Path,
     profile: dict[str, object],
     reverse_order: bool = False,
+    zoom_pages: bool = False,
 ) -> None:
     """The off-peak counterpart to run_support.py's run_job() -- same
     responsibility (produce the final .md/.docx and update state on
@@ -623,7 +632,15 @@ def run_off_peak_job(
     job_id: str | None = None
     submitted_at_iso = ""
     try:
-        images = validated_images(image_folder, extensions, reverse_order=reverse_order)
+        # Page zoom (Gemini only) adds two page crops per photo to the in-memory
+        # request list, roughly doubling it -- so the byte cap is halved.
+        zoom_pages = zoom_pages and provider == "gemini"
+        images = validated_images(
+            image_folder,
+            extensions,
+            reverse_order=reverse_order,
+            aggregate_limit=MAX_BATCH_AGGREGATE_BYTES // 2 if zoom_pages else None,
+        )
         if not images:
             raise BatchSubmissionError("No source images were found in the selected folder.")
         names = [display_name(path, image_folder) for path in images]
@@ -642,7 +659,7 @@ def run_off_peak_job(
             if provider == "claude":
                 job_id = submit_claude_batch(heavy_client, model, system_prompt, images)
             else:
-                job_id = submit_gemini_batch(heavy_client, model, system_prompt, images)
+                job_id = submit_gemini_batch(heavy_client, model, system_prompt, images, zoom_pages=zoom_pages)
         except (httpx.TimeoutException, httpx.RemoteProtocolError, anthropic.APIConnectionError) as exc:
             # Outcome UNKNOWN, not failure (CODEX_REVIEW.md H-1 / HD-1): the provider may
             # have accepted the batch even though its response never arrived, and it may

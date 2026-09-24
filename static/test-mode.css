@@ -228,3 +228,12 @@ longer doubled since this isn't inside an f-string anymore). */
       .site-header { align-items: stretch; }
       .run-button-stack button { width: 100%; }
     }
+.zoom-row {
+  margin-top: -4px;
+}
+.zoom-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}

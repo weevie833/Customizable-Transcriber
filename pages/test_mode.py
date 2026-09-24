@@ -11,6 +11,12 @@ from customizable_transcription.core import MODELS
 from pages import FOOTER_HTML, file_picker_html, json_data_island_html
 from profiles_store import profile_options_html, profiles_for_browser
 
+TM_PAGE_ZOOM_HINT = (
+    "Page zoom (Gemini only) sends each photo of two facing pages together with a full-resolution "
+    "crop of each page. To see whether it helps your register, choose the same Gemini model for "
+    "Model A and Model B and turn Page zoom on for only one of them."
+)
+
 
 def tm_info_button_html(panel_id: str, text: str) -> str:
     # Small "i" popup button, mirroring Prompt Builder's own
@@ -35,6 +41,8 @@ def test_mode_page() -> str:
         summary = str(test_state["summary"])
         model_a = str(test_state["model_a"])
         model_b = str(test_state["model_b"])
+        zoom_a = bool(test_state["zoom_a"])
+        zoom_b = bool(test_state["zoom_b"])
         order = str(test_state["order"])
         file_type = str(test_state["file_type"])
         profile_id = str(test_state["profile_id"])
@@ -57,6 +65,12 @@ def test_mode_page() -> str:
 
     model_a_options = model_options_for(model_a)
     model_b_options = model_options_for(model_b)
+    zoom_a_checked = "checked" if zoom_a else ""
+    zoom_b_checked = "checked" if zoom_b else ""
+
+    def model_name(batch: dict, slot: str) -> str:
+        name = html.escape(MODELS.get(batch[f"model_{slot}"], batch[f"model_{slot}"]))
+        return name + (" (Page zoom)" if batch.get(f"zoom_{slot}") else "")
 
     newest_checked = "checked" if order == "newest" else ""
     oldest_checked = "checked" if order != "newest" else ""
@@ -84,8 +98,8 @@ def test_mode_page() -> str:
 
     queue_list_html = "\n".join(
         f'''<li class="queue-item">
-          <span>{html.escape(batch["label"])}: {html.escape(MODELS.get(batch["model_a"], batch["model_a"]))}
-            vs {html.escape(MODELS.get(batch["model_b"], batch["model_b"]))}</span>
+          <span>{html.escape(batch["label"])}: {model_name(batch, "a")}
+            vs {model_name(batch, "b")}</span>
           <button type="submit" class="danger queue-remove-button" formaction="/test-mode/queue/remove" formmethod="post" formnovalidate name="batch_id" value="{html.escape(batch["batch_id"])}" {disabled}>Remove</button>
         </li>'''
         for batch in queue
@@ -161,6 +175,11 @@ def test_mode_page() -> str:
         </select>
       </label>
     </div>
+    <div class="row zoom-row">
+      <label class="zoom-check"><input type="checkbox" name="zoom_a" value="on" {zoom_a_checked}>Page zoom for Model A</label>
+      <label class="zoom-check"><input type="checkbox" name="zoom_b" value="on" {zoom_b_checked}>Page zoom for Model B</label>
+    </div>
+    <p class="hint">{html.escape(TM_PAGE_ZOOM_HINT)}</p>
     <div class="row">
       <label>Gemini API key
         <input type="password" name="api_key_gemini" autocomplete="off" placeholder="Paste your Gemini API key">

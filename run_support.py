@@ -40,6 +40,7 @@ from app_state import (
     test_state,
     test_stop_event,
 )
+from customizable_transcription import page_zoom
 from customizable_transcription.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
@@ -52,6 +53,7 @@ from customizable_transcription.core import (
     humanize_provider_error,
     provider_for_model,
     run_batch,
+    source_files,
     validate_api_key_with_retry,
 )
 from docx_package import content_types_xml, root_rels_xml, strip_xml_illegal_chars
@@ -96,13 +98,25 @@ def selected_model(form: FormData) -> str:
     return model
 
 
+def selected_zoom_pair(form: FormData) -> tuple[bool, bool]:
+    """Test Mode's per-slot Page zoom checkboxes (see page_zoom.py)."""
+    return (
+        (form.getfirst("zoom_a", "") or "") == "on",
+        (form.getfirst("zoom_b", "") or "") == "on",
+    )
+
+
 def selected_model_pair(form: FormData) -> tuple[str, str]:
     model_a = form.getfirst("model_a", DEFAULT_MODEL) or DEFAULT_MODEL
     model_b = form.getfirst("model_b", DEFAULT_MODEL) or DEFAULT_MODEL
     if model_a not in MODELS or model_b not in MODELS:
         raise RuntimeError("Select a model for both Model A and Model B before running.")
-    if model_a == model_b:
-        raise RuntimeError("Model A and Model B must be different models.")
+    zoom_a, zoom_b = selected_zoom_pair(form)
+    # The same model twice is only a comparison when Page zoom differs.
+    if model_a == model_b and zoom_a == zoom_b:
+        raise RuntimeError(
+            "Model A and Model B must be different models, unless Page zoom is on for only one of them."
+        )
     return model_a, model_b
 
 
@@ -118,12 +132,15 @@ def resolve_run_batches(form: FormData) -> list[dict[str, str]]:
     if queue:
         return queue
     model_a, model_b = selected_model_pair(form)
+    zoom_a, zoom_b = selected_zoom_pair(form)
     return [
         {
             "batch_id": new_batch_id(),
             "label": "Batch 1",
             "model_a": model_a,
             "model_b": model_b,
+            "zoom_a": zoom_a,
+            "zoom_b": zoom_b,
         }
     ]
 
@@ -142,6 +159,59 @@ def required_providers(batches: list[dict[str, str]]) -> set[str]:
         providers.add(provider_for_model(batch["model_a"]))
         providers.add(provider_for_model(batch["model_b"]))
     return providers
+
+
+def selected_zoom_pages(form: FormData) -> bool:
+    """The Transcribe page's Page zoom checkbox (see page_zoom.py)."""
+    return (form.getfirst("zoom_pages", "") or "") == "on"
+
+
+# Preflight advice for the Page zoom checkbox. Fixed sentences (not assembled
+# from parts) so static/i18n.js can translate each one as a DICTIONARY key.
+PAGE_ZOOM_SUGGEST = (
+    "These look like high-resolution photos of two facing pages. Page zoom may help the model "
+    "read names more accurately, at little or no extra cost. Consider turning it on."
+)
+PAGE_ZOOM_CLAUDE = "Page zoom only works with Gemini models, so it will be skipped for this run."
+PAGE_ZOOM_PDF = "Page zoom works with JPEG and PNG photos only, so it will be skipped for PDF files."
+PAGE_ZOOM_NOT_SPREADS = (
+    "Page zoom is on, but these photos don't look like high-resolution photos of two facing pages, "
+    "so it is unlikely to help. Photos without a clear gutter are sent whole."
+)
+# How many photos from the start of the run Preflight looks at.
+PAGE_ZOOM_SAMPLE_SIZE = 3
+
+
+def page_zoom_advice(
+    source_folder: Path | None, file_type: str, model: str, zoom_on: bool, page_layout: str = ""
+) -> str:
+    """One Preflight sentence about Page zoom, or "" when there is nothing to
+    say. Runs locally with Pillow on a few photos -- no API call, no cost."""
+    gemini = provider_for_model(model) == "gemini"
+    if zoom_on and not gemini:
+        return PAGE_ZOOM_CLAUDE
+    if zoom_on and file_type == "pdf":
+        return PAGE_ZOOM_PDF
+    if not gemini or file_type == "pdf" or source_folder is None:
+        return ""
+    if not zoom_on and page_layout == "one_page":
+        return ""
+    try:
+        sample = source_files(source_folder, extensions_for_file_type(file_type))[:PAGE_ZOOM_SAMPLE_SIZE]
+        infos = [page_zoom.analyze_file(path) for path in sample]
+    except Exception:
+        return ""  # informational only; the run itself reports real problems
+    if not infos:
+        return ""
+    qualifying = sum(
+        1 for info in infos if info.gutter_x is not None and info.long_edge >= page_zoom.SUGGEST_MIN_LONG_EDGE
+    )
+    looks_like_spreads = qualifying * 2 > len(infos)
+    if zoom_on and not looks_like_spreads:
+        return PAGE_ZOOM_NOT_SPREADS
+    if not zoom_on and looks_like_spreads:
+        return PAGE_ZOOM_SUGGEST
+    return ""
 
 
 def selected_file_type(form: FormData) -> str:
@@ -539,6 +609,7 @@ def run_job(form: FormData, output_file: Path) -> None:
             system_prompt=system_prompt,
             api_key_override=pasted_value(form, "gemini_api_key") or None,
             source_extensions=extensions_for_file_type(file_type),
+            zoom_pages=selected_zoom_pages(form),
             profile_id=str(profile.get("id", "")),
             profile_label=str(profile.get("label", "")),
         )
@@ -630,6 +701,7 @@ def run_test_job(
 
             with test_lock:
                 test_state["current_run_id"] = run_id
+                zoom_pages = bool((test_state["runs"].get(run_id) or {}).get("zoom_pages"))
 
             tag = f"[{label}: {model}]"
             try:
@@ -649,6 +721,7 @@ def run_test_job(
                     system_prompt=system_prompt,
                     api_key_override=api_key_value,
                     source_extensions=extensions_for_file_type(file_type),
+                    zoom_pages=zoom_pages,
                     profile_id=str(profile.get("id", "")),
                     profile_label=str(profile.get("label", "")),
                 )

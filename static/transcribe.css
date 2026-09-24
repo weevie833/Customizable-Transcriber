@@ -84,3 +84,17 @@ since this isn't inside an f-string anymore). */
       .run-button-stack button { width: 100%; }
       .offpeak-button-row button { width: 100%; }
     }
+    .page-zoom-option {
+      margin-top: 14px;
+    }
+    .page-zoom-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .page-zoom-row .check {
+      margin-top: 0;
+    }
+    .page-zoom-advice {
+      color: #7a4b00;
+    }

@@ -56,7 +56,10 @@ from profiles_store import (
     load_profile,
     save_custom_profile,  # noqa: F401 -- re-exported for tests
 )
-from run_support import run_test_job  # noqa: F401 -- re-exported for tests
+from run_support import (
+    page_zoom_advice,
+    run_test_job,  # noqa: F401 -- re-exported for tests
+)
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -409,6 +412,29 @@ class Handler(
                     "default": DEFAULT_MODEL,
                 }
             )
+            return
+
+        if parsed.path == "/api/page-zoom-check":
+            # Read-only, same rules as /api/offpeak-cost-estimate below: the
+            # source folder is the one already stored server-side, and
+            # model/file_type are validated enum values, never paths.
+            query = urllib.parse.parse_qs(parsed.query)
+            model = (query.get("model") or [DEFAULT_MODEL])[0]
+            file_type = (query.get("file_type") or ["jpeg"])[0]
+            profile_id = (query.get("profile_id") or [""])[0]
+            zoom_on = (query.get("zoom_pages") or [""])[0] == "on"
+            if model not in MODELS or file_type not in FILE_TYPE_EXTENSIONS:
+                self.respond_json({"error": "Invalid model or file type."}, status=400)
+                return
+            page_layout = ""
+            if profile_id:
+                try:
+                    pb_answers = load_profile(profile_id).get("pb_answers") or {}
+                    page_layout = str((pb_answers.get("fields") or {}).get("pageLayout", ""))
+                except Exception:
+                    page_layout = ""
+            advice = page_zoom_advice(load_source_folder(), file_type, model, zoom_on, page_layout)
+            self.respond_json({"advice": advice})
             return
 
         if parsed.path == "/api/offpeak-cost-estimate":

@@ -182,6 +182,38 @@
     // Off-Peak Mode info-button popup (OFF_PEAK_INFO_TEXT, pages/transcribe.py).
     "Off-Peak Mode submits your whole run to your provider's batch queue instead of processing images in real time -- typically billed at roughly half the standard per-token rate. The app must stay open and running for the entire job; there is no way to submit it and close the app. The provider processes it on its own schedule, which can take anywhere from a few minutes to several hours -- there is no guaranteed turnaround time. Clicking Stop cancels the batch entirely on the provider's side: any images not yet completed are lost, not paused.":
       "La Modalità Off-Peak invia l'intera esecuzione alla coda batch del tuo provider invece di elaborare le immagini in tempo reale — di norma fatturata a circa la metà della tariffa standard per token. L'app deve rimanere aperta e in esecuzione per tutta la durata del lavoro; non è possibile inviarlo e poi chiudere l'app. Il provider lo elabora secondo i propri tempi, che possono variare da pochi minuti a diverse ore — non è garantito alcun tempo di consegna. Cliccando su Interrompi, il lotto viene annullato completamente lato provider: le immagini non ancora completate vengono perse, non messe in pausa.",
+    // Page zoom in Test Mode (pages/test_mode.py) and Prompt Builder (pages/prompt_builder.py).
+    "Page zoom for Model A":
+      "Zoom sulle pagine per il Modello A",
+    "Page zoom for Model B":
+      "Zoom sulle pagine per il Modello B",
+    "Page zoom (Gemini only) sends each photo of two facing pages together with a full-resolution crop of each page. To see whether it helps your register, choose the same Gemini model for Model A and Model B and turn Page zoom on for only one of them.":
+      "Lo zoom sulle pagine (solo Gemini) invia ogni foto di due pagine affiancate insieme a un ritaglio a piena risoluzione di ciascuna pagina. Per verificare se aiuta con il tuo registro, scegli lo stesso modello Gemini per il Modello A e il Modello B e attiva lo zoom sulle pagine solo per uno dei due.",
+    "Turn on Page zoom when this profile is used (Gemini, high-resolution photos)":
+      "Attiva lo zoom sulle pagine quando si usa questo profilo (Gemini, foto ad alta risoluzione)",
+    "Saved with this profile. When you select the profile on the Transcribe page, its Page zoom checkbox is turned on for you (you can still turn it off for one run). Page zoom sends each photo to Gemini together with a full-resolution crop of each page, which helps the model read small or ornate handwriting on high-resolution photos of two facing pages. It has no effect with Claude models, and it does not change the prompt text.":
+      "Salvato con questo profilo. Quando selezioni il profilo nella pagina Trascrivi, la casella Zoom sulle pagine viene attivata automaticamente (puoi comunque disattivarla per una singola esecuzione). Lo zoom sulle pagine invia a Gemini ogni foto insieme a un ritaglio a piena risoluzione di ciascuna pagina, e aiuta il modello a leggere una scrittura piccola o ornata nelle foto ad alta risoluzione di due pagine affiancate. Non ha effetto con i modelli Claude e non modifica il testo del prompt.",
+    // Page zoom (pages/transcribe.py, run_support.py's page_zoom_advice()).
+    "Page zoom":
+      "Zoom sulle pagine",
+    "Page zoom:":
+      "Zoom sulle pagine:",
+    "Zoom into each page (Gemini, photos of two facing pages)":
+      "Ingrandisci ogni pagina (Gemini, foto di due pagine affiancate)",
+    "On":
+      "Attivo",
+    "Off":
+      "Disattivato",
+    "Page zoom sends each photo to Gemini together with a full-resolution crop of each page. AI models shrink large photos before reading them, so on a high-resolution photo of two facing pages the handwriting loses detail; the page crops give it back. Use it with Gemini models on photos of two facing pages at least about 3000 pixels wide. In tests on two registers it corrected misread capital letters and names, at little or no extra cost. It does not help Claude models, single-page photos, or small photos, and a photo with no clear gutter between the pages is sent whole. It is new: before a large run, compare a few images with and without it.":
+      "Lo zoom sulle pagine invia a Gemini ogni foto insieme a un ritaglio a piena risoluzione di ciascuna pagina. I modelli di IA riducono le foto grandi prima di leggerle, quindi in una foto ad alta risoluzione di due pagine affiancate la scrittura perde dettaglio; i ritagli delle pagine lo restituiscono. Usalo con i modelli Gemini su foto di due pagine affiancate larghe almeno circa 3000 pixel. Nelle prove su due registri ha corretto lettere maiuscole e nomi letti male, con un costo aggiuntivo minimo o nullo. Non aiuta con i modelli Claude, con foto di una sola pagina o con foto piccole, e una foto senza una piega centrale ben visibile tra le pagine viene inviata intera. È una funzione nuova: prima di un'esecuzione ampia, confronta alcune immagini con e senza.",
+    "These look like high-resolution photos of two facing pages. Page zoom may help the model read names more accurately, at little or no extra cost. Consider turning it on.":
+      "Sembrano foto ad alta risoluzione di due pagine affiancate. Lo zoom sulle pagine può aiutare il modello a leggere i nomi con più precisione, con un costo aggiuntivo minimo o nullo. Valuta di attivarlo.",
+    "Page zoom only works with Gemini models, so it will be skipped for this run.":
+      "Lo zoom sulle pagine funziona solo con i modelli Gemini, quindi verrà saltato in questa esecuzione.",
+    "Page zoom works with JPEG and PNG photos only, so it will be skipped for PDF files.":
+      "Lo zoom sulle pagine funziona solo con foto JPEG e PNG, quindi verrà saltato per i file PDF.",
+    "Page zoom is on, but these photos don't look like high-resolution photos of two facing pages, so it is unlikely to help. Photos without a clear gutter are sent whole.":
+      "Lo zoom sulle pagine è attivo, ma queste foto non sembrano foto ad alta risoluzione di due pagine affiancate, quindi è improbabile che aiuti. Le foto senza una piega centrale ben visibile vengono inviate intere.",
     "Use the Prompt Builder page to create prompts, or bypass the Prompt Builder and place your prompt in the sections below. Manual prompts cannot be edited in the Prompt Builder.":
       "Usa la pagina Prompt Builder per creare i prompt, oppure aggira il Prompt Builder e inserisci il tuo prompt nelle sezioni qui sotto. I prompt inseriti manualmente non possono essere modificati nel Prompt Builder.",
     "Manual prompts can only be edited here - they cannot be edited in the Prompt Builder.":

@@ -225,7 +225,9 @@ exactly where the inline block used to sit. */
       const orderLabel = selectedOrder && selectedOrder.value === "oldest" ? "Oldest-to-newest" : "Newest-to-oldest";
       const fileTypeLabel = selectedFileType ? selectedFileType.value.toUpperCase() : "Not selected";
       const profileLabel = profile ? profile.profile_label || profile.label : "Select a Profile";
-      return { orderLabel, fileTypeLabel, profileLabel };
+      const zoomBox = document.querySelector('[name="zoom_pages"]');
+      const zoomLabel = zoomBox && zoomBox.checked ? "On" : "Off";
+      return { orderLabel, fileTypeLabel, profileLabel, zoomLabel };
     }
 
     function runPreflightCheck() {
@@ -235,6 +237,8 @@ exactly where the inline block used to sit. */
       document.getElementById("confirm-order").textContent = settings.orderLabel;
       document.getElementById("confirm-file-type").textContent = settings.fileTypeLabel;
       document.getElementById("confirm-profile").textContent = settings.profileLabel;
+      const confirmZoom = document.getElementById("confirm-zoom");
+      if (confirmZoom) confirmZoom.textContent = settings.zoomLabel;
       const settingsWrap = document.getElementById("run-confirmation-settings");
       const confirmButton = document.getElementById("confirm-run-button");
       const offPeakButton = document.getElementById("confirm-run-offpeak-button");
@@ -245,6 +249,37 @@ exactly where the inline block used to sit. */
       if (runButton) runButton.disabled = true;
       preflightComplete = true;
       updateOffPeakCostEstimate();
+      updatePageZoomAdvice();
+      if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
+    }
+
+    async function updatePageZoomAdvice() {
+      // Checks a few photos locally on the server (no API call) and says
+      // whether Page zoom is likely to help -- see page_zoom_advice() in
+      // run_support.py. Informational only, like the off-peak estimate.
+      const adviceEl = document.getElementById("page-zoom-advice");
+      if (!adviceEl) return;
+      adviceEl.hidden = true;
+      const fileType = document.querySelector('[name="file_type"]:checked');
+      const zoomBox = document.querySelector('[name="zoom_pages"]');
+      const params = new URLSearchParams({
+        model: document.querySelector('[name="model"]').value || "",
+        file_type: fileType ? fileType.value : "jpeg",
+        profile_id: document.querySelector('[name="profile_id"]').value || "",
+        zoom_pages: zoomBox && zoomBox.checked ? "on" : "",
+      });
+      try {
+        const response = await fetch("/api/page-zoom-check?" + params.toString(), { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        adviceEl.textContent = data.advice || "";
+        adviceEl.hidden = !data.advice;
+        // Fixed sentences with i18n.js DICTIONARY entries; a raw
+        // .textContent assignment bypasses translation until refreshed.
+        if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
+      } catch (err) {
+        // Best-effort only.
+      }
     }
 
     async function updateOffPeakCostEstimate() {
@@ -377,6 +412,12 @@ exactly where the inline block used to sit. */
         setProfileFields(profileSelect.value);
         profileSelect.addEventListener("change", () => {
           setProfileFields(profileSelect.value);
+          // Choosing a profile applies its saved Page zoom default (Prompt
+          // Builder). Only on a real change, not on page load, so a setting
+          // the user changed for the current run survives a reload.
+          const zoomBox = document.querySelector('[name="zoom_pages"]');
+          const chosen = profiles[profileSelect.value];
+          if (zoomBox && chosen) zoomBox.checked = Boolean(chosen.zoom_pages);
           resetPreflight();
           hideSettingsAlert();
         });
@@ -396,6 +437,11 @@ exactly where the inline block used to sit. */
         });
       });
       document.querySelectorAll('[name="file_type"]').forEach((input) => {
+        input.addEventListener("change", resetPreflight);
+      });
+      // Page zoom advice depends on the model and the checkbox, so either
+      // change means the Preflight Check has to be run again.
+      document.querySelectorAll('[name="zoom_pages"], [name="model"]').forEach((input) => {
         input.addEventListener("change", resetPreflight);
       });
       setOrderHint();

@@ -156,6 +156,7 @@ def test_transcribe_image_with_retry_retries_then_succeeds(monkeypatch):
         max_thinking_level=None,
         cached_content=None,
         use_prompt_cache=False,
+        **_kwargs,
     ):
         calls["n"] += 1
         if calls["n"] < 3:
@@ -187,6 +188,7 @@ def test_transcribe_image_with_retry_gives_up_after_max_retries(monkeypatch):
         max_thinking_level=None,
         cached_content=None,
         use_prompt_cache=False,
+        **_kwargs,
     ):
         calls["n"] += 1
         raise _gemini_503()
@@ -273,6 +275,7 @@ def test_truncated_gemini_response_retries_with_lower_thinking_and_succeeds(monk
         max_thinking_level=None,
         cached_content=None,
         use_prompt_cache=False,
+        **_kwargs,
     ):
         calls.append(max_thinking_level)
         if max_thinking_level is None:
@@ -307,6 +310,7 @@ def test_truncated_gemini_response_keeps_original_if_retry_still_truncated(monke
         max_thinking_level=None,
         cached_content=None,
         use_prompt_cache=False,
+        **_kwargs,
     ):
         calls.append(max_thinking_level)
         return "partial text" + core._TRUNCATION_NOTICE
@@ -337,6 +341,7 @@ def test_truncated_claude_response_is_not_retried(monkeypatch):
         max_thinking_level=None,
         cached_content=None,
         use_prompt_cache=False,
+        **_kwargs,
     ):
         calls.append(max_thinking_level)
         return "partial text" + core._TRUNCATION_NOTICE
@@ -369,6 +374,7 @@ def test_truncated_gemini_25_pro_response_is_not_retried(monkeypatch):
         max_thinking_level=None,
         cached_content=None,
         use_prompt_cache=False,
+        **_kwargs,
     ):
         calls.append(max_thinking_level)
         return "partial text" + core._TRUNCATION_NOTICE

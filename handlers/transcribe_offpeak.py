@@ -36,6 +36,7 @@ from run_support import (
     selected_file_type,
     selected_model,
     selected_profile_id,
+    selected_zoom_pages,
 )
 
 
@@ -126,6 +127,7 @@ class TranscribeOffPeakHandlerMixin:
             state["model"] = model
             state["order"] = order
             state["file_type"] = file_type
+            state["zoom_pages"] = selected_zoom_pages(form)
             state["profile_id"] = profile_id
             state["new_profile_name"] = ""
             state["role_context"] = role_context
@@ -149,6 +151,7 @@ class TranscribeOffPeakHandlerMixin:
                 # this order, but without threading it through, the batch was
                 # always submitted (and therefore output) oldest-to-newest.
                 "reverse_order": order != "oldest",
+                "zoom_pages": selected_zoom_pages(form),
             },
             daemon=True,
         )

@@ -210,8 +210,12 @@ the inline block used to sit. */
       const orderLabel = selectedOrder && selectedOrder.value === "oldest" ? "Oldest-to-newest" : "Newest-to-oldest";
       const fileTypeLabel = selectedFileType ? selectedFileType.value.toUpperCase() : "Not selected";
       const profileLabel = profile ? profile.profile_label || profile.label : "Select a Profile";
-      const modelALabel = modelASelect ? modelASelect.options[modelASelect.selectedIndex].text : "";
-      const modelBLabel = modelBSelect ? modelBSelect.options[modelBSelect.selectedIndex].text : "";
+      const zoomA = document.querySelector('[name="zoom_a"]');
+      const zoomB = document.querySelector('[name="zoom_b"]');
+      const modelALabel = (modelASelect ? modelASelect.options[modelASelect.selectedIndex].text : "")
+        + (zoomA && zoomA.checked ? " (Page zoom)" : "");
+      const modelBLabel = (modelBSelect ? modelBSelect.options[modelBSelect.selectedIndex].text : "")
+        + (zoomB && zoomB.checked ? " (Page zoom)" : "");
       const batchSummary = queueLength > 0
         ? queueLength + " queued batch" + (queueLength === 1 ? "" : "es")
         : modelALabel + " vs " + modelBLabel;
@@ -264,6 +268,15 @@ the inline block used to sit. */
       const selectA = document.querySelector('[name="model_a"]');
       const selectB = document.querySelector('[name="model_b"]');
       if (!selectA || !selectB) return;
+      // The same model on both sides is a real comparison when Page zoom
+      // is on for only one of them (selected_model_pair() in run_support.py).
+      const zoomA = document.querySelector('[name="zoom_a"]');
+      const zoomB = document.querySelector('[name="zoom_b"]');
+      if (zoomA && zoomB && zoomA.checked !== zoomB.checked) {
+        Array.from(selectA.options).forEach((option) => { option.disabled = false; });
+        Array.from(selectB.options).forEach((option) => { option.disabled = false; });
+        return;
+      }
       excludeSelectedValue(selectA, selectB);
       excludeSelectedValue(selectB, selectA);
     }
@@ -804,7 +817,7 @@ the inline block used to sit. */
       document.querySelectorAll('[name="file_type"]').forEach((input) => {
         input.addEventListener("change", resetPreflight);
       });
-      document.querySelectorAll('[name="model_a"], [name="model_b"]').forEach((input) => {
+      document.querySelectorAll('[name="model_a"], [name="model_b"], [name="zoom_a"], [name="zoom_b"]').forEach((input) => {
         input.addEventListener("change", () => {
           syncModelSelects();
           // Which provider's key is required can change with the model

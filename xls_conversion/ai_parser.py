@@ -20,6 +20,7 @@ from customizable_transcription.core import (
     RETRY_MAX_DELAY_SECONDS,
     _generate_content_with_cache_fallback,
     _is_transient_provider_error,
+    claude_system_param,
     create_gemini_prompt_cache,
     delete_gemini_prompt_cache,
     provider_for_model,
@@ -1135,15 +1136,10 @@ def call_claude_json(
     use_prompt_cache: bool = False,
 ) -> object:
     client = anthropic.Anthropic(api_key=api_key, timeout=float(AI_REQUEST_TIMEOUT_SECONDS))
-    # A stateless per-call flag, not an object -- see
-    # _transcribe_image_claude()'s identical comment in core.py. Only
-    # requested by callers looping over the same system_prompt across many
-    # images (parse_generic()/preflight_generic()); left off single-shot
-    # callers (detect_languages()) with no repeated calls to amortize a
-    # cache write against.
-    create_kwargs: dict[str, object] = {}
-    if use_prompt_cache:
-        create_kwargs["cache_control"] = {"type": "ephemeral"}
+    # Cache breakpoint on the system prompt -- see core.claude_system_param().
+    # Only requested by callers looping over the same system_prompt across
+    # many images (parse_generic()/preflight_generic()); left off single-shot
+    # callers (detect_languages()).
     started = time.monotonic()
     try:
         response = client.messages.create(
@@ -1152,9 +1148,8 @@ def call_claude_json(
             # No temperature knob on this SDK's Messages API -- "high" effort is the
             # closest available lever for consistent, careful extraction.
             output_config={"effort": "high"},
-            system=system_prompt,
+            system=claude_system_param(system_prompt, use_prompt_cache),
             messages=[{"role": "user", "content": user_message}],
-            **create_kwargs,
         )
     except anthropic.APITimeoutError as exc:
         elapsed = time.monotonic() - started

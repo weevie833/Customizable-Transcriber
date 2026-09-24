@@ -126,7 +126,11 @@ def test_claude_transcribe_requests_cache_control_when_enabled(tmp_path):
         client, image, "a long system prompt", "claude-sonnet-5", use_prompt_cache=True
     )
 
-    assert client.claude.messages.stream_kwargs.get("cache_control") == {"type": "ephemeral"}
+    kwargs = client.claude.messages.stream_kwargs
+    # Breakpoint on the system prompt, not top-level: the automatic form caches
+    # past the per-image content, so no later image could ever read it.
+    assert "cache_control" not in kwargs
+    assert kwargs["system"] == [{"type": "text", "text": "a long system prompt", "cache_control": {"type": "ephemeral"}}]
 
 
 def test_claude_transcribe_omits_cache_control_by_default(tmp_path):
@@ -136,6 +140,7 @@ def test_claude_transcribe_omits_cache_control_by_default(tmp_path):
     core.transcribe_image(client, image, "a long system prompt", "claude-sonnet-5")
 
     assert "cache_control" not in client.claude.messages.stream_kwargs
+    assert client.claude.messages.stream_kwargs["system"] == "a long system prompt"
 
 
 # --- core.py: cache lifecycle helpers -------------------------------------------
@@ -235,7 +240,8 @@ def test_run_batch_requests_claude_prompt_cache_for_a_multi_image_run(tmp_path, 
 
     core.run_batch(config, tmp_path)
 
-    assert fake_claude.messages.stream_kwargs.get("cache_control") == {"type": "ephemeral"}
+    system = fake_claude.messages.stream_kwargs["system"]
+    assert isinstance(system, list) and system[0]["cache_control"] == {"type": "ephemeral"}
 
 
 def test_run_batch_continues_when_gemini_cache_creation_fails(tmp_path, monkeypatch):
@@ -307,7 +313,10 @@ def test_call_claude_json_requests_cache_control_when_enabled(monkeypatch):
 
     ai_parser.call_claude_json("key", "claude-sonnet-5", "system prompt", "user", use_prompt_cache=True)
 
-    assert captured.get("cache_control") == {"type": "ephemeral"}
+    assert "cache_control" not in captured
+    assert captured["system"] == [
+        {"type": "text", "text": "system prompt", "cache_control": {"type": "ephemeral"}}
+    ]
 
 
 def test_call_claude_json_omits_cache_control_by_default(monkeypatch):
@@ -327,6 +336,7 @@ def test_call_claude_json_omits_cache_control_by_default(monkeypatch):
     ai_parser.call_claude_json("key", "claude-sonnet-5", "system prompt", "user")
 
     assert "cache_control" not in captured
+    assert captured["system"] == "system prompt"
 
 
 # --- xls_conversion/ai_parser.py: cache cleanup survives a mid-loop failure ----

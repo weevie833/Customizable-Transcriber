@@ -531,7 +531,8 @@
     // XLS Conversion page
     "Gemini 3.1 Pro Preview - higher accuracy": "Gemini 3.1 Pro Preview - maggiore precisione",
     "Gemini 2.5 Pro - stable, high-accuracy baseline": "Gemini 2.5 Pro - base stabile ad alta precisione",
-    "Claude Opus 5 - highest accuracy": "Claude Opus 5 - massima precisione",
+    "Claude Opus 5.5 - highest accuracy, stronger visual reading": "Claude Opus 5.5 - massima precisione, lettura visiva migliorata",
+    "Claude Opus 5 - high accuracy": "Claude Opus 5 - alta precisione",
     "Claude Sonnet 5 - balanced speed / intelligence": "Claude Sonnet 5 - velocità/intelligenza bilanciate",
     "Claude Haiku 4.5 - fastest, lower cost": "Claude Haiku 4.5 - il più veloce, costo inferiore",
     "Choose the source material": "Scegli il materiale di origine",

@@ -65,7 +65,8 @@ def sniff_file_type(data: bytes) -> str | None:
 MODELS = {
     "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - higher accuracy",
     "gemini-2.5-pro": "Gemini 2.5 Pro - stable, high-accuracy baseline",
-    "claude-opus-5": "Claude Opus 5 - highest accuracy",
+    "claude-opus-5-5": "Claude Opus 5.5 - highest accuracy, stronger visual reading",
+    "claude-opus-5": "Claude Opus 5 - high accuracy",
     "claude-sonnet-5": "Claude Sonnet 5 - balanced speed / intelligence",
     "claude-haiku-4-5-20251001": "Claude Haiku 4.5 - fastest, lower cost",
 }
@@ -766,6 +767,27 @@ def _transcribe_image_gemini(
     return text
 
 
+def claude_system_param(system_prompt: str, use_prompt_cache: bool) -> str | list[dict[str, object]]:
+    """The `system` value for a Claude call, with a cache breakpoint on the
+    system prompt itself when caching is wanted.
+
+    Unlike Gemini's cached_content (an object created once and reused by
+    name), Claude's prompt caching is a per-call marker with no object to
+    create or clean up: later calls with an identical prefix up to the marker
+    read it from cache. The marker must sit on the system block, not the
+    request's top-level `cache_control` -- that automatic form caches up to
+    the LAST block, i.e. after the per-image content, so every image wrote a
+    fresh cache entry and none was ever read (found 2026-09-23 in the usage
+    ledger: ~17.8k cache-write tokens per image, zero cache reads). Only
+    requested by callers looping over one system_prompt (run_batch(),
+    parse_generic()/preflight_generic()); one-off callers such as Preflight
+    Test have no repeated calls to amortize a cache write against.
+    """
+    if not use_prompt_cache:
+        return system_prompt
+    return [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+
+
 def _transcribe_image_claude(
     client: anthropic.Anthropic,
     data: bytes,
@@ -780,17 +802,6 @@ def _transcribe_image_claude(
         "type": block_type,
         "source": {"type": "base64", "media_type": mime_type, "data": encoded},
     }
-    # Unlike Gemini's cached_content (an object created once and reused by
-    # name), Claude's prompt caching is a per-call flag with no object to
-    # create or clean up -- the API caches this system_prompt on the first
-    # call that sets it and serves later calls with an identical prefix from
-    # cache automatically. Safe to pass on every call in a real batch loop
-    # (run_batch()/parse_generic()); left False for one-off single-image
-    # callers (e.g. Prompt Builder's Preflight Test) that have no repeated
-    # calls to amortize a cache write against.
-    stream_kwargs: dict[str, object] = {}
-    if use_prompt_cache:
-        stream_kwargs["cache_control"] = {"type": "ephemeral"}
     # Streaming, not a plain (non-streaming) messages.create() call. This used
     # to be non-streaming with max_tokens capped at 16000 -- raised once
     # already from 8192 after truncating mid-entry, with a comment noting
@@ -811,14 +822,13 @@ def _transcribe_image_claude(
         # equivalent doesn't exist here) -- "high" effort is the closest available
         # lever for careful, consistent transcription output.
         output_config={"effort": "high"},
-        system=system_prompt,
+        system=claude_system_param(system_prompt, use_prompt_cache),
         messages=[
             {
                 "role": "user",
                 "content": [source_block, {"type": "text", "text": USER_INSTRUCTION}],
             }
         ],
-        **stream_kwargs,
     ) as stream:
         response = stream.get_final_message()
     text = "".join(block.text for block in response.content if block.type == "text")

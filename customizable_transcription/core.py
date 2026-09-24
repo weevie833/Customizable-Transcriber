@@ -16,6 +16,8 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
+from customizable_transcription import usage_ledger
+
 FILE_TYPE_EXTENSIONS = {
     "jpeg": frozenset({".jpg", ".jpeg"}),
     "png": frozenset({".png"}),
@@ -145,6 +147,9 @@ class TranscriptionConfig:
     system_prompt: str | None = None
     api_key_override: str | None = None
     source_extensions: frozenset[str] = field(default_factory=lambda: SUPPORTED_SOURCE_EXTENSIONS)
+    # Labels for the usage ledger only; nothing else reads them.
+    profile_id: str = ""
+    profile_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -537,6 +542,7 @@ def _generate_content_with_cache_fallback(
             f"[gemini-cache] Prompt cache no longer available ({exc}); "
             "retrying this request with the system prompt sent directly."
         )
+        usage_ledger.event("cache_fallback", reason=str(exc)[:200])
         return client.models.generate_content(
             model=model, contents=contents, config=types.GenerateContentConfig(**config_without_cache)
         )
@@ -560,6 +566,9 @@ def _with_transient_retry(call: Callable[[], object], progress: Callable[[str], 
                 raise
             delay = min(RETRY_BASE_DELAY_SECONDS * (2**attempt), RETRY_MAX_DELAY_SECONDS)
             delay += random.uniform(0, delay * 0.25)
+            usage_ledger.event(
+                "transient_retry", attempt_number=attempt + 1, status=_provider_error_status(exc), error=str(exc)[:200]
+            )
             if progress:
                 progress(
                     f"Provider reported a temporary error ({exc}); "
@@ -734,6 +743,7 @@ def _transcribe_image_gemini(
             config_kwargs_no_cache["thinking_config"] = thinking_config
 
     contents = [types.Part.from_bytes(data=data, mime_type=mime_type), USER_INSTRUCTION]
+    started = time.monotonic()
     if cached_content:
         response = _generate_content_with_cache_fallback(
             client, model, contents, config_kwargs, config_kwargs_no_cache
@@ -743,6 +753,13 @@ def _transcribe_image_gemini(
             model=model, contents=contents, config=types.GenerateContentConfig(**config_kwargs)
         )
     text = response.text or ""
+    usage_ledger.record_gemini(
+        response,
+        model=model,
+        seconds=time.monotonic() - started,
+        cache_expected=bool(cached_content),
+        text_chars=len(text),
+    )
     candidates = getattr(response, "candidates", None) or []
     if candidates and getattr(candidates[0], "finish_reason", None) == types.FinishReason.MAX_TOKENS:
         text += _TRUNCATION_NOTICE
@@ -786,6 +803,7 @@ def _transcribe_image_claude(
     # timeout -- streaming removes that constraint entirely, which is why
     # max_tokens can now go to 64000 instead of trying to guess a higher safe
     # non-streaming number.
+    started = time.monotonic()
     with client.messages.stream(
         model=model,
         max_tokens=64000,
@@ -804,6 +822,13 @@ def _transcribe_image_claude(
     ) as stream:
         response = stream.get_final_message()
     text = "".join(block.text for block in response.content if block.type == "text")
+    usage_ledger.record_claude(
+        response,
+        model=model,
+        seconds=time.monotonic() - started,
+        cache_expected=use_prompt_cache,
+        text_chars=len(text),
+    )
     if response.stop_reason == "max_tokens":
         text += _TRUNCATION_NOTICE
     return text
@@ -880,6 +905,7 @@ def transcribe_image_with_retry(
     )
     if not text.endswith(_TRUNCATION_NOTICE):
         return text
+    usage_ledger.event("truncated_output", provider=client.provider)
 
     # A truncation notice means finish_reason/stop_reason came back as
     # MAX_TOKENS (see _transcribe_image_gemini()/_transcribe_image_claude()
@@ -910,19 +936,21 @@ def transcribe_image_with_retry(
             "retrying once with a lower thinking budget to leave more room for the "
             "transcription itself..."
         )
-    retry_text = _with_transient_retry(
-        lambda: transcribe_image(
-            client,
-            image_path,
-            system_prompt,
-            model,
-            include_thoughts,
-            "LOW",
-            cached_content,
-            use_prompt_cache,
-        ),
-        progress=progress,
-    )
+    with usage_ledger.attempt_context("truncation_retry"):
+        retry_text = _with_transient_retry(
+            lambda: transcribe_image(
+                client,
+                image_path,
+                system_prompt,
+                model,
+                include_thoughts,
+                "LOW",
+                cached_content,
+                use_prompt_cache,
+            ),
+            progress=progress,
+        )
+    usage_ledger.event("truncation_retry_result", resolved=not retry_text.endswith(_TRUNCATION_NOTICE))
     if not retry_text.endswith(_TRUNCATION_NOTICE):
         if progress:
             progress(f"{image_path.name}: retry with a lower thinking budget finished without truncation.")
@@ -971,9 +999,15 @@ def create_gemini_prompt_cache(
             ),
         )
     except Exception as exc:
+        usage_ledger.event("cache_unavailable", reason=str(exc)[:200])
         if progress:
             progress(f"Prompt caching unavailable for {model} ({exc}); continuing without it.")
         return None
+    usage_ledger.event(
+        "cache_created",
+        cached_tokens=getattr(getattr(cache, "usage_metadata", None), "total_token_count", None),
+        ttl_seconds=3600,
+    )
     return cache.name
 
 
@@ -1136,6 +1170,18 @@ def run_batch(
         project_dir, config.model, config.api_key_override, timeout_seconds=BATCH_REQUEST_TIMEOUT_SECONDS
     )
     results: list[ImageResult] = []
+    ledger_run = usage_ledger.start_run(
+        mode="regular",
+        stage="transcribe",
+        provider=client.provider,
+        model=config.model,
+        system_prompt=prompt,
+        image_count=len(files),
+        profile_id=config.profile_id,
+        profile_label=config.profile_label,
+        reverse_order=config.reverse_order,
+    )
+    ledger_token = usage_ledger.activate(ledger_run)
 
     # The same system prompt (often several thousand tokens -- worked
     # examples, a name lexicon, etc.) is resent in full on every single
@@ -1165,23 +1211,35 @@ def run_batch(
                 name = names[index - 1]
                 next_name, previous_name = physical_neighbors(names, index - 1, config.reverse_order)
                 log(f"[{index}/{len(files)}] Processing {name}")
+                image_started = time.monotonic()
                 try:
                     validate_batch_source_file(image_path, config.image_folder)
-                    text = transcribe_image_with_retry(
-                        client=client,
-                        image_path=image_path,
-                        system_prompt=prompt,
-                        model=config.model,
-                        include_thoughts=config.include_thoughts,
-                        progress=log,
-                        cached_content=gemini_cache_name,
-                        use_prompt_cache=use_prompt_cache,
-                    )
+                    with usage_ledger.image_context(name):
+                        text = transcribe_image_with_retry(
+                            client=client,
+                            image_path=image_path,
+                            system_prompt=prompt,
+                            model=config.model,
+                            include_thoughts=config.include_thoughts,
+                            progress=log,
+                            cached_content=gemini_cache_name,
+                            use_prompt_cache=use_prompt_cache,
+                        )
                     output.write(render_entry(name, text, next_name, previous_name))
                     output.flush()
                     results.append(ImageResult(name, True, text))
+                    usage_ledger.event(
+                        "image_done", image=name, ok=True, seconds=round(time.monotonic() - image_started, 2)
+                    )
                     log(f"Saved {name}")
                 except Exception as exc:
+                    usage_ledger.event(
+                        "image_done",
+                        image=name,
+                        ok=False,
+                        seconds=round(time.monotonic() - image_started, 2),
+                        error=str(exc)[:200],
+                    )
                     error = f"ERROR: {humanize_provider_error(exc, config.model)}"
                     output.write(render_entry(name, error, next_name, previous_name))
                     output.flush()
@@ -1202,6 +1260,13 @@ def run_batch(
     finally:
         if gemini_cache_name:
             delete_gemini_prompt_cache(client.gemini, gemini_cache_name)
+        usage_ledger.deactivate(ledger_token)
+        usage_ledger.end_run(
+            ledger_run,
+            images_processed=len(results),
+            failures=count_failures(results),
+            stopped=bool(cancel_requested and cancel_requested()),
+        )
 
     if cancel_requested and cancel_requested():
         log(f"Stopped. Partial output: {config.output_file}")

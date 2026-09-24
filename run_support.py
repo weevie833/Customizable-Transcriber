@@ -539,6 +539,8 @@ def run_job(form: FormData, output_file: Path) -> None:
             system_prompt=system_prompt,
             api_key_override=pasted_value(form, "gemini_api_key") or None,
             source_extensions=extensions_for_file_type(file_type),
+            profile_id=str(profile.get("id", "")),
+            profile_label=str(profile.get("label", "")),
         )
         results = run_batch(
             config,
@@ -647,6 +649,8 @@ def run_test_job(
                     system_prompt=system_prompt,
                     api_key_override=api_key_value,
                     source_extensions=extensions_for_file_type(file_type),
+                    profile_id=str(profile.get("id", "")),
+                    profile_label=str(profile.get("label", "")),
                 )
                 results = run_batch(
                     config,

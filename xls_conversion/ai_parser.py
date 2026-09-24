@@ -13,6 +13,7 @@ import httpx
 from google import genai
 from google.genai import types
 
+from customizable_transcription import usage_ledger
 from customizable_transcription.core import (
     MAX_TRANSIENT_RETRIES,
     RETRY_BASE_DELAY_SECONDS,
@@ -1116,6 +1117,13 @@ def call_gemini_json(
     else:
         elapsed = time.monotonic() - started
         print(f"[xls-conversion] Gemini {model} completed in {elapsed:.1f}s")
+        usage_ledger.record_gemini(
+            response,
+            model=model,
+            seconds=elapsed,
+            cache_expected=bool(cached_content),
+            text_chars=len(response.text or ""),
+        )
     return _parse_json_response(response.text or "")
 
 
@@ -1160,6 +1168,9 @@ def call_claude_json(
         elapsed = time.monotonic() - started
         print(f"[xls-conversion] Claude {model} completed in {elapsed:.1f}s")
     raw = "".join(block.text for block in response.content if block.type == "text")
+    usage_ledger.record_claude(
+        response, model=model, seconds=elapsed, cache_expected=use_prompt_cache, text_chars=len(raw)
+    )
     return _parse_json_response(raw)
 
 
@@ -2195,10 +2206,13 @@ def parse_records_with_ai(
     config = RECORD_TYPES.get(record_type)
     if not config:
         raise RuntimeError(f"AI extraction for {record_type} is not configured yet.")
-    return parse_generic(
-        config, text, image_range, image_overrides, api_key.strip(), model,
-        target_language.strip(), target_role.strip(), process_all=process_all,
-    )
+    with usage_ledger.run(
+        mode="regular", stage="xls_parse", provider=provider_for_model(model), model=model, record_type=record_type
+    ):
+        return parse_generic(
+            config, text, image_range, image_overrides, api_key.strip(), model,
+            target_language.strip(), target_role.strip(), process_all=process_all,
+        )
 
 
 def preflight_records_with_ai(
@@ -2222,11 +2236,14 @@ def preflight_records_with_ai(
         raise RuntimeError("Select an image range before running preflight.")
     if record_type not in RECORD_TYPES:
         raise RuntimeError(f"AI preflight for {record_type} is not configured yet.")
-    return preflight_generic(
-        text, image_range, api_key.strip(), model,
-        target_language.strip(), target_role.strip(),
-        process_all=process_all, filename=filename, record_type=record_type,
-    )
+    with usage_ledger.run(
+        mode="regular", stage="xls_preflight", provider=provider_for_model(model), model=model, record_type=record_type
+    ):
+        return preflight_generic(
+            text, image_range, api_key.strip(), model,
+            target_language.strip(), target_role.strip(),
+            process_all=process_all, filename=filename, record_type=record_type,
+        )
 
 
 def combine_language_xlsx(

@@ -1021,7 +1021,7 @@ def test_run_off_peak_job_collect_results_timeout_produces_a_clear_error(tmp_pat
         ),
     )
 
-    def raise_timeout(client, batch_id):
+    def raise_timeout(client, batch_id, usage_sink=None):
         raise bt.httpx.TimeoutException("read timed out")
 
     monkeypatch.setattr(bt, "collect_claude_batch_results", raise_timeout)

@@ -19,6 +19,7 @@ from app_state import (
     test_state,  # noqa: F401 -- re-exported for tests
 )
 from batch_transcription import estimate_off_peak_savings
+from customizable_transcription import usage_ledger
 from customizable_transcription.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
@@ -712,6 +713,7 @@ class Handler(
 
 def main() -> None:
     ensure_profiles_dir()
+    usage_ledger.configure(USER_DATA_DIR / "usage")
     migrate_legacy_outputs_and_settings()
     with lock:
         state["profile_id"] = ""

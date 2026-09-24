@@ -60,6 +60,7 @@ from app_state import (
     stop_event,
     write_off_peak_job_state,
 )
+from customizable_transcription import usage_ledger
 from customizable_transcription.core import (
     BATCH_REQUEST_TIMEOUT_SECONDS,
     FILE_TYPE_MIME,
@@ -385,8 +386,10 @@ def cancel_gemini_batch(client: genai.Client, job_name: str) -> None:
         pass
 
 
-def collect_gemini_batch_results(job) -> dict[int, tuple[str, str]]:
-    """index -> (text, error_message). error_message is "" on success."""
+def collect_gemini_batch_results(job, usage_sink: list | None = None) -> dict[int, tuple[str, str]]:
+    """index -> (text, error_message). error_message is "" on success. If
+    usage_sink is given, each successful item's token usage is appended to it
+    (for the usage ledger); the return value is unchanged."""
     results: dict[int, tuple[str, str]] = {}
     responses = (job.dest.inlined_responses if job.dest else None) or []
     for item in responses:
@@ -400,6 +403,16 @@ def collect_gemini_batch_results(job) -> dict[int, tuple[str, str]]:
         else:
             text = (item.response.text if item.response else "") or ""
             results[index] = (text, "")
+            if usage_sink is not None and item.response is not None:
+                candidates = getattr(item.response, "candidates", None) or []
+                usage_sink.append(
+                    {
+                        "index": index,
+                        "usage": getattr(item.response, "usage_metadata", None),
+                        "finish_reason": getattr(candidates[0], "finish_reason", None) if candidates else None,
+                        "text_chars": len(text),
+                    }
+                )
     return results
 
 
@@ -480,8 +493,12 @@ def cancel_claude_batch(client: anthropic.Anthropic, batch_id: str) -> None:
         pass
 
 
-def collect_claude_batch_results(client: anthropic.Anthropic, batch_id: str) -> dict[int, tuple[str, str]]:
-    """index -> (text, error_message). error_message is "" on success."""
+def collect_claude_batch_results(
+    client: anthropic.Anthropic, batch_id: str, usage_sink: list | None = None
+) -> dict[int, tuple[str, str]]:
+    """index -> (text, error_message). error_message is "" on success. If
+    usage_sink is given, each successful item's token usage is appended to it
+    (for the usage ledger); the return value is unchanged."""
     results: dict[int, tuple[str, str]] = {}
     for item in client.messages.batches.results(batch_id):
         try:
@@ -492,6 +509,15 @@ def collect_claude_batch_results(client: anthropic.Anthropic, batch_id: str) -> 
         if result.type == "succeeded":
             text = "".join(block.text for block in result.message.content if block.type == "text")
             results[index] = (text, "")
+            if usage_sink is not None:
+                usage_sink.append(
+                    {
+                        "index": index,
+                        "usage": getattr(result.message, "usage", None),
+                        "finish_reason": getattr(result.message, "stop_reason", None),
+                        "text_chars": len(text),
+                    }
+                )
         elif result.type == "errored":
             results[index] = ("", str(result.error))
         else:
@@ -515,6 +541,59 @@ def _batch_was_cancelled(provider: str, job) -> bool:
     if provider == "claude":
         return bool(claude_batch_counts(job).get("canceled"))
     return job.state == genai_types.JobState.JOB_STATE_CANCELLED
+
+
+def _record_batch_usage(
+    *, provider, model, system_prompt, names, results, usage_sink, profile, job_id, submitted_at, counts
+) -> None:
+    """Write the Off-Peak run's usage ledger once results are in hand. A batch has
+    no live per-image loop to instrument, so the whole run is recorded here, at
+    collection time. Never raises (usage_ledger's own contract)."""
+    ledger_run = usage_ledger.start_run(
+        mode="off_peak",
+        stage="transcribe",
+        provider=provider,
+        model=model,
+        system_prompt=system_prompt,
+        image_count=len(names),
+        profile_id=str(profile.get("id", "")),
+        profile_label=str(profile.get("label", "")),
+        job_id=job_id,
+        submitted_at=submitted_at,
+        provider_counts=counts,
+    )
+    for item in usage_sink:
+        index = item["index"]
+        usage_ledger.record_call(
+            provider=provider,
+            model=model,
+            usage=item["usage"],
+            finish_reason=item["finish_reason"],
+            text_chars=item["text_chars"],
+            # Off-Peak submits the full system prompt inside every request; no cache
+            # object is created (unlike run_batch()), so none is expected.
+            cache_expected=False,
+            run=ledger_run,
+            image=names[index] if 0 <= index < len(names) else str(index),
+        )
+    for index, (_text, error) in results.items():
+        if error:
+            usage_ledger.event(
+                "image_done", run=ledger_run, image=names[index] if 0 <= index < len(names) else str(index),
+                ok=False, error=error[:200],
+            )
+    # This run is written at collection time, so the ledger's own clock would read ~0s;
+    # for a batch the meaningful duration is submission -> results in hand.
+    try:
+        elapsed = round((datetime.now() - datetime.fromisoformat(submitted_at)).total_seconds(), 1)
+    except (TypeError, ValueError):
+        elapsed = None
+    usage_ledger.end_run(
+        ledger_run,
+        images_processed=len(names),
+        failures=sum(1 for _t, e in results.values() if e),
+        **({"wall_seconds": elapsed} if elapsed is not None else {}),
+    )
 
 
 def run_off_peak_job(
@@ -739,9 +818,10 @@ def run_off_peak_job(
         # "cancelled before a single poll succeeded" case left to handle
         # separately (there used to be one; see CODEX_REVIEW.md finding H-1
         # for why that path could report a false "cancelled" too).
+        usage_sink: list[dict] = []
         if provider == "claude":
             try:
-                results = collect_claude_batch_results(heavy_client, job_id)
+                results = collect_claude_batch_results(heavy_client, job_id, usage_sink=usage_sink)
             except httpx.TimeoutException as exc:
                 raise RuntimeError(
                     f"The off-peak batch (job {job_id}) reached a terminal state on the provider's "
@@ -751,7 +831,19 @@ def run_off_peak_job(
                     "results."
                 ) from exc
         else:
-            results = collect_gemini_batch_results(job)
+            results = collect_gemini_batch_results(job, usage_sink=usage_sink)
+        _record_batch_usage(
+            provider=provider,
+            model=model,
+            system_prompt=system_prompt,
+            names=names,
+            results=results,
+            usage_sink=usage_sink,
+            profile=profile,
+            job_id=job_id,
+            submitted_at=submitted_at_iso,
+            counts=gemini_batch_counts(job) if provider != "claude" else {},
+        )
 
         image_results: list[ImageResult] = []
         with markdown_file.open("w", encoding="utf-8") as output:

@@ -453,3 +453,18 @@ heading content.
   separate "Save as New Profile" button always creates a new one — no
   native `confirm()`/`prompt()` fork between the two, which previously
   made it easy to create an unwanted duplicate profile by mistake.
+
+## Off-Peak memory envelope (SEC-4-01 / HD-4)
+
+`submit_gemini_batch()` and `submit_claude_batch()` hold every image's bytes in memory
+(Claude additionally holds a ~1.33x base64 copy) until the create call returns. This is
+bounded, not unbounded: `validated_images()` rejects, from `Path.stat()` metadata alone and
+before any file is read, a folder over `MAX_BATCH_IMAGE_COUNT` (1,000 images) or
+`MAX_BATCH_AGGREGATE_BYTES` (500 MB of raw source bytes; halved when Page zoom is on, since
+crops roughly double the request list). Each file is also capped at 50 MB. Worst case is
+therefore roughly 1-1.5 GB resident for Claude, which fits an ordinary 8 GB host, so a
+100-200 high-res-scan batch (5-15 MB each) is either accepted within that envelope or
+rejected up front with a "split this folder" message -- it cannot reach an OOM crash during
+serialization. Disk-staged / chunked-JSONL submission was considered and not built: it only
+matters for multi-gigabyte batches, which the supported workflow (split the folder) does not
+require. HUMAN_DECISIONS.md HD-4 stays open for the measured per-provider limits.

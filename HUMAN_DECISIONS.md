@@ -104,6 +104,10 @@ If multi-gigabyte batches are a product requirement, move payloads to provider-s
 - What are the largest legitimate batch size and total raw bytes?
 - Is manual folder splitting acceptable, or must very large batches be handled transparently?
 
+### Status (SECURITY_REVIEW_4.md SEC-4-01)
+
+Interim cap of 500 MB aggregate / 1,000 images is in force and documented in `docs/DESIGN.md` ("Off-Peak memory envelope"). Streaming/staging is deferred until a real multi-GB requirement exists.
+
 ## Previously resolved constraints retained
 
 | Area | Existing decision |

@@ -1093,7 +1093,7 @@ def call_gemini_json(
     # instead, so this deliberately leaves gemini-2.5-pro untouched rather
     # than guessing at an equivalent budget for a model that wasn't reported
     # as slow.
-    if model.startswith("gemini-3") and hasattr(types, "ThinkingConfig"):
+    if model.startswith(("gemini-3", "gemini-4")) and hasattr(types, "ThinkingConfig"):
         thinking_config = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MEDIUM)
         config_options["thinking_config"] = thinking_config
         config_options_no_cache["thinking_config"] = thinking_config

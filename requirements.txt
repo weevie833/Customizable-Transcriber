@@ -18,3 +18,8 @@ pillow==12.3.0
 # See docs/DESIGN.md's "Security hardening history" section.
 cryptography==50.0.1
 pyasn1==0.6.4
+
+# Transitive (via requests / google-genai / anthropic's httpx stack). Exact-pinned for the
+# same reason as cryptography/pyasn1 above (L-5): installed 2.7.0 carried
+# PYSEC-2026-4175/4176/4177 (SECURITY_REVIEW_4.md section 3); 2.8.0 is the fixed release.
+urllib3==2.8.0

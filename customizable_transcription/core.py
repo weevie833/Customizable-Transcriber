@@ -683,15 +683,21 @@ _TRUNCATION_NOTICE_AFTER_RETRY = (
 )
 
 
+# Model generations that expose ThinkingLevel (SEC-4-02): a prefix tuple, not a bare
+# "gemini-3" check, so a newer generation keeps the cap + MAX_TOKENS retry. Add the
+# next generation's prefix here when it ships.
+_CAPPABLE_GEMINI_PREFIXES = ("gemini-3", "gemini-4")
+
+
 def _gemini_thinking_is_cappable(model: str) -> bool:
     """True when max_thinking_level actually does something for this model --
     see _transcribe_image_gemini()'s own thinking_config branch, which this
-    mirrors exactly. Only gemini-3.x models expose ThinkingLevel at all,
+    mirrors exactly. Only gemini-3.x and newer models expose ThinkingLevel at all,
     which matters to transcribe_image_with_retry()'s truncation retry below:
     no point spending a whole extra API call capping a knob that has no
     effect for gemini-2.5-pro or Claude."""
     return (
-        model.startswith("gemini-3")
+        model.startswith(_CAPPABLE_GEMINI_PREFIXES)
         and hasattr(types, "ThinkingConfig")
         and hasattr(types, "ThinkingLevel")
     )

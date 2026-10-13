@@ -361,7 +361,7 @@ def test_truncated_claude_response_is_not_retried(monkeypatch):
 
 def test_truncated_gemini_25_pro_response_is_not_retried(monkeypatch):
     """gemini-2.5-pro has no ThinkingLevel to cap (_gemini_thinking_is_cappable()
-    gates on model.startswith("gemini-3")) -- retrying would just spend a
+    gates on the gemini-3/gemini-4 prefixes) -- retrying would just spend a
     second API call for no effect."""
     calls = []
 
@@ -388,3 +388,10 @@ def test_truncated_gemini_25_pro_response_is_not_retried(monkeypatch):
     )
     assert calls == [None]
     assert result == "partial text" + core._TRUNCATION_NOTICE
+
+
+def test_gemini_thinking_cappable_covers_3_and_4_but_not_25():
+    assert core._gemini_thinking_is_cappable("gemini-3.1-pro-preview")
+    assert core._gemini_thinking_is_cappable("gemini-4-argon")
+    assert not core._gemini_thinking_is_cappable("gemini-2.5-pro")
+    assert not core._gemini_thinking_is_cappable("claude-opus-5-5")

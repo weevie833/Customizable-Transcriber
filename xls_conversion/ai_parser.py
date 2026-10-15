@@ -101,7 +101,7 @@ GENERAL_EXTRACTION_RULES = f"""GENERAL RULES:
 - Strip honorifics from name fields, but retain relevant titles, occupations, status, age, residence, origin, legitimacy, and relationship information in the appropriate field.
 - A place of origin written after a person's full name (for example "Antonius Mauro di Lany" or "Petrus Carpenterio da Nocera") is not part of the surname: the surname is "Mauro" or "Carpenterio", and the origin stays with the given name ("Antonius di Lany", "Petrus da Nocera"). This is different from a surname prefix, which stands directly before the surname itself with no other surname before it ("Joseph di Natale").
 - A Marginal Heading block may begin with an "Entry N - " locator prefix immediately before a name (for example "Entry 4 - Laurentius Sansone"). That number is the register's own entry number, not part of the name -- exclude it from every name field.
-- image_link must always be "".
+- image_link: always output "" (the app fills this column itself; never write anything here).
 - A final "Notes:" line at the very end of a block, after the last entry's other blocks (for example "Notes: ENTRY CONTINUES ON THE NEXT IMAGE -- ..."), is that last entry's note. It is never an entry of its own.
 - When an entry says "on the same day", "on the aforementioned day", "on the aforesaid day", "on the said day", or equivalent language, inherit the date from the preceding entry.
 - A PREVIOUS RECORD CONTEXT may be supplied for the first entry in a block. Use it only when the source explicitly refers back to a preceding date.
@@ -451,7 +451,7 @@ FIELDS — every object must contain all of these string fields:
 - bride_mother_given_name: bride's mother's given and middle name(s), or ""
 - bride_mother_last_name: bride's mother's surname, or ""
 - witnesses: all witnesses formatted "Surname, Given Name; Surname, Given Name", preserving source order, or ""
-- image_link: always ""
+- image_link: always output "" (the app fills this column itself)
 - crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, or ""
 
@@ -520,7 +520,7 @@ FIELDS — every object must contain all of these string fields:
 - spouse_status: "Married" or "Widowed" if stated, otherwise ""
 - spouse_given_name: spouse's given and middle name(s), or ""
 - spouse_last_name: spouse's surname, or ""
-- image_link: always ""
+- image_link: always output "" (the app fills this column itself)
 - crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, or ""
 
@@ -586,7 +586,7 @@ FIELDS — every object must contain all of these string fields:
 - mother_last_name: mother's surname, or ""
 - mother_age: mother's age, always as plain numeric digits (for example "45", never "quarantacinque" or "forty-five" -- see NUMERIC FIELDS below), or ""
 - maternal_grandfather: mother's own father's given and last name as stated, or ""
-- image_link: always ""
+- image_link: always output "" (the app fills this column itself)
 - crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, written in __TARGET_LANGUAGE__, or ""
 
@@ -656,7 +656,7 @@ FIELDS — every object must contain all of these string fields:
 - spouse_status: whether the deceased was married or widowed, written in __TARGET_LANGUAGE__ (for Italian: "Vedovo"/"Vedova" for widowed, "Coniugato"/"Coniugata" for married, matching the deceased's own gender; for English: "Widowed"/"Married") if stated, otherwise ""
 - spouse_given_name: spouse's given and middle name(s), or ""
 - spouse_last_name: spouse's surname, or ""
-- image_link: always ""
+- image_link: always output "" (the app fills this column itself)
 - crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, written in __TARGET_LANGUAGE__, or ""
 
@@ -735,7 +735,7 @@ FIELDS — every object must contain all of these string fields:
 - bride_father_last_name: bride's father's surname, or ""
 - bride_mother_given_name: bride's mother's given and middle name(s), or ""
 - bride_mother_last_name: bride's mother's surname, or ""
-- image_link: always ""
+- image_link: always output "" (the app fills this column itself)
 - crossed_out: "true" if the source transcription flags this entire entry as crossed out by the scribe (see the CROSSED-OUT ENTRIES rule below), otherwise "false"
 - notes: concise semicolon-separated notes relevant to the record, written in __TARGET_LANGUAGE__, or ""
 
@@ -1810,6 +1810,38 @@ def split_leading_continuation(block_text: str) -> tuple[str | None, str]:
     return fragment, remainder
 
 
+LOCATOR_FIELDS = ("page_number", "act_number")
+
+# Wording (English, Latin, Italian) that tells the extractor to reuse the
+# preceding entry's date. A false positive only costs an unneeded context line;
+# the point is that most blocks never see the previous row's date at all.
+CARRY_FORWARD_WORDING_RE = re.compile(
+    r"\b(same\s+(?:day|month|year|date)|aforementioned|aforesaid|aforenamed|said\s+(?:day|month|date)"
+    r"|above[- ]?mentioned|ejusdem|eiusdem|eodem|eod|dicto\s+die|(?:prae|pre)dict\w*|ibidem|ut\s+supra"
+    r"|stess[oa]\s+(?:giorno|mese|data)|medesim[oa]\s+(?:giorno|mese|data)"
+    r"|(?:detto|detta|suddett[oa]|predett[oa]|sopradett[oa])\s+(?:giorno|mese|data))\b",
+    re.IGNORECASE,
+)
+
+
+def block_has_carry_forward_wording(block_text: str) -> bool:
+    return bool(CARRY_FORWARD_WORDING_RE.search(block_text or ""))
+
+
+def carry_forward_for(config: "RecordTypeConfig", previous_row: dict[str, str], block_text: str) -> dict[str, str]:
+    """Previous-row values to offer the extractor for this block.
+
+    Locator fields (page/act number) are always offered. Date fields are
+    offered only when the block's own text uses carry-forward wording.
+    """
+    wants_dates = block_has_carry_forward_wording(block_text)
+    return {
+        name: previous_row.get(name, "")
+        for name in config.carry_forward_fields
+        if name in LOCATOR_FIELDS or wants_dates
+    }
+
+
 def parse_generic(
     config: RecordTypeConfig,
     text: str,
@@ -1945,6 +1977,7 @@ def parse_generic(
         for index, block in enumerate(blocks):
             image_number = block["image_number"]
             previous_context = ""
+            carried_dates: dict[str, str] = {}
             forward_flagged = False
             block_text = block["text"]
             fragment_handled = False
@@ -2008,7 +2041,12 @@ def parse_generic(
                         continue
             if rows:
                 previous = rows[-1]
-                carry_forward = {name: previous.get(name, "") for name in config.carry_forward_fields}
+                # Locator fields always ride along; date fields only when this
+                # block's own text uses carry-forward wording (see
+                # carry_forward_for()). Offering a date unprompted lets one
+                # misread date silently spread to later rows.
+                carry_forward = carry_forward_for(config, previous, block_text)
+                carried_dates = {k: v for k, v in carry_forward.items() if k not in LOCATOR_FIELDS and v}
                 if carry_forward:
                     previous_context = (
                         "\nPREVIOUS RECORD CONTEXT (use only for explicit carry-forward language):\n"
@@ -2049,6 +2087,16 @@ def parse_generic(
                 exceptions.append(f"Image {image_number or 'unknown'}: AI extraction failed ({exc}).")
                 continue
             normalized = normalize_rows(config, records, image_number, normalize_language)
+            if carried_dates:
+                inherited = [
+                    row for row in normalized
+                    if all(row.get(k) == v for k, v in carried_dates.items())
+                ]
+                if inherited:
+                    exceptions.append(
+                        f"Image {image_number or 'unknown'}: {len(inherited)} row(s) carry the previous "
+                        "record's date forward from 'same day' wording -- verify."
+                    )
 
             # Forward-flagged merge: the model was told (via previous_context,
             # above) to fold this block's first entry into the previous row

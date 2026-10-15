@@ -653,6 +653,7 @@ def prompt_builder_page(
       <label><span>Additional editorial rules (optional){pb_info_button_html("pb-info-additional-rules", PB_ADDITIONAL_RULES_INFO_TEXT)}</span>
         <textarea name="additionalRules" rows="4" placeholder="e.g. Never copy a surname from one parent to the other, even when only one is stated."></textarea>
       </label>
+      <div id="pb-lint" class="pb-lint" role="status" aria-live="polite" hidden></div>
     </details>
 
     <details class="pb-section">

@@ -919,6 +919,88 @@
     return trimmed ? trimmed.split(/\s+/).length : 0;
   }
 
+  // ---- Lint: Additional editorial rules vs. the generated prompt ----
+  // Free-text rules sit beside fixed rules the app generates. A rule that
+  // repeats one drifts out of sync when only one copy is edited, and a rule that
+  // contradicts one leaves the model to guess which wins. This only warns.
+
+  var LINT_CONFLICTS = [
+    {
+      re: /\b(normali[sz]e|modernis?[sz]e|regulari[sz]e|standardi[sz]e|correct|fix)\b[^.\n]{0,40}\b(spell\w*|names?|surnames?)\b/i,
+      message: "This asks the AI to change spellings or names, but the fidelity rules say to transcribe exactly what is on the page. The AI will have to pick one."
+    },
+    {
+      re: /\bexpand\b[^.\n]{0,40}\babbreviations?\b[^.\n]{0,40}\btranscription\b/i,
+      message: "This asks for abbreviations to be expanded in the transcription, but the core rules say to expand them only in a translation."
+    },
+    {
+      re: /\b(anglici[sz]e|translate)\b[^.\n]{0,25}\bnames?\b/i,
+      message: "This asks for names to be translated or anglicized, but the fidelity rules say to keep source-language name forms."
+    },
+    {
+      re: /\bignore\b[^.\n]{0,30}\b(previous|above|earlier|other|all)\b[^.\n]{0,15}\b(rules|instructions)\b/i,
+      message: "This tells the AI to ignore other rules, which makes every other rule in the prompt unreliable."
+    }
+  ];
+
+  function lintNegatedBefore(text, index) {
+    return /\b(not|never|don't|do not|without)\W+(\w+\W+){0,3}$/i.test(text.slice(Math.max(0, index - 30), index));
+  }
+
+  function lintWords(sentence) {
+    var set = {};
+    sentence.toLowerCase().replace(/[^a-z0-9\u00c0-\u024f' ]+/g, " ").split(/\s+/).forEach(function (w) { if (w) set[w] = true; });
+    return set;
+  }
+
+  function lintSimilarity(a, b) {
+    var inter = 0, ak = Object.keys(a), bk = Object.keys(b);
+    ak.forEach(function (w) { if (b[w]) inter++; });
+    var union = ak.length + bk.length - inter;
+    return union ? inter / union : 0;
+  }
+
+  function lintSentences(text) {
+    return text.split(/[.\n;]+/).map(function (x) { return x.trim(); }).filter(function (x) { return x.split(/\s+/).length >= 6; });
+  }
+
+  function pbLintAdditionalRules(additional, generated) {
+    var warnings = [];
+    if (!additional || !additional.trim()) return warnings;
+    LINT_CONFLICTS.forEach(function (c) {
+      var m = c.re.exec(additional);
+      if (m && !lintNegatedBefore(additional, m.index)) warnings.push(c.message);
+    });
+    if (/\bfili[ua]s?\b/i.test(additional) && generated.indexOf("# LATIN NAME DECLENSION") !== -1) {
+      warnings.push("This mentions filius/filia, which the Latin declension guidance already covers. Remove the repeat or the two copies may drift apart.");
+    }
+    var existing = lintSentences(generated).map(lintWords);
+    var repeats = 0;
+    lintSentences(additional).forEach(function (sentence) {
+      var words = lintWords(sentence);
+      if (existing.some(function (e) { return lintSimilarity(words, e) >= 0.6; })) repeats++;
+    });
+    if (repeats) warnings.push((repeats === 1 ? "One of these rules closely repeats" : repeats + " of these rules closely repeat") + " wording already in the generated prompt. Repeats are harmless today but drift apart when only one copy is edited.");
+    return warnings;
+  }
+
+  function pbRenderLint(role, reference, format) {
+    var box = document.getElementById("pb-lint");
+    if (!box) return;
+    var additional = pbVal("additionalRules");
+    var marker = "# ADDITIONAL EDITORIAL RULES";
+    var cut = reference.indexOf(marker);
+    var generated = window.PB_CORE_RULES.join("\n") + "\n" + role + "\n" + (cut === -1 ? reference : reference.slice(0, cut)) + "\n" + format;
+    var warnings = pbLintAdditionalRules(additional, generated);
+    box.textContent = "";
+    box.hidden = warnings.length === 0;
+    warnings.forEach(function (w) {
+      var p = document.createElement("p");
+      p.textContent = w;
+      box.appendChild(p);
+    });
+  }
+
   function pbRefresh() {
     updateExampleSubsections();
     var role = buildRoleContext();
@@ -946,6 +1028,7 @@
     document.getElementById("wc-output_format").textContent = pbWordCount(format) + " words";
 
     document.getElementById("pb-preview-content").textContent = pbAssembleFullPrompt(role, reference, format);
+    pbRenderLint(role, reference, format);
   }
 
   function updateMarginalHeadingVisibility() {

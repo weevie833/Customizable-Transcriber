@@ -598,3 +598,17 @@ styling has diverged too much from Transcribe/Test Mode's shared shell. */
       .pb-ie-grid { grid-template-columns: 1fr; }
       .pb-top-split { grid-template-columns: 1fr; }
     }
+
+.pb-lint {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border: 1px solid #8a6d1f;
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: #fff8e1;
+  color: #4a3a05;
+  font-size: 0.9rem;
+}
+.pb-lint p { margin: 0; }
+.pb-lint p + p { margin-top: 6px; }
+.pb-lint[hidden] { display: none; }

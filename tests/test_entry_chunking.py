@@ -62,3 +62,21 @@ def test_parse_generic_makes_one_call_per_chunk(monkeypatch):
     )
     assert len(seen) == 2
     assert all("Image number for every record in this source block: 007" in m or "007" in m for m in seen)
+
+
+def test_entry_count_warning_flags_mismatch_only():
+    text = _block(4)
+    assert ai_parser.entry_count_warning("007", text, 4) is None
+    msg = ai_parser.entry_count_warning("007", text, 3)
+    assert msg and "4 entries" in msg and "3 row" in msg
+    assert ai_parser.entry_count_warning("007", "no locators here", 5) is None
+
+
+def test_parse_generic_logs_dropped_entry(monkeypatch):
+    monkeypatch.setattr(ai_parser, "call_ai", lambda *a, **k: [{"page_number": "3"}] * 2)
+    monkeypatch.setattr(ai_parser, "create_gemini_prompt_cache", lambda *a, **k: None)
+    result = ai_parser.parse_generic(
+        config=ai_parser.RECORD_TYPES["battesimi"], text=_block(3), image_range="", image_overrides="",
+        api_key="k", model="gemini-2.5-pro", target_language="English", target_role="", process_all=True,
+    )
+    assert any("3 entries but the AI returned 2" in line for line in result["exception_log"])

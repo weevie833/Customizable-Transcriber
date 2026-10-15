@@ -1837,6 +1837,24 @@ def chunk_block_by_entries(block_text: str, max_entries: int = MAX_ENTRIES_PER_C
     return [chunk for chunk in chunks if chunk]
 
 
+def count_entry_locators(block_text: str) -> int:
+    """Entries the transcription itself declares, counted from locator lines."""
+    return sum(1 for line in block_text.split("\n") if _ENTRY_LOCATOR_LINE_RE.match(line))
+
+
+def entry_count_warning(image_number: str, block_text: str, row_count: int) -> str | None:
+    """A warning when the AI returned a different number of rows than the
+    transcription has entries (a dropped or invented entry). None when the
+    counts agree or the block has no recognisable locator lines to count."""
+    expected = count_entry_locators(block_text)
+    if expected == 0 or expected == row_count:
+        return None
+    return (
+        f"Image {image_number or 'unknown'}: the transcription has {expected} entries but the AI "
+        f"returned {row_count} row(s) -- check for a dropped or invented entry."
+    )
+
+
 LOCATOR_FIELDS = ("page_number", "act_number")
 
 # Wording (English, Latin, Italian) that tells the extractor to reuse the
@@ -2121,6 +2139,9 @@ def parse_generic(
                 exceptions.append(f"Image {image_number or 'unknown'}: AI extraction failed ({exc}).")
                 continue
             normalized = normalize_rows(config, records, image_number, normalize_language)
+            count_warning = entry_count_warning(image_number, block_text, len(normalized))
+            if count_warning:
+                exceptions.append(count_warning)
             if carried_dates:
                 inherited = [
                     row for row in normalized

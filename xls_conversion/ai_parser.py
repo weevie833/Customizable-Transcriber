@@ -1810,6 +1810,26 @@ def split_leading_continuation(block_text: str) -> tuple[str | None, str]:
     return fragment, remainder
 
 
+# General rules that only matter when the transcript itself contains the thing
+# they describe. Each is one line of GENERAL_EXTRACTION_RULES, identified by its
+# opening words; it is dropped from the system prompt of a run whose transcript
+# never matches the trigger, so the model is not asked to weigh rules about
+# content that is not there. Battesimi's own prompt is never touched.
+CONDITIONAL_GENERAL_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ('- A Marginal Heading block may begin with an "Entry N - "', re.compile(r"Marginal\s+Heading", re.IGNORECASE)),
+    ("- CROSSED-OUT ENTRIES:", re.compile(r"\[ENTRY CROSSED OUT BY SCRIBE\]", re.IGNORECASE)),
+    ("- REGISTER FRONT MATTER:", re.compile(r"Front\s+Matter\s*:", re.IGNORECASE)),
+)
+
+
+def prune_inactive_general_rules(system_prompt: str, transcript_text: str) -> str:
+    inactive = [prefix for prefix, trigger in CONDITIONAL_GENERAL_RULES if not trigger.search(transcript_text or "")]
+    if not inactive:
+        return system_prompt
+    kept = [line for line in system_prompt.split("\n") if not any(line.startswith(prefix) for prefix in inactive)]
+    return "\n".join(kept)
+
+
 MAX_ENTRIES_PER_CALL = 8
 
 # A locator line standing alone on its line: "Page 34 - Entry 1:", "Page 34:",
@@ -1928,6 +1948,8 @@ def parse_generic(
     ).replace(
         TARGET_SOURCE_TOKEN, target_source_description(target_language, target_role)
     ).replace(TARGET_LANGUAGE_TOKEN, target_language)
+    if config.key != "battesimi":
+        system_prompt = prune_inactive_general_rules(system_prompt, text)
     extraction_phrase = target_extraction_phrase(target_language, target_role)
     # normalize_rows()'s gender/crossed-out-note output only follows
     # target_language for the 3 civil types -- the only ones whose own

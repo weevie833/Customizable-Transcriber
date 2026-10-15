@@ -1810,6 +1810,33 @@ def split_leading_continuation(block_text: str) -> tuple[str | None, str]:
     return fragment, remainder
 
 
+MAX_ENTRIES_PER_CALL = 8
+
+# A locator line standing alone on its line: "Page 34 - Entry 1:", "Page 34:",
+# "Act 17:", "Entry 3:". It opens each entry in a transcription block.
+_ENTRY_LOCATOR_LINE_RE = re.compile(
+    r"^\s*(?:Page\s+[^\n:]+?(?:\s+-\s+Entry\s+[^\s:]+)?|Act\s+[^\n:]+?|Entry\s+[^\s:]+)\s*:\s*$",
+    re.IGNORECASE,
+)
+
+
+def chunk_block_by_entries(block_text: str, max_entries: int = MAX_ENTRIES_PER_CALL) -> list[str]:
+    """Split an oversized block at entry-locator lines so no AI call sees more
+    than max_entries entries. Splits only at lines that clearly open an entry;
+    a block with no recognisable locator lines, or few enough entries, comes
+    back whole (a wrong split would cut an entry in half, which is worse than
+    one long call). Chunks after the first have no START OF RECORD header --
+    the caller supplies the image number separately."""
+    lines = block_text.split("\n")
+    starts = [i for i, line in enumerate(lines) if _ENTRY_LOCATOR_LINE_RE.match(line)]
+    if len(starts) <= max_entries:
+        return [block_text]
+    cut_points = starts[max_entries::max_entries]
+    bounds = [0] + cut_points + [len(lines)]
+    chunks = ["\n".join(lines[a:b]).strip() for a, b in zip(bounds, bounds[1:])]
+    return [chunk for chunk in chunks if chunk]
+
+
 LOCATOR_FIELDS = ("page_number", "act_number")
 
 # Wording (English, Latin, Italian) that tells the extractor to reuse the
@@ -1871,6 +1898,13 @@ def parse_generic(
             f"{MAX_IMAGES_PER_REQUEST}-block limit for a single request; select a narrower range or "
             "check the transcription for repeated/duplicated image markers."
         )
+    # An image with an unusually large number of entries is sent in several
+    # calls (see chunk_block_by_entries()); every chunk keeps its image number.
+    blocks = [
+        {"image_number": block["image_number"], "text": chunk}
+        for block in blocks
+        for chunk in chunk_block_by_entries(block["text"])
+    ]
     system_prompt = config.system_prompt.replace(
         TARGET_RULE_TOKEN, target_rule_sentence(target_language, target_role)
     ).replace(

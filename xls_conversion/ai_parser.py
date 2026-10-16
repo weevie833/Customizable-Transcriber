@@ -5,7 +5,7 @@ import json
 import random
 import re
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 import anthropic
@@ -95,6 +95,7 @@ GENERAL_EXTRACTION_RULES = f"""GENERAL RULES:
 - Do not invent a value. Use "" when the text does not support it.
 - If the source explicitly states that a name is unknown or unrecorded (for example "ignoto"/"ignoti genitori", "parents unknown", or an equivalent phrase in translation), write "[Unknown]" in that field instead of "". This distinguishes an explicit statement that the name is unknown from a name field that simply could not be extracted.
 - Convert written-out years and ordinal dates to numerals when their meaning is clear.
+- A year written in square brackets with a question mark (for example "[1754?]") was inferred by the transcriber, not read from the page. Extract its digits into the year field and add "Year inferred by transcriber" to the notes field. A bare "[year?]" with no digits means the year is unknown: use "".
 - Preserve the entry order in the source.
 - Preserve source name spellings exactly. Do not translate, modernize, anglicize, or silently correct names.
 - Split given names from surnames. Keep Italian surname prefixes such as da, dal, de, del, della, di, la, le, li, and lo with the surname.
@@ -1036,6 +1037,19 @@ def split_image_blocks(
     return [{"image_number": "", "text": normalized.strip()}]
 
 
+class TruncatedResponseError(RuntimeError):
+    """The model hit its output-token cap before finishing the JSON. Distinct
+    from a plain "not valid JSON" error so parse_generic() can retry the block
+    in smaller pieces instead of dropping its rows."""
+
+
+# Output cap for extraction calls. On Gemini 3.x thinking tokens share this
+# budget, so 8192 could be spent before a dense block's JSON was finished.
+# Claude stays under the SDK's non-streaming ceiling (~21k tokens).
+GEMINI_JSON_MAX_OUTPUT_TOKENS = 32768
+CLAUDE_JSON_MAX_TOKENS = 16000
+
+
 def _parse_json_response(raw: str) -> object:
     raw = raw.strip()
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
@@ -1068,7 +1082,7 @@ def call_gemini_json(
     # cache existed in the first place.
     config_options: dict[str, object] = {
         "response_mime_type": "application/json",
-        "max_output_tokens": 8192,
+        "max_output_tokens": GEMINI_JSON_MAX_OUTPUT_TOKENS,
         "temperature": 0,
     }
     if cached_content:
@@ -1078,7 +1092,7 @@ def call_gemini_json(
     config_options_no_cache: dict[str, object] = {
         "system_instruction": system_prompt,
         "response_mime_type": "application/json",
-        "max_output_tokens": 8192,
+        "max_output_tokens": GEMINI_JSON_MAX_OUTPUT_TOKENS,
         "temperature": 0,
     }
     # Gemini 3.x models think by default, with no cap unless one is set here --
@@ -1127,6 +1141,9 @@ def call_gemini_json(
             cache_expected=bool(cached_content),
             text_chars=len(response.text or ""),
         )
+    candidates = getattr(response, "candidates", None) or []
+    if candidates and getattr(candidates[0], "finish_reason", None) == types.FinishReason.MAX_TOKENS:
+        raise TruncatedResponseError("The AI response was cut off at the output limit.")
     return _parse_json_response(response.text or "")
 
 
@@ -1146,7 +1163,7 @@ def call_claude_json(
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=8192,
+            max_tokens=CLAUDE_JSON_MAX_TOKENS,
             # No temperature knob on this SDK's Messages API -- "high" effort is the
             # closest available lever for consistent, careful extraction.
             output_config={"effort": "high"},
@@ -1168,6 +1185,8 @@ def call_claude_json(
     usage_ledger.record_claude(
         response, model=model, seconds=elapsed, cache_expected=use_prompt_cache, text_chars=len(raw)
     )
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        raise TruncatedResponseError("The AI response was cut off at the output limit.")
     return _parse_json_response(raw)
 
 
@@ -1235,6 +1254,43 @@ def call_ai(
     if not isinstance(records, list):
         raise RuntimeError("The AI response must be a JSON array.")
     return [record for record in records if isinstance(record, dict)]
+
+
+def call_ai_splitting_on_truncation(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    build_message: Callable[[str, str, str], str],
+    image_number: str,
+    previous_context: str,
+    block_text: str,
+    cached_content: str | None = None,
+    use_prompt_cache: bool = False,
+) -> list[dict[str, object]]:
+    """call_ai() for one block; if the response is cut off at the output cap,
+    retry with the block split in half at entry locators (recursively), so a
+    dense block loses no rows. Only the first half gets previous_context, since
+    it alone follows the previous row. A block that cannot be split further
+    re-raises the truncation."""
+    user_message = build_message(image_number, previous_context, block_text)
+    try:
+        return call_ai(api_key, model, system_prompt, user_message, cached_content, use_prompt_cache)
+    except TruncatedResponseError:
+        entries = count_entry_locators(block_text)
+        if entries < 2:
+            raise
+        halves = chunk_block_by_entries(block_text, max_entries=(entries + 1) // 2)
+        if len(halves) < 2:
+            raise
+        print(f"[xls-conversion] Image {image_number or 'unknown'}: response truncated; retrying as {len(halves)} smaller calls")
+        records: list[dict[str, object]] = []
+        for position, half in enumerate(halves):
+            records += call_ai_splitting_on_truncation(
+                api_key, model, system_prompt, build_message, image_number,
+                previous_context if position == 0 else "", half,
+                cached_content, use_prompt_cache,
+            )
+        return records
 
 
 def requested_image_blocks(text: str, expected_images: Iterable[str]) -> dict[str, list[str]]:
@@ -2142,10 +2198,10 @@ def parse_generic(
                 if not fragment_handled and _says_continues_on_next(previous_notes):
                     forward_flagged = True
                     previous_context += continuation_context_for(previous)
-            user_message = build_user_message(image_number, previous_context, block_text)
             try:
-                records = call_ai(
-                    api_key, model, system_prompt, user_message, gemini_cache_name, use_prompt_cache
+                records = call_ai_splitting_on_truncation(
+                    api_key, model, system_prompt, build_user_message, image_number, previous_context,
+                    block_text, gemini_cache_name, use_prompt_cache,
                 )
             except Exception as exc:
                 # Catches more than RuntimeError deliberately: call_ai_json()

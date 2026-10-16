@@ -394,7 +394,7 @@
     parts.push(task);
 
     if (volumeRange) {
-      parts.push("This volume covers " + volumeRange + ". If an entry's year is unclear or absent, infer it from adjacent entries and record how you inferred it.");
+      parts.push("This volume covers " + volumeRange + ". If an entry's year is unclear or absent, infer it from adjacent entries on this image, write the inferred year in square brackets with a question mark (for example [1754?]) wherever it appears, and record how you inferred it in Notes. You see one image at a time, so an entry near the top of an image may have no adjacent entry to infer from: leave that year as [year?] rather than guessing.");
     }
 
     if (handDescriptor) {
@@ -854,9 +854,9 @@
       var phrasingLines = ["# REQUIRED PHRASINGS", ""];
       langs.forEach(function (lang) {
         if (lang === "English") {
-          phrasingLines.push("Open every English translation with: \"On the Nth day of <Month> <year>.\" Use a numeral with its ordinal suffix and always state the year, even when inferred.", "");
+          phrasingLines.push("Open every English translation with: \"On the Nth day of <Month> <year>.\" Use a numeral with its ordinal suffix and always state the year; when the year is inferred rather than written on the page, put it in square brackets with a question mark, for example [1754?].", "");
         } else {
-          phrasingLines.push("Open every Italian translation with the date, for example \"Il giorno 23 di settembre 1752.\" Always state the year, even when inferred.", "");
+          phrasingLines.push("Open every Italian translation with the date, for example \"Il giorno 23 di settembre 1752.\" Always state the year; when the year is inferred rather than written on the page, put it in square brackets with a question mark, for example [1754?].", "");
         }
       });
       phrasingLines.push("This opening applies to a complete entry only. The translation of a continuation fragment (see BLOCK STRUCTURE) has no date to state, so it begins directly with the translated text.", "");
@@ -901,15 +901,26 @@
     var rules = window.PB_CORE_RULES.map(function (r) { return "- " + r; }).join("\n");
     var scaffold = "# ROLE AND LOCAL CONTEXT\n" + role + "\n\n# CORE TRANSCRIPTION RULES\n" + rules + "\n\n# OUTPUT FORMAT\n" + format;
     var sections = [scaffold];
-    if (reference.trim()) {
+    // Editorial rules are instructions, not reference data: keep them outside
+    // the "reference only" fence. Mirrors build_system_prompt() in run_support.py.
+    var marker = "# ADDITIONAL EDITORIAL RULES";
+    var cut = reference.indexOf(marker);
+    var referenceData = cut === -1 ? reference : reference.slice(0, cut);
+    var editorialRules = cut === -1 ? "" : reference.slice(cut + marker.length).trim();
+    if (referenceData.trim()) {
+      var runs = referenceData.match(/`+/g) || [];
+      var fence = "`".repeat(Math.max(3, runs.reduce(function (m, r) { return Math.max(m, r.length); }, 0) + 1));
       sections.push(
         "# USER-SUPPLIED GROUND TRUTH AND REFERENCE MATERIAL\n" +
         "Use the following material as the primary local knowledge base for this run. " +
         "It may include JSON dictionaries, names, places, formulas, abbreviations, sample " +
         "transcriptions/translations, or other ground-truth notes. Do not invent content " +
         "from this reference; use it only to resolve or constrain readings visible in the source image.\n\n" +
-        "```text\n" + reference + "\n```"
+        fence + "text\n" + referenceData.trim() + "\n" + fence
       );
+    }
+    if (editorialRules) {
+      sections.push(marker + "\n\n" + editorialRules);
     }
     return sections.join("\n\n");
   }

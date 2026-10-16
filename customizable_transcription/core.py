@@ -777,7 +777,14 @@ def _transcribe_image_gemini(
         text_chars=len(text),
     )
     candidates = getattr(response, "candidates", None) or []
-    if candidates and getattr(candidates[0], "finish_reason", None) == types.FinishReason.MAX_TOKENS:
+    finish_reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+    if not text.strip():
+        # A safety/recitation block or a thoughts-only reply comes back as "" --
+        # saving that as a finished record would hide a missing page. Raising
+        # sends it through run_batch()'s per-image error path instead.
+        reason = getattr(finish_reason, "name", None) or str(finish_reason or "no candidates")
+        raise RuntimeError(f"The model returned no transcription text (finish reason: {reason}).")
+    if finish_reason == types.FinishReason.MAX_TOKENS:
         text += _TRUNCATION_NOTICE
     return text
 

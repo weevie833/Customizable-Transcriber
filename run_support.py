@@ -23,6 +23,7 @@ boundary).
 
 from __future__ import annotations
 
+import re
 import secrets
 import zipfile
 from pathlib import Path
@@ -353,6 +354,13 @@ def neutral_system_scaffold(tool: str, role_context: str, output_format: str) ->
     )
 
 
+EDITORIAL_RULES_MARKER = "# ADDITIONAL EDITORIAL RULES"
+
+
+def longest_backtick_run(text: str) -> int:
+    return max((len(run) for run in re.findall(r"`+", text)), default=0)
+
+
 def build_system_prompt(tool: str, profile: dict[str, str]) -> str:
     role_context = profile.get("role_context", "")
     reference_context = profile.get("reference_context", "")
@@ -361,7 +369,13 @@ def build_system_prompt(tool: str, profile: dict[str, str]) -> str:
         raise RuntimeError("The selected custom profile has no role, reference, or output format content.")
 
     sections = [neutral_system_scaffold(tool, role_context, output_format)]
-    if reference_context:
+    # "# ADDITIONAL EDITORIAL RULES" is appended last to reference_context by
+    # Prompt Builder (static/prompt-builder.js). Those are instructions, not
+    # reference data, so they must sit outside the "use only to resolve
+    # readings" fence below. Keep this split in step with pbAssembleFullPrompt().
+    reference_data, marker, editorial_rules = reference_context.partition(EDITORIAL_RULES_MARKER)
+    if reference_data.strip():
+        fence = "`" * max(3, longest_backtick_run(reference_data) + 1)
         sections.append(
             "# USER-SUPPLIED GROUND TRUTH AND REFERENCE MATERIAL\n"
             "Use the following material as the primary local knowledge base for this run. "
@@ -369,10 +383,14 @@ def build_system_prompt(tool: str, profile: dict[str, str]) -> str:
             "It may include JSON dictionaries, names, places, formulas, abbreviations, sample "
             "transcriptions/translations, or other ground-truth notes. Do not invent content "
             "from this reference; use it only to resolve or constrain readings visible in the source image.\n\n"
-            "```text\n"
-            + reference_context
-            + "\n```"
+            + fence
+            + "text\n"
+            + reference_data.strip()
+            + "\n"
+            + fence
         )
+    if marker and editorial_rules.strip():
+        sections.append(marker + "\n\n" + editorial_rules.strip())
     return "\n\n".join(sections)
 
 

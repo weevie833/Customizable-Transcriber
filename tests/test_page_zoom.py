@@ -1,4 +1,4 @@
-"""Page zoom (customizable_transcription/page_zoom.py): gutter detection,
+"""Page zoom (customizable_transcriber/page_zoom.py): gutter detection,
 page crops, the Gemini request shape with and without zoom, the off-peak
 batch request shape, the free Preflight advice, Test Mode's per-slot
 setting, and the profile default saved by Prompt Builder."""
@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw
 import app as ctapp
 import batch_transcription as bt
 import run_support
-from customizable_transcription import core, page_zoom
+from customizable_transcriber import core, page_zoom
 from profiles_store import profile_zoom_pages
 
 

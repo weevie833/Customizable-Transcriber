@@ -50,13 +50,13 @@ def home_page() -> str:
   </header>
   <section class="panel">
     <div class="hero-top">
-      <h1>Welcome to the Customizable Transcription application.</h1>
+      <h1>Welcome to the Customizable Transcriber</h1>
     </div>
     <div data-lang-block="en">
-      <p>The Customizable Transcription app is designed to help you process large batches of archival images directly from your computer without uploading anything to the Internet. The app can output a transcript of your images into a formatted DOCX file, including translations to Italian and English. You can then convert the transcript into an XLSX index file using the Italian Parish Records standardized index templates.</p>
+      <p>The Customizable Transcriber app is designed to help you process large batches of archival images directly from your computer without uploading anything to the Internet. The app can output a transcript of your images into a formatted DOCX file, including translations to Italian and English. You can then convert the transcript into an XLSX index file using the Italian Parish Records standardized index templates.</p>
     </div>
     <div data-lang-block="it" hidden>
-      <p>L'app di Trascrizione Personalizzabile è progettata per aiutarti a elaborare grandi lotti di immagini d'archivio direttamente dal tuo computer, senza caricare nulla su Internet. L'app può generare la trascrizione delle tue immagini in un file DOCX formattato, comprese le traduzioni in italiano e inglese. Puoi quindi convertire la trascrizione in un file indice XLSX utilizzando i modelli di indice standardizzati per i registri parrocchiali italiani.</p>
+      <p>L'app Trascrittore Personalizzabile è progettata per aiutarti a elaborare grandi lotti di immagini d'archivio direttamente dal tuo computer, senza caricare nulla su Internet. L'app può generare la trascrizione delle tue immagini in un file DOCX formattato, comprese le traduzioni in italiano e inglese. Puoi quindi convertire la trascrizione in un file indice XLSX utilizzando i modelli di indice standardizzati per i registri parrocchiali italiani.</p>
     </div>
     <hr class="section-divider">
 

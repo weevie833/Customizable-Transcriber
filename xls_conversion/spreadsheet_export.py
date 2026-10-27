@@ -204,7 +204,7 @@ def rows_to_xlsx_multi(sheets: Sequence[SheetSpec]) -> bytes:
             """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
  xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-  <Application>Customizable Transcription Interface</Application>
+  <Application>Customizable Transcriber</Application>
 </Properties>""",
         )
         archive.writestr(
@@ -215,7 +215,7 @@ def rows_to_xlsx_multi(sheets: Sequence[SheetSpec]) -> bytes:
  xmlns:dcterms="http://purl.org/dc/terms/"
  xmlns:dcmitype="http://purl.org/dc/dcmitype/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:creator>Customizable Transcription Interface</dc:creator>
+  <dc:creator>Customizable Transcriber</dc:creator>
 </cp:coreProperties>""",
         )
         archive.writestr(

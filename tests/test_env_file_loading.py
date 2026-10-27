@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from customizable_transcription import core
+from customizable_transcriber import core
 
 
 @pytest.fixture(autouse=True)

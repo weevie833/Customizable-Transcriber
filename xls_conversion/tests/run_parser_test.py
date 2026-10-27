@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regression test: does a model transcription still parse into correct rows?
 
-Runs a fixture through the app's own paragraph merger (customizable_transcription/core.py)
+Runs a fixture through the app's own paragraph merger (customizable_transcriber/core.py)
 and then through the real baptism-parser.js under Node, exactly as the browser
 would. Catches the failure mode where a prompt change quietly empties spreadsheet
 columns while the DOCX still looks fine.
@@ -75,7 +75,7 @@ EXPECTED = {
 
 def load_core_helpers():
     """Import core.py's text helpers without pulling in the genai dependency."""
-    src = (REPO / "customizable_transcription" / "core.py").read_text(encoding="utf-8")
+    src = (REPO / "customizable_transcriber" / "core.py").read_text(encoding="utf-8")
     ns = {"re": re}
     wanted = {"collapse_source_line_breaks", "strip_model_record_headers",
               "render_entry", "standardize_continuation_notes",

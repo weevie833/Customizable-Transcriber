@@ -16,7 +16,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from customizable_transcription import page_zoom, usage_ledger
+from customizable_transcriber import page_zoom, usage_ledger
 
 FILE_TYPE_EXTENSIONS = {
     "jpeg": frozenset({".jpg", ".jpeg"}),

@@ -12,7 +12,7 @@ latest version, update first before reporting.
 Please **do not open a public GitHub issue** for a security report.
 
 Use GitHub's private vulnerability reporting instead: go to this repo's
-[**Security** tab → **Report a vulnerability**](https://github.com/weevie833/Customizable-Transcription/security/advisories/new).
+[**Security** tab → **Report a vulnerability**](https://github.com/weevie833/Customizable-Transcriber/security/advisories/new).
 This opens a private advisory only the maintainer can see until it's
 resolved, and lets you attach a proof-of-concept safely.
 

@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from xml.etree import ElementTree
 
-from customizable_transcription.core import MODELS
+from customizable_transcriber.core import MODELS
 from report_docx_builder import assemble_docx_bytes, report_document_xml, report_paragraph, report_table
 
 

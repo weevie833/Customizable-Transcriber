@@ -1223,7 +1223,7 @@ def test_gemini_batches_get_a_unique_display_name(tmp_path):
     bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [a])
     bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [a])
     assert names[0] != names[1]
-    assert all(n.startswith("customizable-transcription-offpeak-") for n in names)
+    assert all(n.startswith("customizable-transcriber-offpeak-") for n in names)
 
 
 def test_aggregate_cap_is_conservative():

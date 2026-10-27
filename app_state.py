@@ -25,7 +25,7 @@ import json
 import threading
 from pathlib import Path
 
-from customizable_transcription.core import DEFAULT_MODEL
+from customizable_transcriber.core import DEFAULT_MODEL
 from profiles_store import USER_DATA_DIR, atomic_write_text
 
 # Generated DOCX/Markdown output lives outside PROJECT_DIR for the same

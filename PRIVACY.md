@@ -1,6 +1,6 @@
 # Data Processing & Privacy Notice
 
-This document explains what happens to data when Customizable Transcription app is used,
+This document explains what happens to data when Customizable Transcriber app is used,
 who is responsible for what, and what to consider if you operate it in the
 European Union or on behalf of a parish, diocese, or archive. It is written
 to work for two audiences at once: an individual genealogist using this on
@@ -15,7 +15,7 @@ your own legal review before relying on this document.
 
 ## Intended use
 
-Customizable Transcription app is built and tested against **historical archival church
+Customizable Transcriber app is built and tested against **historical archival church
 and civil records** — the working examples throughout this project are
 18th- and 19th-century baptism, marriage, and death registers. That
 intended use matters for the compliance analysis below: GDPR's protections
@@ -33,7 +33,7 @@ If you do that, the analysis in this document changes materially — see
 
 ## How the software is architected, and why that matters
 
-Customizable Transcription app is a local application. You (or your institution) clone
+Customizable Transcriber app is a local application. You (or your institution) clone
 the source code and run it entirely on your own machine — there is no
 hosted service, no central server operated by the software's authors, and
 no account system. Concretely:

@@ -41,8 +41,8 @@ from app_state import (
     test_state,
     test_stop_event,
 )
-from customizable_transcription import page_zoom
-from customizable_transcription.core import (
+from customizable_transcriber import page_zoom
+from customizable_transcriber.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
     MODELS,

@@ -22,7 +22,7 @@ from app_state import (
     test_status_payload,
     test_stop_event,
 )
-from customizable_transcription.core import key_looks_like_claude, provider_for_model
+from customizable_transcriber.core import key_looks_like_claude, provider_for_model
 from http_utils import (
     extract_docx_text,
     parse_json_body,

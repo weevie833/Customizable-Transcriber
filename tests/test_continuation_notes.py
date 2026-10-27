@@ -1,7 +1,7 @@
 """The preset continuation notes render_entry() writes, and that XLS Conversion
 still recognises them (that is what links the split entry across two images)."""
 
-from customizable_transcription.core import physical_neighbors, render_entry
+from customizable_transcriber.core import physical_neighbors, render_entry
 from xls_conversion.ai_parser import (
     _says_continues_from_previous,
     _says_continues_on_next,

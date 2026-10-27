@@ -7,7 +7,7 @@ from __future__ import annotations
 import html
 
 from app_state import load_source_folder, lock, state
-from customizable_transcription.core import MODELS
+from customizable_transcriber.core import MODELS
 from pages import FOOTER_HTML, info_button_html, json_data_island_html
 from profiles_store import load_profile, profile_options_html, profiles_for_browser
 
@@ -112,7 +112,7 @@ def page() -> str:
   <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Customizable Transcription</title>
+  <title>Customizable Transcriber</title>
   <script src="/static/i18n.js" defer></script>
   <script src="/static/app-common.js"></script>
   {initial_data_html}

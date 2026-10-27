@@ -1,5 +1,5 @@
 /*
- * Client-side EN/IT toggle for the Customizable Transcription UI.
+ * Client-side EN/IT toggle for the Customizable Transcriber UI.
  *
  * Scope: static UI chrome (headings, nav, labels, buttons, hints,
  * placeholders, footers) plus the settings-alert modal (showSettingsAlert()
@@ -64,8 +64,9 @@
     "Test Mode": "Modalità di test",
     "Prompt Builder": "Generatore di prompt",
     "Home": "Home",
-    "Customizable Transcription — Home": "Trascrizione Personalizzabile — Home",
-    "Welcome to the Customizable Transcription application.": "Benvenuti nell'applicazione di Trascrizione Personalizzabile.",
+    "Customizable Transcriber — Home": "Trascrittore Personalizzabile — Home",
+    "Customizable Transcriber": "Trascrittore Personalizzabile",
+    "Welcome to the Customizable Transcriber": "Benvenuti in Trascrittore Personalizzabile",
     "Getting Started": "Per iniziare",
     "Primary navigation": "Navigazione principale",
     // The footer license string below includes a trailing "·" -- the text
@@ -745,7 +746,7 @@
   // exact-string DICTIONARY lookup applyLanguage() uses for static chrome.
   //
   // The one deliberate exception: humanize_provider_error()'s two fixed
-  // message shapes (customizable_transcription/core.py) and the transient-
+  // message shapes (customizable_transcriber/core.py) and the transient-
   // retry progress line it's paired with (_with_transient_retry() in the
   // same file) -- these are common enough (any Gemini/Claude 429 or 5xx) and
   // specific enough in shape to safely pattern-match and translate at

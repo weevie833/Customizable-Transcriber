@@ -1,7 +1,7 @@
 # Informativa sul trattamento dei dati e sulla privacy
 
 Questo documento spiega cosa succede ai dati quando si utilizza l'app
-Trascrizione personalizzabile, chi è responsabile di cosa e cosa considerare
+Trascrittore Personalizzabile, chi è responsabile di cosa e cosa considerare
 se la si utilizza nell'Unione Europea o per conto di una parrocchia, di una
 diocesi o di un archivio. È scritto per funzionare per due tipi di lettori
 contemporaneamente: un genealogista che lo usa per proprio conto, e
@@ -18,7 +18,7 @@ affidarti a questo documento.
 
 ## Uso previsto
 
-L'app Trascrizione personalizzabile è realizzata e testata su **registri
+L'app Trascrittore Personalizzabile è realizzata e testata su **registri
 archivistici storici, ecclesiastici e civili** — gli esempi di lavoro in
 tutto questo progetto sono registri di battesimo, matrimonio e morte del
 XVIII e XIX secolo. Questo uso previsto è rilevante per l'analisi di
@@ -38,7 +38,7 @@ registri riguardano persone viventi" più sotto.
 
 ## Come è strutturato il software, e perché questo è importante
 
-L'app Trascrizione personalizzabile è un'applicazione locale. Tu (o la tua
+L'app Trascrittore Personalizzabile è un'applicazione locale. Tu (o la tua
 istituzione) cloni il codice sorgente e lo esegui interamente sul tuo
 computer — non esiste alcun servizio ospitato, nessun server centrale gestito
 dagli autori del software, e nessun sistema di account. In concreto:

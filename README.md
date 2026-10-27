@@ -1,4 +1,4 @@
-# Customizable Transcription Interface
+# Customizable Transcriber
 
 Local AI transcription app for archival records, using Google Gemini or Anthropic Claude (your choice per run). It replaces the Colab/Google Drive workflow with local folder input, saved prompt profiles, selected JPEG/PNG/PDF source processing, timestamped Markdown output, and timestamped Word document output.
 
@@ -26,12 +26,12 @@ error, or a prompt asking to install Command Line Tools, install Python from
 `python3 --version` again to confirm.
 
 **2. Move into the project folder.** In Terminal, type `cd ` (with a trailing
-space, don't press Return yet), then drag the `Customizable Transcription` folder from
+space, don't press Return yet), then drag the `Customizable Transcriber` folder from
 Finder into the Terminal window — it fills in the correct path for you — then
 press Return:
 
 ```bash
-cd path/to/Customizable-Transcription
+cd path/to/Customizable-Transcriber
 ```
 
 **3. Create and activate a virtual environment.** This keeps this app's Python
@@ -59,7 +59,7 @@ commands differ:
   "cmd" or "PowerShell") instead of Terminal.app.
 - Step 2's `cd` works the same way; there's no drag-and-drop shortcut, so
   type or paste the full path yourself, e.g. `cd C:\Users\you\Documents\
-  Customizable-Transcription`.
+  Customizable-Transcriber`.
 - Step 3's activation command is different — use this instead of
   `source .venv/bin/activate`:
 
@@ -133,7 +133,7 @@ Each time you come back to use the app, open Terminal and run just these three
 lines:
 
 ```bash
-cd path/to/Customizable-Transcription
+cd path/to/Customizable-Transcriber
 source .venv/bin/activate
 python3 app.py
 ```
@@ -144,7 +144,7 @@ the Windows callout under step 4 above.)
 ### Updating to a newer version
 
 Download the latest copy of this project and replace your existing
-`Customizable-Transcription` folder with it, then repeat steps 3–4 above
+`Customizable-Transcriber` folder with it, then repeat steps 3–4 above
 (`python3 -m venv .venv` / `source .venv/bin/activate` / `pip install -r
 requirements.txt`) inside the new folder — dependencies can change between
 versions, so it's worth reinstalling them rather than assuming the old
@@ -206,14 +206,14 @@ Saved profiles:
 - **Every profile you create or edit yourself — through `Save Profile`,
   Prompt Builder, or the profile-editor boxes — is saved outside the app
   folder entirely**, in a per-user data location:
-  - macOS: `~/Library/Application Support/Customizable Transcription/profiles/`
-  - Windows: `%APPDATA%\Customizable Transcription\profiles\`
-  - Linux: `$XDG_DATA_HOME/Customizable Transcription/profiles/` (or
-    `~/.local/share/Customizable Transcription/profiles/` if that variable isn't set)
+  - macOS: `~/Library/Application Support/Customizable Transcriber/profiles/`
+  - Windows: `%APPDATA%\Customizable Transcriber\profiles\`
+  - Linux: `$XDG_DATA_HOME/Customizable Transcriber/profiles/` (or
+    `~/.local/share/Customizable Transcriber/profiles/` if that variable isn't set)
 
   This is deliberate: it's what keeps your own profiles safe when you update
   the app later. Updating means downloading a fresh copy of this project and
-  replacing the old `Customizable-Transcription` folder — since your profiles live
+  replacing the old `Customizable-Transcriber` folder — since your profiles live
   outside that folder, replacing it never touches them. You'll see every
   profile you've saved again the moment you launch the updated app, with
   nothing to move or back up yourself.
@@ -246,7 +246,7 @@ Prompt behavior:
 - `profiles_store.py`: where prompt profiles live on disk and every load/save/update/delete/import/export operation on them.
 - `prompt_builder_content.py`: static reference content (record-type formulas, vocabulary checklists) for the Prompt Builder page.
 - `docx_package.py` / `test_mode/report_docx.py`: DOCX-writing helpers — generic OOXML package XML, and the Test Mode comparison-report builder specifically.
-- `customizable_transcription/core.py`: shared transcription logic, model registry, and selected source-type scanning.
+- `customizable_transcriber/core.py`: shared transcription logic, model registry, and selected source-type scanning.
 - `profiles/worksheets/`: source (`build.js`) and generated EN/IT Prompt Builder DOCX worksheets, one per record type; `static/prompt-builder-worksheets/` holds the downloadable zips. After changing the Prompt Builder questionnaire, rebuild with `node build.js .` in that folder and re-zip.
 - `profiles/`: saved JSON prompt profiles — the single source of truth the app reads. `profiles/sources/` holds source material (lexicons, corrections, build scripts) that generates specific profiles; it is not itself loaded by the app.
 - `xls_conversion/`: unified DOCX-to-XLSX/CSV page and source-specific extraction helpers.

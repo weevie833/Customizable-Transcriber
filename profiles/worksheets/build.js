@@ -1103,7 +1103,7 @@ function buildDoc(lang, type, isCivil = false) {
       ];
 
   return new Document({
-    creator: "Customizable Transcription",
+    creator: "Customizable Transcriber",
     title: `${S.docTitle} — ${recordLabel}`,
     sections: [
       {

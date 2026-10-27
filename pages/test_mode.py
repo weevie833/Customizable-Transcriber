@@ -7,7 +7,7 @@ from __future__ import annotations
 import html
 
 from app_state import load_source_folder, test_lock, test_state
-from customizable_transcription.core import MODELS
+from customizable_transcriber.core import MODELS
 from pages import FOOTER_HTML, file_picker_html, json_data_island_html
 from profiles_store import profile_options_html, profiles_for_browser
 

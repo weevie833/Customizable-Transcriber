@@ -1,4 +1,4 @@
-"""The usage ledger (customizable_transcription/usage_ledger.py) is measurement only:
+"""The usage ledger (customizable_transcriber/usage_ledger.py) is measurement only:
 these tests pin what it records AND that it can never change or break a run.
 
 Providers are faked at the SDK-client level, same as test_prompt_caching.py.
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from google.genai import types
 
-from customizable_transcription import core, usage_ledger
+from customizable_transcriber import core, usage_ledger
 from xls_conversion import ai_parser
 
 

@@ -18,7 +18,7 @@ from pathlib import Path
 import httpx
 
 from app_state import lock, state
-from customizable_transcription.core import (
+from customizable_transcriber.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
     MODELS,

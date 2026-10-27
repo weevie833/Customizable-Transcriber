@@ -22,7 +22,7 @@ import types
 
 import pytest
 
-from customizable_transcription import core
+from customizable_transcriber import core
 
 
 class _FakeGeminiClient:

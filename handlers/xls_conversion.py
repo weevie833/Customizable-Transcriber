@@ -15,7 +15,7 @@ import secrets
 from pathlib import Path
 
 from app_state import xls_ai_lock, xls_preflight_cache, xls_preflight_lock
-from customizable_transcription.core import (
+from customizable_transcriber.core import (
     MODELS,
     api_key,
     claude_api_key,

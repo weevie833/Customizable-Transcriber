@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from customizable_transcription import core
+from customizable_transcriber import core
 
 
 def test_default_key_check_timeout_is_passed_to_the_client(monkeypatch):

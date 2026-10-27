@@ -145,7 +145,7 @@ delete a user's own saved work:
 - **`profiles/`** (git-tracked) — shipped reference examples only,
   read-only at runtime. Nothing the running app does ever writes here.
 - **A per-OS user-data directory**, outside the app's own install folder
-  (e.g. `~/Library/Application Support/Customizable Transcription/profiles/`
+  (e.g. `~/Library/Application Support/Customizable Transcriber/profiles/`
   on macOS) — every profile a user saves or edits through the running app
   goes here instead. If a user edits a shipped profile, the edit is saved
   as their own copy in the user directory, shadowing the shipped original
@@ -424,7 +424,7 @@ entry that starts at the bottom of one photographed page and continues
 onto the next) is flagged in the transcript by two preset Notes lines. The
 model detects the split and writes a fixed sentence (the prompt requires that exact
 wording); the app then standardizes it (`render_entry()` in
-`customizable_transcription/core.py`): `ENTRY CONTINUES ON THE NEXT IMAGE -- ...` as the very last line
+`customizable_transcriber/core.py`): `ENTRY CONTINUES ON THE NEXT IMAGE -- ...` as the very last line
 of the record where the entry starts, and `ENTRY CONTINUES FROM THE PREVIOUS
 IMAGE -- ...` at the top of the record that picks it up. Both name the
 neighbouring image's record so a reader knows where to look, and together they

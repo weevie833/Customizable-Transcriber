@@ -33,7 +33,7 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     """Redirects every path this app writes user data to into a pytest
     tmp_path, so tests can freely save/update/delete profiles and outputs
     without ever touching the real per-user data directory (~/Library/
-    Application Support/Customizable Transcription/ on macOS, etc.) or this
+    Application Support/Customizable Transcriber/ on macOS, etc.) or this
     repo's own files.
 
     Patches every module that actually OWNS one of these names, not just

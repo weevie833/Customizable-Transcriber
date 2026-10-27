@@ -13,8 +13,8 @@ import httpx
 from google import genai
 from google.genai import types
 
-from customizable_transcription import usage_ledger
-from customizable_transcription.core import (
+from customizable_transcriber import usage_ledger
+from customizable_transcriber.core import (
     MAX_TRANSIENT_RETRIES,
     RETRY_BASE_DELAY_SECONDS,
     RETRY_MAX_DELAY_SECONDS,
@@ -1198,7 +1198,7 @@ def call_claude_json(
 # exponential backoff plus jitter (spreads retries out so a whole batch
 # retrying in lockstep doesn't itself look like a burst to the provider).
 # MAX_TRANSIENT_RETRIES/RETRY_BASE_DELAY_SECONDS/RETRY_MAX_DELAY_SECONDS/
-# _is_transient_provider_error() are imported from customizable_transcription.core,
+# _is_transient_provider_error() are imported from customizable_transcriber.core,
 # which now owns the one copy -- core.py's own transcribe_image_with_retry()/
 # validate_api_key_with_retry() need the identical logic, so it lives there
 # rather than being duplicated here.

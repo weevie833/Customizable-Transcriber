@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import html
 
-from customizable_transcription.core import DEFAULT_MODEL, MODELS
+from customizable_transcriber.core import DEFAULT_MODEL, MODELS
 from pages import FOOTER_HTML, file_picker_html, json_data_island_html
 from profiles_store import load_custom_profiles, profiles_with_display_labels
 from prompt_builder_content import (

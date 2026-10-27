@@ -19,8 +19,8 @@ from app_state import (
     test_state,  # noqa: F401 -- re-exported for tests
 )
 from batch_transcription import estimate_off_peak_savings
-from customizable_transcription import usage_ledger
-from customizable_transcription.core import (
+from customizable_transcriber import usage_ledger
+from customizable_transcriber.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
     MODELS,
@@ -745,7 +745,7 @@ def main() -> None:
         state["profile_id"] = ""
     surface_stale_off_peak_job()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"Customizable Transcription Interface running at http://{HOST}:{PORT}")
+    print(f"Customizable Transcriber running at http://{HOST}:{PORT}")
     server.serve_forever()
 
 

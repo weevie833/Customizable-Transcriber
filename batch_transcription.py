@@ -60,8 +60,8 @@ from app_state import (
     stop_event,
     write_off_peak_job_state,
 )
-from customizable_transcription import page_zoom, usage_ledger
-from customizable_transcription.core import (
+from customizable_transcriber import page_zoom, usage_ledger
+from customizable_transcriber.core import (
     BATCH_REQUEST_TIMEOUT_SECONDS,
     FILE_TYPE_MIME,
     USER_INSTRUCTION,
@@ -343,7 +343,7 @@ def submit_gemini_batch(
         # Unique per submission (H-1): if the response is lost, the job can still be
         # found in the provider's own console by this name.
         config=genai_types.CreateBatchJobConfig(
-            display_name=f"customizable-transcription-offpeak-{uuid.uuid4().hex[:12]}"
+            display_name=f"customizable-transcriber-offpeak-{uuid.uuid4().hex[:12]}"
         ),
     )
     return job.name

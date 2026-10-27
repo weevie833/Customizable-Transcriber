@@ -1,6 +1,6 @@
 """Regression tests for humanize_provider_error() and the retry wrappers
 (transcribe_image_with_retry/validate_api_key_with_retry) in
-customizable_transcription/core.py.
+customizable_transcriber/core.py.
 
 Context: a real Gemini 503 ("This model is currently experiencing high
 demand... Please try again later.") used to surface verbatim as
@@ -22,7 +22,7 @@ import anthropic
 import pytest
 from google.genai import errors as genai_errors
 
-from customizable_transcription import core
+from customizable_transcriber import core
 from xls_conversion import ai_parser
 
 

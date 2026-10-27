@@ -4,7 +4,7 @@ openpyxl==3.1.5
 rapidfuzz==3.14.5
 # Page zoom (customizable_transcriber/page_zoom.py): finds the gutter of a
 # two-page photo and crops each page.
-pillow==12.3.0
+pillow==13.0.0
 
 # Not imported directly -- pulled in transitively via google-genai's own
 # google-auth dependency. Exact-pinned (previously floor-only, >=) to match

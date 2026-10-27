@@ -4,9 +4,9 @@ Local AI transcription app for archival records, using Google Gemini or Anthropi
 
 ## Setup
 
-This is a one-time setup, requiring **Python 3.10 or newer** (developed and
-tested on 3.11–3.12; 3.10 is the actual floor — google-genai, anthropic, and
-rapidfuzz, three of this app's own dependencies, all require it). The steps
+This is a one-time setup, requiring **Python 3.11 or newer** (developed and
+tested on 3.11–3.12; 3.11 is the actual floor — Pillow, which the Page zoom
+feature uses, requires it). The steps
 below are written for macOS; a Windows-
 specific callout with the two commands that differ follows step 4.
 
@@ -20,7 +20,7 @@ Return:
 python3 --version
 ```
 
-If you see `Python 3.10` or newer, you're set — skip to step 2. If you get an
+If you see `Python 3.11` or newer, you're set — skip to step 2. If you get an
 error, or a prompt asking to install Command Line Tools, install Python from
 [python.org/downloads](https://www.python.org/downloads/) first, then run
 `python3 --version` again to confirm.
@@ -282,7 +282,7 @@ python3 xls_conversion/tests/run_parser_test.py
 ```
 
 Both run via GitHub Actions (`.github/workflows/tests.yml`). Every push and pull
-request runs them on Linux (Python 3.10 and 3.12); Windows and macOS run weekly,
+request runs them on Linux (Python 3.11 and 3.12); Windows and macOS run weekly,
 on demand (Actions tab -> Tests -> Run workflow) and on `v*` tags, to stay within
 the free tier's Actions minutes on a private repo. Docs-only changes skip CI.
 

@@ -166,11 +166,15 @@ class XlsConversionHandlerMixin:
                 target_role=target_role,
                 process_all=process_all,
             )
-            self.respond_json(result)
+            response, status = result, 200
         except Exception as exc:
-            self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
+            response, status = {"error": humanize_provider_error(exc, model)}, 400
         finally:
             xls_ai_lock.release()
+        # Respond only after the slot is released: a client that fires its
+        # next request the moment this response arrives must not get a
+        # spurious "already running" 409.
+        self.respond_json(response, status=status)
 
     def preflight_xls_source(self) -> None:
         if not self._reserve_xls_ai_slot():
@@ -206,11 +210,15 @@ class XlsConversionHandlerMixin:
             token = save_xls_preflight(result, record_type, text, image_range, model, target_language, process_all)
             result["preflight_token"] = token
             result["source_hash"] = source_hash(text)
-            self.respond_json(result)
+            response, status = result, 200
         except Exception as exc:
-            self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
+            response, status = {"error": humanize_provider_error(exc, model)}, 400
         finally:
             xls_ai_lock.release()
+        # Respond only after the slot is released: a client that fires its
+        # next request the moment this response arrives must not get a
+        # spurious "already running" 409.
+        self.respond_json(response, status=status)
 
     def detect_xls_languages(self) -> None:
         if not self._reserve_xls_ai_slot():
@@ -247,11 +255,15 @@ class XlsConversionHandlerMixin:
                 model=model,
                 process_all=process_all,
             )
-            self.respond_json(result)
+            response, status = result, 200
         except Exception as exc:
-            self.respond_json({"error": humanize_provider_error(exc, model)}, status=400)
+            response, status = {"error": humanize_provider_error(exc, model)}, 400
         finally:
             xls_ai_lock.release()
+        # Respond only after the slot is released: a client that fires its
+        # next request the moment this response arrives must not get a
+        # spurious "already running" 409.
+        self.respond_json(response, status=status)
 
     def combine_xls_languages(self) -> None:
         try:

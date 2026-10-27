@@ -34,14 +34,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
-  # Every push/PR: Linux only (1x billing). 3.10 is the documented floor
-  # (pyproject.toml's requires-python) -- google-genai, anthropic, and
-  # rapidfuzz all need it -- and 3.12 is the newer version we also support.
+  # Every push/PR: Linux only (1x billing). 3.11 is the documented floor
+  # (pyproject.toml's requires-python) -- Pillow 13 needs it -- and 3.12 is
+  # the newer version we also support.
   test:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.11", "3.12"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,7 +75,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-latest, python-version: "3.10"}
+          - {os: windows-latest, python-version: "3.11"}
           - {os: windows-latest, python-version: "3.12"}
           - {os: macos-latest, python-version: "3.12"}
     runs-on: ${{ matrix.os }}

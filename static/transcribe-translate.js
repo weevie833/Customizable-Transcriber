@@ -1,9 +1,13 @@
 /* Transcribe page: "Translate completed transcript" section
 (pages/transcribe.py, handlers/transcribe_translate.py). The Preflight Check
-reads the uploaded DOCX on the server with no API call; Translate stays
+reads the uploaded DOCX on the server and checks the API key with one tiny
+request to the provider; Translate stays
 disabled until a preflight of the current settings has passed. The run itself
 reports through the Progress Console like a transcription run, so this script
-hands off to transcribe.js's refreshStatus() once it starts. */
+hands off to transcribe.js's refreshStatus() once it starts. The translation
+choices are made here; the prompt profile is only background on the register,
+found from the document's header, so its picker stays hidden unless the user
+asks for it or no profile was found. */
 (function () {
   let preflightPassed = false;
 
@@ -19,14 +23,32 @@ hands off to transcribe.js's refreshStatus() once it starts. */
     return typeof window.tbTranslateStatusText === "function" ? window.tbTranslateStatusText(text) : text;
   }
 
-  function requestBody(includeKey) {
+  function checked(name) {
+    const box = document.querySelector(`[name="${name}"]`);
+    return box && box.checked ? "on" : "";
+  }
+
+  function selectedHonorifics() {
+    const boxes = Array.from(document.querySelectorAll('[name="translate_honorific"]:checked')).map((box) => box.value);
+    const other = document.querySelector('[name="translate_other_honorifics"]').value.split(",");
+    return boxes.concat(other.map((value) => value.trim()).filter(Boolean));
+  }
+
+  function showProfilePicker() {
+    el("translate-profile-wrap").hidden = false;
+  }
+
+  function requestBody() {
     const body = new FormData();
     const file = el("translate-source-file").files[0];
     if (file) body.append("source_file", file);
     body.append("languages", selectedLanguages().join(","));
+    body.append("expand_abbreviations", checked("translate_expand_abbreviations"));
+    body.append("convert_names", checked("translate_convert_names"));
+    body.append("honorifics", selectedHonorifics().join(","));
     body.append("profile_id", document.querySelector('[name="translate_profile_id"]').value || "");
     body.append("model", document.querySelector('[name="model"]').value || "");
-    if (includeKey) body.append("api_key", document.querySelector('[name="gemini_api_key"]').value.trim());
+    body.append("api_key", document.querySelector('[name="gemini_api_key"]').value.trim());
     return body;
   }
 
@@ -63,8 +85,23 @@ hands off to transcribe.js's refreshStatus() once it starts. */
     box.hidden = false;
     if (data.ok) {
       if (data.profile_label) {
-        addLine(box, `Profile: ${data.profile_label}` + (data.profile_detected ? " (named in the document)" : ""));
+        addLine(box, `Background: ${data.profile_label}` + (data.profile_detected ? " (named in the document)" : ""));
+        if (el("translate-profile-wrap").hidden) {
+          const change = document.createElement("button");
+          change.type = "button";
+          change.className = "button-tiny translate-change-profile";
+          change.textContent = "Use a different profile";
+          change.addEventListener("click", () => {
+            showProfilePicker();
+            change.remove();
+          });
+          box.appendChild(change);
+        }
+      } else {
+        addLine(box, "Background: none");
+        showProfilePicker();
       }
+      if (data.api_key_valid) addLine(box, `API key: accepted by ${data.model_label}`);
       addLine(box, `Images: ${data.records}`);
       addLine(box, `Entries: ${data.entries}` + (data.fragments ? ` (${data.fragments} continue from the previous image)` : ""));
       Object.keys(data.to_translate || {}).forEach((lang) => {
@@ -82,6 +119,7 @@ hands off to transcribe.js's refreshStatus() once it starts. */
       }
     } else {
       addList(box, "Fix these before translating:", data.errors, "translate-error");
+      if ((data.errors || []).includes("The selected prompt profile was not found.")) showProfilePicker();
     }
     addList(box, "Warnings:", data.warnings, "translate-warning");
     addList(box, "Your edits, accepted as written:", data.accepted_edits, "");
@@ -97,8 +135,13 @@ hands off to transcribe.js's refreshStatus() once it starts. */
     }
     const button = el("translate-preflight-button");
     button.disabled = true;
+    const box = el("translate-preflight-result");
+    box.textContent = "";
+    box.hidden = false;
+    addLine(box, "Reading the transcript and checking the API key...");
+    if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
     try {
-      const response = await fetch("/api/translate-transcript/preflight", { method: "POST", body: requestBody(false) });
+      const response = await fetch("/api/translate-transcript/preflight", { method: "POST", body: requestBody() });
       const data = await response.json();
       renderPreflight(data);
       preflightPassed = Boolean(data.ok);
@@ -122,7 +165,7 @@ hands off to transcribe.js's refreshStatus() once it starts. */
     const runButton = el("translate-run-button");
     runButton.disabled = true;
     try {
-      const response = await fetch("/api/translate-transcript/run", { method: "POST", body: requestBody(true) });
+      const response = await fetch("/api/translate-transcript/run", { method: "POST", body: requestBody() });
       const data = await response.json();
       if (!response.ok || !data.ok) {
         showSettingsAlert(translateText((data.errors || ["The translation could not start."]).join(" ")));
@@ -156,7 +199,12 @@ hands off to transcribe.js's refreshStatus() once it starts. */
       resetPreflight();
       el("translate-preflight-result").hidden = true;
     });
+    // The model and API key fields sit in the main form above, but the
+    // preflight checked the key against that model, so a change to either
+    // means running it again.
     const modelSelect = document.querySelector('[name="model"]');
     if (modelSelect) modelSelect.addEventListener("change", resetPreflight);
+    const keyInput = document.querySelector('[name="gemini_api_key"]');
+    if (keyInput) keyInput.addEventListener("input", resetPreflight);
   });
 })();

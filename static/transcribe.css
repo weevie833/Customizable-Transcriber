@@ -129,8 +129,21 @@ since this isn't inside an f-string anymore). */
     .translate-body {
       margin-top: 10px;
     }
-    .translate-body fieldset .check {
-      margin-top: 4px;
+    /* Same layout as Prompt Builder's Translation checkboxes (.pb-checkbox in
+    a .pb-checklist-tight row); the hollow-box look itself comes from
+    base.css's input[type="checkbox"] rule. */
+    .translate-language-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 18px;
+      margin-top: 6px;
+    }
+    .translate-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-weight: 400;
+      margin-top: 6px;
     }
     .translate-file-row {
       display: block;
@@ -159,4 +172,11 @@ since this isn't inside an f-string anymore). */
     }
     .translate-preflight-result p {
       margin: 2px 0;
+    }
+    .translate-other-honorifics {
+      margin-top: 8px;
+      max-width: 420px;
+    }
+    .translate-preflight-result .translate-change-profile {
+      margin-top: 4px;
     }

@@ -15,6 +15,13 @@ Parsing and the preflight check are plain text work with no API call, so the
 user can see what will be translated before spending tokens. The report lists
 what was translated, what was skipped and why, and any entries the user joined
 across images (accepted as the user's decision, only noted).
+
+The translation choices (expand abbreviations, convert names, honorifics) are
+made in the Translate section itself. A transcription-only profile's own
+translation answers were hidden in Prompt Builder and never chosen, so they
+are not used. The profile the transcript was made with is used only as
+background on the register (date conventions, abbreviation key, formulas,
+name lexicon); when it cannot be found, the translation runs without it.
 """
 
 from __future__ import annotations
@@ -43,6 +50,7 @@ from customizable_transcriber.core import (
 from docx_package import strip_xml_illegal_chars
 from http_utils import extract_docx_text
 from profiles_store import PROJECT_DIR, load_custom_profiles, safe_filename
+from prompt_builder_content import PROMPT_BUILDER_RECORD_TYPES
 from report_docx_builder import assemble_docx_bytes, report_document_xml, report_paragraph, report_table
 from run_support import write_docx
 from xls_conversion.ai_parser import AI_REQUEST_TIMEOUT_SECONDS, TruncatedResponseError, call_ai_json
@@ -324,43 +332,26 @@ def find_profile(profile_id: str, header_label: str) -> tuple[dict | None, bool]
     return None, False
 
 
-def _pb_checked(profile: dict, name: str) -> list[str]:
-    answers = profile.get("pb_answers") or {}
-    checked = answers.get("checked") if isinstance(answers, dict) else None
-    values = (checked or {}).get(name) or []
-    return [str(value) for value in values] if isinstance(values, list) else []
-
-
-def _pb_rows(profile: dict, container: str) -> list[str]:
-    answers = profile.get("pb_answers") or {}
-    rows = (answers.get("rows") or {}).get(container) if isinstance(answers, dict) else None
-    values: list[str] = []
-    for row in rows or []:
-        if isinstance(row, list) and row and str(row[0]).strip():
-            values.append(str(row[0]).strip())
-        elif isinstance(row, str) and row.strip():
-            values.append(row.strip())
-    return values
-
-
 @dataclass
 class TranslationOptions:
-    expand_abbreviations: bool
-    convert_names: bool
-    honorifics: list[str]
+    """The user's translation choices from the Translate section. Defaults
+    match Prompt Builder's Translation questions."""
+
+    expand_abbreviations: bool = False
+    convert_names: bool = False
+    honorifics: list[str] = field(default_factory=lambda: ["Don", "Master"])
 
 
-def translation_options(profile: dict) -> TranslationOptions:
-    """The profile's own translation answers from Prompt Builder. A profile
-    without Prompt Builder answers gets the questionnaire's defaults
-    (abbreviations expanded, names kept in their source form, Don/Master)."""
-    if not isinstance(profile.get("pb_answers"), dict):
-        return TranslationOptions(True, False, ["Don", "Master"])
-    return TranslationOptions(
-        expand_abbreviations=bool(_pb_checked(profile, "translateExpandAbbreviations")),
-        convert_names=bool(_pb_checked(profile, "translateConvertNames")),
-        honorifics=_pb_checked(profile, "honorifics") + _pb_rows(profile, "pb-honorific-rows"),
-    )
+def record_type_for(parsed: ParsedTranscript, profile: dict | None) -> str:
+    """The record-type key for the new header box: the profile's, else the
+    one the old header box named (matched by its label)."""
+    if profile and profile.get("record_type"):
+        return str(profile["record_type"])
+    label = parsed.header.get("Record type", "").strip().casefold()
+    for key, config in PROMPT_BUILDER_RECORD_TYPES.items():
+        if str(config.get("label", "")).strip().casefold() == label:
+            return key
+    return ""
 
 
 def native_language_for(parsed: ParsedTranscript, profile: dict | None) -> str:
@@ -381,6 +372,7 @@ class Plan:
     profile_detected: bool
     native_language: str
     languages: list[str]
+    options: TranslationOptions
     # entry_id -> languages to add for the main text / the church wedding record
     work: dict[str, list[str]]
     cwr_work: dict[str, list[str]]
@@ -412,7 +404,7 @@ def entry_label(entry: Entry) -> str:
     return f"{entry.record}, entry {entry.position}"
 
 
-def build_plan(text: str, profile_id: str, languages: list[str]) -> Plan:
+def build_plan(text: str, profile_id: str, languages: list[str], options: TranslationOptions | None = None) -> Plan:
     parsed = parse_transcript(text)
     profile, detected = find_profile(profile_id, parsed.header.get("Prompt profile", ""))
     native = native_language_for(parsed, profile)
@@ -431,12 +423,16 @@ def build_plan(text: str, profile_id: str, languages: list[str]) -> Plan:
         if profile_id:
             errors.append("The selected prompt profile was not found.")
         elif parsed.header.get("Prompt profile"):
-            errors.append(
+            warnings.append(
                 f'The document names the prompt profile "{parsed.header["Prompt profile"]}", which is not saved '
-                "on this computer. Choose the profile to use."
+                "on this computer. The translation will run without its background on the register (date "
+                "conventions, abbreviations, names), or you can choose another profile."
             )
         else:
-            errors.append("The document does not name its prompt profile. Choose the profile to use.")
+            warnings.append(
+                "The document does not name its prompt profile. The translation will run without background on "
+                "the register (date conventions, abbreviations, names), or you can choose a profile."
+            )
     if not parsed.records:
         errors.append(
             'No "--- START OF RECORD: ... ---" lines were found. Upload a transcript produced by the Transcribe page.'
@@ -491,7 +487,10 @@ def build_plan(text: str, profile_id: str, languages: list[str]) -> Plan:
     if parsed.entries and not work and not cwr_work and not errors:
         errors.append("Every entry already has the selected translation(s). There is nothing to translate.")
 
-    return Plan(parsed, profile, detected, native, languages, work, cwr_work, errors, warnings, accepted, skipped)
+    return Plan(
+        parsed, profile, detected, native, languages, options or TranslationOptions(),
+        work, cwr_work, errors, warnings, accepted, skipped,
+    )
 
 
 def estimate_tokens(plan: Plan, system_prompt_chars: int) -> dict[str, int]:
@@ -531,6 +530,7 @@ def preflight_summary(plan: Plan, system_prompt_chars: int = 0) -> dict[str, obj
         "profile_id": str(profile.get("id", "")),
         "profile_label": str(profile.get("label", "")),
         "profile_detected": plan.profile_detected,
+        "profile_named_in_document": plan.parsed.header.get("Prompt profile", ""),
         "estimate": estimate_tokens(plan, system_prompt_chars) if not plan.errors else {},
     }
 
@@ -543,8 +543,9 @@ def _fence(text: str) -> str:
     return "`" * max(3, longest + 1)
 
 
-def build_translation_prompt(profile: dict, native_language: str, languages: list[str]) -> str:
-    options = translation_options(profile)
+def build_translation_prompt(
+    profile: dict | None, native_language: str, languages: list[str], options: TranslationOptions
+) -> str:
     native = native_language or "the source language"
     targets = " and ".join(languages)
     rules = [
@@ -610,8 +611,8 @@ def build_translation_prompt(profile: dict, native_language: str, languages: lis
         "Include `church_wedding_record` only for entries that have one.",
     ]
 
-    role_context = str(profile.get("role_context", "")).strip()
-    reference_context = str(profile.get("reference_context", "")).strip()
+    role_context = str((profile or {}).get("role_context", "")).strip()
+    reference_context = str((profile or {}).get("reference_context", "")).strip()
     background = "\n\n".join(part for part in (role_context, reference_context) if part)
     if background:
         sections.append(
@@ -840,6 +841,12 @@ def build_report_docx(
     finished: datetime,
 ) -> bytes:
     profile = plan.profile or {}
+    options = plan.options
+    background = (
+        f"{profile.get('label', '')} (used as background on the register)"
+        if profile
+        else "none found; translated without background on the register"
+    )
     translated_counts = {
         lang: sum(1 for t in translations.values() if lang in t) for lang in plan.languages
     }
@@ -847,10 +854,16 @@ def build_report_docx(
         report_paragraph("Translation Report", bold=True, size_half_points=32),
         report_paragraph(f"Source file: {source_name}", space_after_twips=0),
         report_paragraph(f"Translated file: {output_name}", space_after_twips=0),
-        report_paragraph(f"Prompt profile: {profile.get('label', '')}", space_after_twips=0),
+        report_paragraph(f"Prompt profile: {background}", space_after_twips=0),
         report_paragraph(f"AI model: {MODELS.get(model, model)}", space_after_twips=0),
         report_paragraph(f"Native language: {plan.native_language or 'not stated'}", space_after_twips=0),
         report_paragraph(f"Translations added: {', '.join(plan.languages)}", space_after_twips=0),
+        report_paragraph(
+            "Abbreviations: " + ("expanded" if options.expand_abbreviations else "kept as written")
+            + ". Names: " + ("converted to their English/Italian form" if options.convert_names else "kept as written")
+            + ". Honorifics kept in roles: " + (", ".join(options.honorifics) or "none") + ".",
+            space_after_twips=0,
+        ),
         report_paragraph(
             f"Started {started:%Y-%m-%d %H:%M}, finished {finished:%Y-%m-%d %H:%M}. Prompt version {PROMPT_VERSION}."
         ),
@@ -940,6 +953,7 @@ def run_translation_job(
     languages: list[str],
     model: str,
     api_key: str,
+    options: TranslationOptions | None = None,
 ) -> None:
     """Background thread for one translation run. The caller has already
     reserved state["running"]; this always clears it."""
@@ -950,10 +964,13 @@ def run_translation_job(
     ledger_tokens: dict[str, int] = {}
     stopped = False
     try:
-        plan = build_plan(text, profile_id, languages)
+        plan = build_plan(text, profile_id, languages, options)
         if plan.errors:
             raise RuntimeError(" ".join(plan.errors))
-        system_prompt = build_translation_prompt(plan.profile, plan.native_language, plan.languages)
+        system_prompt = build_translation_prompt(plan.profile, plan.native_language, plan.languages, plan.options)
+        profile = plan.profile or {}
+        if not profile:
+            add_log("No saved prompt profile was found; translating without background on the register.")
         entries = plan.entries_to_translate
         chunks = _chunks(entries, plan)
         add_log(f"Translating {len(entries)} entries into {', '.join(plan.languages)} with {model} ({len(chunks)} request(s)).")
@@ -971,8 +988,8 @@ def run_translation_job(
             provider=provider,
             model=model,
             system_prompt=system_prompt,
-            profile_id=str(plan.profile.get("id", "")),
-            profile_label=str(plan.profile.get("label", "")),
+            profile_id=str(profile.get("id", "")),
+            profile_label=str(profile.get("label", "")),
             prompt_version=PROMPT_VERSION,
             languages=plan.languages,
         )
@@ -1017,9 +1034,9 @@ def run_translation_job(
             body,
             native_language=plan.native_language,
             translation_languages=plan.final_languages(translations),
-            record_type=str(plan.profile.get("record_type", "")),
+            record_type=record_type_for(plan.parsed, plan.profile),
             model=plan.parsed.header.get("AI model", ""),
-            profile_label=str(plan.profile.get("label", "")),
+            profile_label=str(profile.get("label", "") or plan.parsed.header.get("Prompt profile", "")),
         )
         report = build_report_docx(
             plan, source_name, docx_path.name, model, translations, cwr_translations, failures,
@@ -1048,10 +1065,18 @@ def run_translation_job(
             state["running"] = False
 
 
-def start_translation_job(text: str, source_name: str, profile_id: str, languages: list[str], model: str, api_key: str) -> None:
+def start_translation_job(
+    text: str,
+    source_name: str,
+    profile_id: str,
+    languages: list[str],
+    model: str,
+    api_key: str,
+    options: TranslationOptions,
+) -> None:
     thread = threading.Thread(
         target=run_translation_job,
-        args=(text, source_name, profile_id, languages, model, api_key),
+        args=(text, source_name, profile_id, languages, model, api_key, options),
         daemon=True,
     )
     thread.start()

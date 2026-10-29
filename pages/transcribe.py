@@ -282,17 +282,36 @@ def page() -> str:
         </label>
         <fieldset>
           <legend>Translate into</legend>
-          <div class="radio-row">
-            <label class="check"><input type="checkbox" name="translate_language" value="English" checked>English</label>
-            <label class="check"><input type="checkbox" name="translate_language" value="Italian">Italian</label>
+          <div class="translate-language-row">
+            <label class="translate-checkbox"><input type="checkbox" name="translate_language" value="English">English</label>
+            <label class="translate-checkbox"><input type="checkbox" name="translate_language" value="Italian">Italian</label>
           </div>
         </fieldset>
-        <label>Prompt profile
-          <select name="translate_profile_id">
-            {translate_profile_options}
-          </select>
-          <p class="hint">The translation follows this profile's translation settings and uses its reference material. Uses the Model and API key selected above.</p>
-        </label>
+        <fieldset>
+          <legend>Translation style</legend>
+          <div class="translate-language-row">
+            <label class="translate-checkbox"><input type="checkbox" name="translate_expand_abbreviations" value="on">Expand abbreviations</label>
+            <label class="translate-checkbox"><input type="checkbox" name="translate_convert_names" value="on">Convert names to ENG or IT equivalents</label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Honorifics kept with a name in a role</legend>
+          <p class="hint">For example "The godfather was Don Carolus Calsi". Any other title is left out of the translation; the transcription still shows it.</p>
+          <div class="translate-language-row">
+            <label class="translate-checkbox"><input type="checkbox" name="translate_honorific" value="Don" checked>Don</label>
+            <label class="translate-checkbox"><input type="checkbox" name="translate_honorific" value="Master" checked>Master</label>
+          </div>
+          <input type="text" name="translate_other_honorifics" class="translate-other-honorifics" placeholder="Other honorifics to keep, separated by commas">
+        </fieldset>
+        <div id="translate-profile-wrap" hidden>
+          <label>Prompt profile for background
+            <select name="translate_profile_id">
+              {translate_profile_options}
+            </select>
+            <p class="hint">The profile's description of the register (date conventions, abbreviations, names) helps the translation. Its translation settings are not used.</p>
+          </label>
+        </div>
+        <p class="hint">Uses the Model and API key selected above.</p>
         <div class="actions translate-actions">
           <button id="translate-preflight-button" type="button">Preflight Check</button>
           <button id="translate-run-button" type="button" disabled>Translate</button>

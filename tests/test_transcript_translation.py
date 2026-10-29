@@ -16,6 +16,7 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 
 import app_state
+import handlers.transcribe_translate as translate_handlers
 import transcript_translation as tt
 from http_utils import extract_docx_text
 from run_support import write_docx
@@ -209,16 +210,38 @@ def test_profile_detected_from_docx_header_and_header_updated(monkeypatch, tmp_p
     assert "Translations produced: English" in extract_docx_text(out.read_bytes())
 
 
-def test_prompt_follows_profile_translation_settings(monkeypatch):
-    prompt = tt.build_translation_prompt(_profile(), "Italian", ["English"])
-    assert "Expand every abbreviation" in prompt
-    assert "Keep personal names in the form the transcription uses" in prompt
-    assert "keep only Don with the name" in prompt
+def test_prompt_follows_the_users_choices_not_the_profiles_hidden_answers(monkeypatch):
+    # The profile's saved (hidden, never chosen) answers say expand + Don only;
+    # the user's choices in the Translate section are what count.
+    options = tt.TranslationOptions(expand_abbreviations=False, convert_names=True, honorifics=["Don", "Signor"])
+    prompt = tt.build_translation_prompt(_profile(), "Italian", ["English"], options)
+    assert "Carry abbreviations over as written" in prompt
+    assert "Give personal names in their standard English form" in prompt
+    assert "keep only Don or Signor with the name" in prompt
     assert "On the Nth day of <Month> <year>." in prompt
     assert "Il giorno" not in prompt
-    assert "Surnames: Ferrajolo" in prompt
-    manual = tt.build_translation_prompt({"role_context": "x", "reference_context": ""}, "Latin", ["Italian"])
-    assert "Expand every abbreviation" in manual and "keep only Don or Master" in manual
+    assert "Surnames: Ferrajolo" in prompt  # background still comes from the profile
+    defaults = tt.build_translation_prompt(None, "Latin", ["Italian"], tt.TranslationOptions())
+    assert "Carry abbreviations over as written" in defaults
+    assert "Keep personal names in the form the transcription uses" in defaults
+    assert "keep only Don or Master" in defaults
+    assert "BACKGROUND ON THIS REGISTER" not in defaults
+    none_kept = tt.build_translation_prompt(None, "Latin", ["English"], tt.TranslationOptions(honorifics=[]))
+    assert "keep only" not in none_kept
+
+
+def test_missing_profile_is_a_warning_and_runs_without_background(monkeypatch, tmp_path):
+    _use_profiles(monkeypatch)  # nothing saved on this computer
+    source = tmp_path / "source.docx"
+    write_docx(source, NATI, native_language="Italian", record_type="civil_birth", profile_label="Someone Else's Profile")
+    plan = tt.build_plan(tt.docx_text(source.read_bytes()), "", ["English"])
+    assert plan.errors == [] and plan.profile is None
+    assert "Someone Else's Profile" in plan.warnings[0] and "without its background" in plan.warnings[0]
+    assert tt.record_type_for(plan.parsed, None) == "civil_birth"
+    summary = tt.preflight_summary(plan)
+    assert summary["ok"] and summary["profile_label"] == ""
+    no_header = tt.build_plan(NATI, "", ["English"])
+    assert no_header.errors == [] and "does not name its prompt profile" in no_header.warnings[0]
 
 
 def test_chunk_failures_are_reported_and_truncation_splits(monkeypatch):
@@ -296,13 +319,21 @@ def test_http_preflight_and_run(live_server, sandboxed_user_data, monkeypatch, t
     _use_profiles(monkeypatch, _profile())
     monkeypatch.setattr(tt, "validate_api_key_with_retry", lambda *a, **k: None)
     monkeypatch.setattr(tt, "create_gemini_prompt_cache", lambda *a, **k: None)
-    monkeypatch.setattr(
-        tt,
-        "call_ai_json",
-        lambda key, model, prompt, message, *rest: {
-            "entries": [{"id": e["id"], "translations": {"English": "T"}} for e in json.loads(message)["entries"]]
-        },
-    )
+    key_checks = []
+
+    def fake_key_check(project_dir, model, key, **kwargs):
+        key_checks.append(key)
+        if key == "revoked":
+            raise RuntimeError("API key not valid. Please pass a valid API key.")
+
+    monkeypatch.setattr(translate_handlers, "validate_api_key_with_retry", fake_key_check)
+    prompts = []
+
+    def fake_call(key, model, prompt, message, *rest):
+        prompts.append(prompt)
+        return {"entries": [{"id": e["id"], "translations": {"English": "T"}} for e in json.loads(message)["entries"]]}
+
+    monkeypatch.setattr(tt, "call_ai_json", fake_call)
     source = tmp_path / "corrected.docx"
     write_docx(source, NATI, native_language="Italian", profile_label="Napoli Nati")
     host, port = live_server
@@ -322,9 +353,23 @@ def test_http_preflight_and_run(live_server, sandboxed_user_data, monkeypatch, t
             response = exc
         return response.status, json.loads(response.read())
 
-    fields = {"languages": "English", "profile_id": "", "model": "gemini-3.1-pro-preview"}
+    fields = {
+        "languages": "English", "profile_id": "", "model": "gemini-3.1-pro-preview",
+        "expand_abbreviations": "on", "convert_names": "", "honorifics": "Don,Master",
+    }
+    # No key: the document is still read, and the missing key is the one problem.
     status, data = post("/api/translate-transcript/preflight", fields)
-    assert status == 200 and data["ok"] and data["profile_detected"]
+    assert status == 200 and not data["ok"] and data["errors"] == ["Paste your API key in the API key field above."]
+    assert key_checks == []
+    # A Claude key with a Gemini model is caught by its shape, with no request.
+    status, data = post("/api/translate-transcript/preflight", {**fields, "api_key": "sk-ant-abc"})
+    assert not data["ok"] and "looks like a Claude key" in data["errors"][0] and key_checks == []
+    # The provider rejects the key.
+    status, data = post("/api/translate-transcript/preflight", {**fields, "api_key": "revoked"})
+    assert not data["ok"] and data["api_key_valid"] is False and key_checks == ["revoked"]
+    # A working key passes, and the document checks are reported as before.
+    status, data = post("/api/translate-transcript/preflight", {**fields, "api_key": "key"})
+    assert status == 200 and data["ok"] and data["api_key_valid"] and data["profile_detected"]
     assert data["to_translate"] == {"English": 3} and data["fragments"] == 1
 
     status, data = post("/api/translate-transcript/run", fields)
@@ -342,3 +387,5 @@ def test_http_preflight_and_run(live_server, sandboxed_user_data, monkeypatch, t
         timeout=5,
     )
     assert report.status == 200 and report.read()[:2] == b"PK"
+    # The choices sent from the page reached the prompt.
+    assert prompts and "Expand every abbreviation" in prompts[0] and "keep only Don or Master" in prompts[0]

@@ -1,6 +1,7 @@
 """HTTP handlers for the Transcribe page's "Translate completed transcript"
-section: a free preflight of an uploaded corrected DOCX, starting the
-translation run, and downloading its report. The work itself lives in
+section: a preflight of an uploaded corrected DOCX (read locally, plus one
+tiny request to check the API key), starting the translation run, and
+downloading its report. The work itself lives in
 transcript_translation.py. A translation run uses the same run slot, Progress
 Console, Stop button and Download Document link as a transcription run, so
 the two can never run at once.
@@ -11,9 +12,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from app_state import lock, state, stop_event
-from customizable_transcriber.core import MODELS
-from http_utils import parse_multipart_form
+from customizable_transcriber.core import (
+    MODELS,
+    humanize_provider_error,
+    key_looks_like_claude,
+    provider_for_model,
+    validate_api_key_with_retry,
+)
+from http_utils import PREFLIGHT_TIMEOUT_SECONDS, parse_multipart_form
+from profiles_store import PROJECT_DIR
 from transcript_translation import (
+    TranslationOptions,
     build_plan,
     build_translation_prompt,
     docx_text,
@@ -22,9 +31,9 @@ from transcript_translation import (
 )
 
 
-def _translation_request(handler) -> tuple[str, str, str, list[str], str, str]:
-    """(text, filename, profile_id, languages, model, api_key) from the
-    multipart form. Raises RuntimeError with a user-facing message."""
+def _translation_request(handler) -> tuple[str, str, str, list[str], str, str, TranslationOptions]:
+    """(text, filename, profile_id, languages, model, api_key, options) from
+    the multipart form. Raises RuntimeError with a user-facing message."""
     files, fields = parse_multipart_form(handler)
     filename, payload = files.get("source_file", ("", b""))
     if not payload:
@@ -35,6 +44,11 @@ def _translation_request(handler) -> tuple[str, str, str, list[str], str, str]:
     if model not in MODELS:
         raise RuntimeError("Choose a model.")
     languages = [lang.strip() for lang in fields.get("languages", "").split(",") if lang.strip()]
+    options = TranslationOptions(
+        expand_abbreviations=fields.get("expand_abbreviations", "") == "on",
+        convert_names=fields.get("convert_names", "") == "on",
+        honorifics=[h.strip() for h in fields.get("honorifics", "").split(",") if h.strip()],
+    )
     return (
         docx_text(payload),
         filename,
@@ -42,20 +56,48 @@ def _translation_request(handler) -> tuple[str, str, str, list[str], str, str]:
         languages,
         model,
         fields.get("api_key", "").strip(),
+        options,
     )
+
+
+def api_key_problem(model: str, api_key: str) -> str:
+    """"" when the key works for this model, else a message saying why not.
+    A key pasted for the wrong provider is caught by its shape first, with no
+    request; otherwise the provider is sent the same tiny "Reply with OK."
+    request the other preflights use (validate_api_key())."""
+    if not api_key:
+        return "Paste your API key in the API key field above."
+    is_claude_model = provider_for_model(model) == "claude"
+    if is_claude_model and not key_looks_like_claude(api_key):
+        return "The API key doesn't look like a Claude key, but the selected model is a Claude model."
+    if not is_claude_model and key_looks_like_claude(api_key):
+        return "The API key looks like a Claude key, but the selected model is a Gemini model."
+    try:
+        validate_api_key_with_retry(PROJECT_DIR, model, api_key, timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS)
+    except Exception as exc:
+        return humanize_provider_error(exc, model)
+    return ""
 
 
 class TranscribeTranslateHandlerMixin:
     def preflight_translation(self) -> None:
         try:
-            text, _filename, profile_id, languages, _model, _key = _translation_request(self)
-            plan = build_plan(text, profile_id, languages)
+            text, _filename, profile_id, languages, model, api_key, options = _translation_request(self)
+            plan = build_plan(text, profile_id, languages, options)
+            # Checked even when the document has problems, so every problem
+            # shows at once.
+            key_problem = api_key_problem(model, api_key)
+            if key_problem:
+                plan.errors.append(key_problem)
             prompt_chars = (
-                len(build_translation_prompt(plan.profile, plan.native_language, plan.languages))
-                if plan.profile and plan.languages
+                len(build_translation_prompt(plan.profile, plan.native_language, plan.languages, plan.options))
+                if plan.languages
                 else 0
             )
-            self.respond_json(preflight_summary(plan, prompt_chars))
+            summary = preflight_summary(plan, prompt_chars)
+            summary["api_key_valid"] = not key_problem
+            summary["model_label"] = MODELS[model]
+            self.respond_json(summary)
         except Exception as exc:
             self.respond_json({"ok": False, "errors": [str(exc)]}, status=400)
 
@@ -68,10 +110,10 @@ class TranscribeTranslateHandlerMixin:
             self.respond_json({"ok": False, "errors": ["A transcription or translation is already running."]}, status=409)
             return
         try:
-            text, filename, profile_id, languages, model, api_key = _translation_request(self)
+            text, filename, profile_id, languages, model, api_key, options = _translation_request(self)
             if not api_key:
                 raise RuntimeError("Paste your API key in the API key field above.")
-            plan = build_plan(text, profile_id, languages)
+            plan = build_plan(text, profile_id, languages, options)
             if plan.errors:
                 raise RuntimeError(" ".join(plan.errors))
         except Exception as exc:
@@ -88,7 +130,9 @@ class TranscribeTranslateHandlerMixin:
             state["report_download"] = ""
             state["off_peak"] = False
             state["summary"] = f"Translating {filename}..."
-        start_translation_job(text, filename, plan.profile["id"], plan.languages, model, api_key)
+        start_translation_job(
+            text, filename, str((plan.profile or {}).get("id", "")), plan.languages, model, api_key, plan.options
+        )
         self.respond_json({"ok": True})
 
     def download_translation_report(self) -> None:

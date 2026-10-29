@@ -654,8 +654,26 @@
     "Corrected transcript (DOCX)": "Trascrizione corretta (DOCX)",
     "Translate into": "Traduci in",
     "Use the profile named in the document": "Usa il profilo indicato nel documento",
-    "The translation follows this profile's translation settings and uses its reference material. Uses the Model and API key selected above.":
-      "La traduzione segue le impostazioni di traduzione di questo profilo e usa il suo materiale di riferimento. Usa il modello e la chiave API selezionati sopra.",
+    "Translation style": "Stile di traduzione",
+    "Honorifics kept with a name in a role": "Titoli onorifici mantenuti con un nome in un ruolo",
+    "For example \"The godfather was Don Carolus Calsi\". Any other title is left out of the translation; the transcription still shows it.":
+      "Per esempio \"Il padrino fu Don Carolus Calsi\". Ogni altro titolo viene omesso dalla traduzione; la trascrizione lo mostra comunque.",
+    "Other honorifics to keep, separated by commas": "Altri titoli onorifici da mantenere, separati da virgole",
+    "Prompt profile for background": "Profilo del prompt per il contesto",
+    "The profile's description of the register (date conventions, abbreviations, names) helps the translation. Its translation settings are not used.":
+      "La descrizione del registro nel profilo (convenzioni delle date, abbreviazioni, nomi) aiuta la traduzione. Le sue impostazioni di traduzione non vengono usate.",
+    "Uses the Model and API key selected above.": "Usa il modello e la chiave API selezionati sopra.",
+    "Use a different profile": "Usa un altro profilo",
+    "Reading the transcript and checking the API key...": "Lettura della trascrizione e verifica della chiave API...",
+    "The API key doesn't look like a Claude key, but the selected model is a Claude model.":
+      "La chiave API non sembra una chiave Claude, ma il modello selezionato è un modello Claude.",
+    "The API key looks like a Claude key, but the selected model is a Gemini model.":
+      "La chiave API sembra una chiave Claude, ma il modello selezionato è un modello Gemini.",
+    "Background: none": "Contesto: nessuno",
+    "The document does not name its prompt profile. The translation will run without background on the register (date conventions, abbreviations, names), or you can choose a profile.":
+      "Il documento non indica il suo profilo del prompt. La traduzione verrà eseguita senza il contesto del registro (convenzioni delle date, abbreviazioni, nomi), oppure puoi scegliere un profilo.",
+    "No saved prompt profile was found; translating without background on the register.":
+      "Nessun profilo del prompt salvato trovato; traduzione senza il contesto del registro.",
     "Translate": "Traduci",
     "Download Translation Report": "Scarica il rapporto di traduzione",
     "Fix these before translating:": "Correggi questi punti prima di tradurre:",
@@ -673,8 +691,6 @@
       "Scorri fino alla Console di avanzamento. Scarica documento fornisce la trascrizione tradotta; Scarica il rapporto di traduzione elenca ciò che è stato tradotto.",
     "Choose English, Italian, or both.": "Scegli Inglese, Italiano o entrambi.",
     "The selected prompt profile was not found.": "Il profilo del prompt selezionato non è stato trovato.",
-    "The document does not name its prompt profile. Choose the profile to use.":
-      "Il documento non indica il suo profilo del prompt. Scegli il profilo da usare.",
     "No \"--- START OF RECORD: ... ---\" lines were found. Upload a transcript produced by the Transcribe page.":
       "Non è stata trovata alcuna riga \"--- START OF RECORD: ... ---\". Carica una trascrizione prodotta dalla pagina Trascrivi.",
     "No transcription blocks were found (lines such as \"Latin Transcription:\" or \"Trascrizione in Latino:\").":
@@ -919,8 +935,9 @@
     },
     // "Translate completed transcript" preflight lines and progress log
     // (static/transcribe-translate.js, transcript_translation.py).
-    { re: /^Profile: (.+) \(named in the document\)$/, it: function (m) { return "Profilo: " + m[1] + " (indicato nel documento)"; } },
-    { re: /^Profile: (.+)$/, it: function (m) { return "Profilo: " + m[1]; } },
+    { re: /^Background: (.+) \(named in the document\)$/, it: function (m) { return "Contesto: " + m[1] + " (indicato nel documento)"; } },
+    { re: /^Background: (.+)$/, it: function (m) { return m[1] === "none" ? "Contesto: nessuno" : "Contesto: " + m[1]; } },
+    { re: /^API key: accepted by (.+)$/, it: function (m) { return "Chiave API: accettata da " + m[1]; } },
     { re: /^Images: (\d+)$/, it: function (m) { return "Immagini: " + m[1]; } },
     {
       re: /^Entries: (\d+)(?: \((\d+) continue from the previous image\))?$/,
@@ -941,8 +958,11 @@
       it: function (m) { return "La trascrizione è già in " + m[1] + ", quindi non può essere tradotta in " + m[2] + "."; },
     },
     {
-      re: /^The document names the prompt profile "(.+)", which is not saved on this computer\. Choose the profile to use\.$/,
-      it: function (m) { return "Il documento indica il profilo del prompt \"" + m[1] + "\", che non è salvato su questo computer. Scegli il profilo da usare."; },
+      re: /^The document names the prompt profile "(.+)", which is not saved on this computer\. The translation will run without its background on the register \(date conventions, abbreviations, names\), or you can choose another profile\.$/,
+      it: function (m) {
+        return "Il documento indica il profilo del prompt \"" + m[1] + "\", che non è salvato su questo computer. " +
+          "La traduzione verrà eseguita senza il suo contesto del registro (convenzioni delle date, abbreviazioni, nomi), oppure puoi scegliere un altro profilo.";
+      },
     },
     {
       re: /^(.+): the transcription failed for this image, so it has nothing to translate\.$/,

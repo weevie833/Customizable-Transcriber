@@ -123,6 +123,7 @@ class TranscribeOffPeakHandlerMixin:
             state["log"] = []
             state["output"] = str(docx_file)
             state["download"] = ""
+            state["report_download"] = ""
             state["summary"] = f"Submitting off-peak batch using {profile['label']}..."
             state["model"] = model
             state["order"] = order

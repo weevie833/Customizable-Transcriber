@@ -32,6 +32,7 @@ from handlers.settings import SettingsHandlerMixin
 from handlers.test_mode_run import TestModeRunHandlerMixin
 from handlers.transcribe_offpeak import TranscribeOffPeakHandlerMixin
 from handlers.transcribe_run import TranscribeRunHandlerMixin
+from handlers.transcribe_translate import TranscribeTranslateHandlerMixin
 from handlers.xls_conversion import XlsConversionHandlerMixin
 from http_utils import MAX_DOCX_XML_BYTES, FormData, extract_docx_text  # noqa: F401 -- re-exported for tests
 from pages import FOOTER_HTML
@@ -275,6 +276,7 @@ class Handler(
     ProfilesHandlerMixin,
     TranscribeRunHandlerMixin,
     TranscribeOffPeakHandlerMixin,
+    TranscribeTranslateHandlerMixin,
     TestModeRunHandlerMixin,
     SettingsHandlerMixin,
     BaseHTTPRequestHandler,
@@ -492,6 +494,10 @@ class Handler(
             self.download()
             return
 
+        if parsed.path == "/download-translation-report":
+            self.download_translation_report()
+            return
+
         if parsed.path in {"/test-mode", "/test-mode/"}:
             self.respond(test_mode_page())
             return
@@ -571,6 +577,14 @@ class Handler(
 
         if urllib.parse.urlparse(self.path).path == "/api/index-compare/report":
             self.index_compare_report()
+            return
+
+        if urllib.parse.urlparse(self.path).path == "/api/translate-transcript/preflight":
+            self.preflight_translation()
+            return
+
+        if urllib.parse.urlparse(self.path).path == "/api/translate-transcript/run":
+            self.run_translation()
             return
 
         if urllib.parse.urlparse(self.path).path == "/api/pick-source-folder":

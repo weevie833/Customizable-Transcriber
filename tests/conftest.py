@@ -26,6 +26,7 @@ import handlers.settings
 import handlers.test_mode_run
 import profiles_store
 import run_support
+import transcript_translation
 
 
 @pytest.fixture
@@ -118,6 +119,7 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     monkeypatch.setattr(run_support, "USER_OUTPUTS_DIR", outputs_dir)
     monkeypatch.setattr(handlers.test_mode_run, "USER_OUTPUTS_DIR", outputs_dir)
     monkeypatch.setattr(handlers.settings, "USER_OUTPUTS_DIR", outputs_dir)
+    monkeypatch.setattr(transcript_translation, "USER_OUTPUTS_DIR", outputs_dir)
 
     profiles_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)

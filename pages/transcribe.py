@@ -8,7 +8,7 @@ import html
 
 from app_state import load_source_folder, lock, state
 from customizable_transcriber.core import MODELS
-from pages import FOOTER_HTML, info_button_html, json_data_island_html
+from pages import FOOTER_HTML, file_picker_html, info_button_html, json_data_island_html
 from profiles_store import load_profile, profile_options_html, profiles_for_browser
 
 OFF_PEAK_INFO_TEXT = (
@@ -63,6 +63,7 @@ def page() -> str:
         output_format = str(state["output_format"])
         off_peak = bool(state["off_peak"])
         zoom_pages = bool(state["zoom_pages"])
+        report_download = bool(state["report_download"])
 
     if profile_id:
         active_profile = load_profile(profile_id)
@@ -105,6 +106,13 @@ def page() -> str:
     page_zoom_info_html = info_button_html("page-zoom-info-panel", PAGE_ZOOM_INFO_TEXT)
     zoom_checked = "checked" if zoom_pages else ""
     download_disabled_class = "" if download else " disabled-link"
+    report_hidden = "" if report_download else "hidden"
+    translate_profile_options = profile_options_html("").replace(
+        '<option value="" disabled selected>Select a Profile</option>',
+        '<option value="" selected>Use the profile named in the document</option>',
+        1,
+    )
+    translate_file_picker = file_picker_html("translate-source-file", ".docx", 'name="source_file"')
     download_aria_disabled = "false" if download else "true"
 
     return f"""<!doctype html>
@@ -117,6 +125,7 @@ def page() -> str:
   <script src="/static/app-common.js"></script>
   {initial_data_html}
   <script src="/static/transcribe.js"></script>
+  <script src="/static/transcribe-translate.js"></script>
   <link rel="stylesheet" href="/static/base.css">
   <link rel="stylesheet" href="/static/app-shell.css">
   <link rel="stylesheet" href="/static/transcribe.css">
@@ -263,6 +272,35 @@ def page() -> str:
       </div>
     </details>
   </form>
+  <form id="translate-form" class="translate-form" novalidate>
+    <details class="translate-section">
+      <summary>Translate completed transcript</summary>
+      <div class="translate-body">
+        <p class="hint">Use this after you have corrected your final native-language transcript.</p>
+        <label>Corrected transcript (DOCX)
+          <span class="translate-file-row">{translate_file_picker}</span>
+        </label>
+        <fieldset>
+          <legend>Translate into</legend>
+          <div class="radio-row">
+            <label class="check"><input type="checkbox" name="translate_language" value="English" checked>English</label>
+            <label class="check"><input type="checkbox" name="translate_language" value="Italian">Italian</label>
+          </div>
+        </fieldset>
+        <label>Prompt profile
+          <select name="translate_profile_id">
+            {translate_profile_options}
+          </select>
+          <p class="hint">The translation follows this profile's translation settings and uses its reference material. Uses the Model and API key selected above.</p>
+        </label>
+        <div class="actions translate-actions">
+          <button id="translate-preflight-button" type="button">Preflight Check</button>
+          <button id="translate-run-button" type="button" disabled>Translate</button>
+        </div>
+        <div id="translate-preflight-result" class="translate-preflight-result" role="status" aria-live="polite" hidden></div>
+      </div>
+    </details>
+  </form>
   <section class="panel">
     <h2 class="panel-title">Progress Console</h2>
     <div id="summary" class="summary" role="status" aria-live="polite">{escaped_summary}</div>
@@ -271,6 +309,7 @@ def page() -> str:
         <button id="stop-button" class="danger" type="submit" {stop_disabled}>Stop</button>
       </form>
       <a id="download-link" class="download{download_disabled_class}" href="/download" download aria-disabled="{download_aria_disabled}">Download Document</a>
+      <a id="translate-report-link" class="download" href="/download-translation-report" download {report_hidden}>Download Translation Report</a>
       <span class="download-note">{escaped_download_help}</span>
       <button id="open-outputs-folder-button" class="button-secondary" type="button">Open Outputs Folder</button>
     </div>

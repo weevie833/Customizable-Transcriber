@@ -27,9 +27,11 @@ exactly where the inline block used to sit. */
       updateRunStatus(status.running, status.off_peak);
       document.getElementById("stop-button").disabled = !status.running;
       updateDownloadControl(status.download);
+      const reportLink = document.getElementById("translate-report-link");
+      if (reportLink) reportLink.hidden = !status.report;
 
       if (status.completed) {
-        showCompletionAlert();
+        showCompletionAlert(status.report);
       }
 
       if (status.running) {
@@ -56,9 +58,16 @@ exactly where the inline block used to sit. */
       link.tabIndex = available ? 0 : -1;
     }
 
-    function showCompletionAlert() {
+    function showCompletionAlert(translationReport) {
       if (completionAlertShown) return;
       completionAlertShown = true;
+      if (translationReport) {
+        showSettingsAlert(
+          "Scroll down to the Progress Console. Download Document gives the translated transcript; Download Translation Report lists what was translated.",
+          "Translation completed"
+        );
+        return;
+      }
       showSettingsAlert("Scroll down and review the Progress Console and click the Download Document button.", "Batch completed");
     }
 

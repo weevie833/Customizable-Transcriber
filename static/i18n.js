@@ -644,7 +644,45 @@
     // comment).
     "Conversion completed": "Conversione completata",
     "Scroll down and review the Spreadsheet output panel, then click Download to save your file(s).":
-      "Scorri verso il basso, controlla il pannello Foglio di calcolo di output, poi clicca su Scarica per salvare i tuoi file."
+      "Scorri verso il basso, controlla il pannello Foglio di calcolo di output, poi clicca su Scarica per salvare i tuoi file.",
+    // Transcribe's "Translate completed transcript" section
+    // (pages/transcribe.py, static/transcribe-translate.js,
+    // transcript_translation.py).
+    "Translate completed transcript": "Traduci la trascrizione completata",
+    "Use this after you have corrected your final native-language transcript.":
+      "Usalo dopo aver corretto la trascrizione definitiva nella lingua originale.",
+    "Corrected transcript (DOCX)": "Trascrizione corretta (DOCX)",
+    "Translate into": "Traduci in",
+    "Use the profile named in the document": "Usa il profilo indicato nel documento",
+    "The translation follows this profile's translation settings and uses its reference material. Uses the Model and API key selected above.":
+      "La traduzione segue le impostazioni di traduzione di questo profilo e usa il suo materiale di riferimento. Usa il modello e la chiave API selezionati sopra.",
+    "Translate": "Traduci",
+    "Download Translation Report": "Scarica il rapporto di traduzione",
+    "Fix these before translating:": "Correggi questi punti prima di tradurre:",
+    "Warnings:": "Avvisi:",
+    "Your edits, accepted as written:": "Le tue modifiche, accettate così come sono:",
+    "Preflight passed. Click Translate to start.": "Controllo preliminare superato. Clicca su Traduci per iniziare.",
+    "Choose the corrected DOCX transcript first.": "Scegli prima la trascrizione DOCX corretta.",
+    "Please run the preflight check before translating.": "Esegui il controllo preliminare prima di tradurre.",
+    "Paste your API key in the API key field above.": "Incolla la tua chiave API nel campo Chiave API qui sopra.",
+    "The translation could not start.": "Non è stato possibile avviare la traduzione.",
+    "The preflight check could not reach the app. Is it still running?":
+      "Il controllo preliminare non ha raggiunto l'app. È ancora in esecuzione?",
+    "Translation completed": "Traduzione completata",
+    "Scroll down to the Progress Console. Download Document gives the translated transcript; Download Translation Report lists what was translated.":
+      "Scorri fino alla Console di avanzamento. Scarica documento fornisce la trascrizione tradotta; Scarica il rapporto di traduzione elenca ciò che è stato tradotto.",
+    "Choose English, Italian, or both.": "Scegli Inglese, Italiano o entrambi.",
+    "The selected prompt profile was not found.": "Il profilo del prompt selezionato non è stato trovato.",
+    "The document does not name its prompt profile. Choose the profile to use.":
+      "Il documento non indica il suo profilo del prompt. Scegli il profilo da usare.",
+    "No \"--- START OF RECORD: ... ---\" lines were found. Upload a transcript produced by the Transcribe page.":
+      "Non è stata trovata alcuna riga \"--- START OF RECORD: ... ---\". Carica una trascrizione prodotta dalla pagina Trascrivi.",
+    "No transcription blocks were found (lines such as \"Latin Transcription:\" or \"Trascrizione in Latino:\").":
+      "Non è stato trovato alcun blocco di trascrizione (righe come \"Latin Transcription:\" o \"Trascrizione in Latino:\").",
+    "Every entry already has the selected translation(s). There is nothing to translate.":
+      "Ogni voce ha già la traduzione selezionata. Non c'è niente da tradurre.",
+    "A transcription or translation is already running.": "Una trascrizione o una traduzione è già in corso.",
+    "Choose a model.": "Scegli un modello."
   };
 
   var SKIP_TAGS = { SCRIPT: true, STYLE: true, TEXTAREA: true, PRE: true, CODE: true };
@@ -760,6 +798,8 @@
   // rebuilds the Italian line from the same captured groups, leaving the
   // untranslatable parts (model id, HTTP status, the provider's own raw
   // error body) exactly as captured.
+  var TB_LANGUAGE_IT = { English: "Inglese", Italian: "Italiano" };
+
   var DYNAMIC_LINE_PATTERNS = [
     {
       re: /^"([^"]+)" is temporarily unavailable on the provider's own servers \(HTTP ([^)]+)\) -- this is not a problem with your API key or this app\. It already retried (\d+) times with a short delay before giving up\. This is usually temporary: wait a few minutes and try again, or switch to a different model for now\. \(Original error: ([\s\S]+)\)$/,
@@ -877,6 +917,68 @@
         );
       },
     },
+    // "Translate completed transcript" preflight lines and progress log
+    // (static/transcribe-translate.js, transcript_translation.py).
+    { re: /^Profile: (.+) \(named in the document\)$/, it: function (m) { return "Profilo: " + m[1] + " (indicato nel documento)"; } },
+    { re: /^Profile: (.+)$/, it: function (m) { return "Profilo: " + m[1]; } },
+    { re: /^Images: (\d+)$/, it: function (m) { return "Immagini: " + m[1]; } },
+    {
+      re: /^Entries: (\d+)(?: \((\d+) continue from the previous image\))?$/,
+      it: function (m) { return "Voci: " + m[1] + (m[2] ? " (" + m[2] + " continuano dall'immagine precedente)" : ""); },
+    },
+    { re: /^To translate into (English|Italian): (\d+)$/, it: function (m) { return "Da tradurre in " + TB_LANGUAGE_IT[m[1]] + ": " + m[2]; } },
+    {
+      re: /^Already translated into (English|Italian), skipped: (\d+)$/,
+      it: function (m) { return "Già tradotte in " + TB_LANGUAGE_IT[m[1]] + ", saltate: " + m[2]; },
+    },
+    { re: /^Church Wedding Records to translate: (\d+)$/, it: function (m) { return "Atti di matrimonio religioso da tradurre: " + m[1]; } },
+    {
+      re: /^Estimated use: about (\d+) input tokens and (\d+) output tokens in (\d+) request\(s\)\.$/,
+      it: function (m) { return "Consumo stimato: circa " + m[1] + " token in ingresso e " + m[2] + " token in uscita in " + m[3] + " richiesta/e."; },
+    },
+    {
+      re: /^The transcript is already in (.+), so it cannot be translated into (.+)\.$/,
+      it: function (m) { return "La trascrizione è già in " + m[1] + ", quindi non può essere tradotta in " + m[2] + "."; },
+    },
+    {
+      re: /^The document names the prompt profile "(.+)", which is not saved on this computer\. Choose the profile to use\.$/,
+      it: function (m) { return "Il documento indica il profilo del prompt \"" + m[1] + "\", che non è salvato su questo computer. Scegli il profilo da usare."; },
+    },
+    {
+      re: /^(.+): the transcription failed for this image, so it has nothing to translate\.$/,
+      it: function (m) { return m[1] + ": la trascrizione di questa immagine non è riuscita, quindi non c'è niente da tradurre."; },
+    },
+    {
+      re: /^(.+), entry (\d+): the transcription block is empty, so it is skipped\.$/,
+      it: function (m) { return m[1] + ", voce " + m[2] + ": il blocco di trascrizione è vuoto, quindi viene saltato."; },
+    },
+    {
+      re: /^(.+) says its last entry continues on the next image, but (.+) does not open with a continuation\. Treated as joined by you; translated as written\.$/,
+      it: function (m) {
+        return m[1] + " indica che la sua ultima voce continua nell'immagine successiva, ma " + m[2] +
+          " non inizia con una continuazione. Considerate unite da te; tradotte così come sono scritte.";
+      },
+    },
+    {
+      re: /^(.+) opens with a continuation, but (.+) does not say an entry continues\. Translated as written, with no opening date\.$/,
+      it: function (m) {
+        return m[1] + " inizia con una continuazione, ma " + m[2] +
+          " non indica che una voce continua. Tradotta così come è scritta, senza data iniziale.";
+      },
+    },
+    {
+      re: /^Translating (\d+) entries into (.+) with (.+) \((\d+) request\(s\)\)\.$/,
+      it: function (m) { return "Traduzione di " + m[1] + " voci in " + m[2].replace("English", "Inglese").replace("Italian", "Italiano") + " con " + m[3] + " (" + m[4] + " richiesta/e)."; },
+    },
+    {
+      re: /^Translated (\d+) of (\d+) entries(, (\d+) with a problem)?( \(stopped\))?\. Download the document and the translation report\.$/,
+      it: function (m) {
+        return "Tradotte " + m[1] + " voci su " + m[2] + (m[3] ? ", " + m[4] + " con un problema" : "") +
+          (m[5] ? " (interrotto)" : "") + ". Scarica il documento e il rapporto di traduzione.";
+      },
+    },
+    { re: /^Report: (.+)$/, it: function (m) { return "Rapporto: " + m[1]; } },
+    { re: /^Stopped before the next request\.$/, it: function () { return "Interrotto prima della richiesta successiva."; } },
   ];
 
   // Wraps every pattern above so it also recognizes the two fixed English

@@ -117,6 +117,7 @@ class TranscribeRunHandlerMixin:
             state["log"] = []
             state["output"] = str(output_file)
             state["download"] = ""
+            state["report_download"] = ""
             state["summary"] = f"Running {profile['label']}..."
             state["model"] = model
             state["order"] = order

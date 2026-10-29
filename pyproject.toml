@@ -1,6 +1,6 @@
 [project]
 name = "customizable-transcriber"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local web app that sends archival page images to Gemini or Claude, writes a plain-text transcription, and exports .docx; a separate XLS Conversion tool turns that text into a spreadsheet."
 readme = "README.md"
 requires-python = ">=3.11"

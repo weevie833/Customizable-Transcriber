@@ -195,6 +195,15 @@ Current web app behavior:
 - Lets `Refresh Status` update only the Progress Console without reloading or resetting the rest of the app.
 - Supports a `Stop` button that stops before the next image. If the model is already processing an image, stop takes effect after that request finishes.
 
+Translating a corrected transcript:
+
+- You can transcribe without a translation, correct the native-language text in Word, and add the translation afterwards, so you only make each correction once. Open `Translate completed transcript` on the Transcribe page (above the Progress Console) and choose the corrected DOCX.
+- Choose English, Italian, or both, and the translation style: whether to expand abbreviations, whether to convert names to their English or Italian form, and which honorifics stay with a name in a role (Don and Master by default).
+- The app finds the prompt profile named in the document and uses its description of the register (date conventions, abbreviations, names) as background. If that profile isn't on your computer, the translation still runs without it, or you can choose another profile.
+- `Preflight Check` reads the document and checks your API key with one tiny request. It shows how many entries will be translated and a rough token count, and flags any problems before you spend anything. `Translate` stays disabled until the preflight passes.
+- Your corrected text is never rewritten. The app adds each translation after its entry in the same layout as a profile that translates during transcription, so XLS Conversion reads the result the same way. Entries you joined across images are accepted as written.
+- Progress shows in the Progress Console. `Download Document` gives the translated transcript and `Download Translation Report` lists what was translated, skipped, or had a problem. Running the translation again on the translated file only translates what is still missing.
+
 Saved profiles:
 
 - The app's own `profiles/` folder is reserved for shipped, read-only example
@@ -247,6 +256,7 @@ Prompt behavior:
 - `prompt_builder_content.py`: static reference content (record-type formulas, vocabulary checklists) for the Prompt Builder page.
 - `docx_package.py` / `test_mode/report_docx.py`: DOCX-writing helpers — generic OOXML package XML, and the Test Mode comparison-report builder specifically.
 - `customizable_transcriber/core.py`: shared transcription logic, model registry, and selected source-type scanning.
+- `transcript_translation.py` / `handlers/transcribe_translate.py`: the Transcribe page's "Translate completed transcript" feature (parsing a corrected DOCX, the translation prompt, inserting translations, the report).
 - `profiles/worksheets/`: source (`build.js`) and generated EN/IT Prompt Builder DOCX worksheets, one per record type; `static/prompt-builder-worksheets/` holds the downloadable zips. After changing the Prompt Builder questionnaire, rebuild with `node build.js .` in that folder and re-zip.
 - `profiles/`: saved JSON prompt profiles — the single source of truth the app reads. `profiles/sources/` holds source material (lexicons, corrections, build scripts) that generates specific profiles; it is not itself loaded by the app.
 - `xls_conversion/`: unified DOCX-to-XLSX/CSV page and source-specific extraction helpers.

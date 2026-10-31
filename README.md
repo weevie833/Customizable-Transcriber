@@ -25,14 +25,24 @@ error, or a prompt asking to install Command Line Tools, install Python from
 [python.org/downloads](https://www.python.org/downloads/) first, then run
 `python3 --version` again to confirm.
 
-**2. Move into the project folder.** In Terminal, type `cd ` (with a trailing
-space, don't press Return yet), then drag the `Customizable Transcriber` folder from
-Finder into the Terminal window — it fills in the correct path for you — then
-press Return:
+**2. Move into the project folder.** The project folder is the one that
+directly contains `app.py` and `requirements.txt`. Its name depends on how you
+got the app (a ZIP download unpacks as `Customizable-Transcriber-main`; a
+folder from an older version may still carry an older name), so look for those
+two files rather than a particular name. **Don't use the
+`customizable_transcriber` folder inside it** — that's part of the app's code,
+and setup fails there with "Could not open requirements file".
+
+In Terminal, type `cd ` (with a trailing space, don't press Return yet), then
+drag the project folder from Finder into the Terminal window — it fills in the
+correct path for you — then press Return:
 
 ```bash
-cd path/to/Customizable-Transcriber
+cd path/to/your-project-folder
 ```
+
+To confirm you're in the right place, type `ls` and press Return: the list
+should include `app.py` and `requirements.txt`.
 
 **3. Create and activate a virtual environment.** This keeps this app's Python
 packages separate from anything else on your Mac. Paste each line below
@@ -59,7 +69,8 @@ commands differ:
   "cmd" or "PowerShell") instead of Terminal.app.
 - Step 2's `cd` works the same way; there's no drag-and-drop shortcut, so
   type or paste the full path yourself, e.g. `cd C:\Users\you\Documents\
-  Customizable-Transcriber`.
+  Customizable-Transcriber-main`. Use `dir` instead of `ls` to check the
+  folder contains `app.py` and `requirements.txt`.
 - Step 3's activation command is different — use this instead of
   `source .venv/bin/activate`:
 
@@ -133,18 +144,22 @@ Each time you come back to use the app, open Terminal and run just these three
 lines:
 
 ```bash
-cd path/to/Customizable-Transcriber
+cd path/to/your-project-folder
 source .venv/bin/activate
 python3 app.py
 ```
+
+(`path/to/your-project-folder` is the same folder you used in step 2 — the
+one containing `app.py`.)
 
 (On Windows, use `.venv\Scripts\activate` in place of the middle line — see
 the Windows callout under step 4 above.)
 
 ### Updating to a newer version
 
-Download the latest copy of this project and replace your existing
-`Customizable-Transcriber` folder with it, then repeat steps 3–4 above
+Download the latest copy of this project and replace your existing project
+folder (the one containing `app.py`, whatever it's named) with it, then repeat
+steps 3–4 above
 (`python3 -m venv .venv` / `source .venv/bin/activate` / `pip install -r
 requirements.txt`) inside the new folder — dependencies can change between
 versions, so it's worth reinstalling them rather than assuming the old
@@ -222,7 +237,7 @@ Saved profiles:
 
   This is deliberate: it's what keeps your own profiles safe when you update
   the app later. Updating means downloading a fresh copy of this project and
-  replacing the old `Customizable-Transcriber` folder — since your profiles live
+  replacing the old project folder — since your profiles live
   outside that folder, replacing it never touches them. You'll see every
   profile you've saved again the moment you launch the updated app, with
   nothing to move or back up yourself.

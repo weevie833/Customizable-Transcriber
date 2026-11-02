@@ -1234,6 +1234,7 @@
     if (removeButton) {
       removeButton.addEventListener("click", function () {
         row.remove();
+        pbEnsureExampleRow();
         pbRefresh();
       });
     }
@@ -1289,6 +1290,14 @@
 
   function addSimpleRow(containerId, placeholder) {
     return addRow(containerId, '<input type="text" class="pb-simple-value" placeholder="' + placeholder + '">', "pb-row-simple");
+  }
+
+  // Example entries always offers at least one blank row: a profile saved with
+  // no examples, or removing the last row, would otherwise leave only the
+  // "Add another example" button. Blank rows aren't saved or added to the prompt.
+  function pbEnsureExampleRow() {
+    var container = document.getElementById("pb-example-rows");
+    if (container && !container.querySelector(".pb-example-row")) addExampleRow();
   }
 
   // Shared by the JS-built rows here and mirrored by the server-rendered first
@@ -1431,6 +1440,7 @@
         });
       });
     });
+    pbEnsureExampleRow();
 
     updateRecordTypeVisibility();
     updateTranslationVisibility();

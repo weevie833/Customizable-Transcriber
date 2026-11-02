@@ -1141,25 +1141,42 @@
     { name: "scribalQuirks", boxId: "pb-latin-scribal-checklist" },
   ];
 
-  function updateLanguageDefaults() {
-    var language = pbVal("language").toLowerCase();
-    var isLatin = language.indexOf("latin") !== -1;
+  // Whether the source language was Latin the last time the defaults below
+  // were applied. null until the first pass, so that pass sets the defaults.
+  var pbLastLanguageWasLatin = null;
+
+  function sourceLanguageIsLatin() {
+    return pbVal("language").toLowerCase().indexOf("latin") !== -1;
+  }
+
+  function setLatinPresetsChecked(checked) {
     var declension = document.querySelector('[name="latinDeclension"]');
-    if (declension) declension.checked = isLatin;
+    if (declension) declension.checked = checked;
+    LATIN_PRESET_CHECKLISTS.forEach(function (entry) {
+      document.querySelectorAll('[name="' + entry.name + '"]').forEach(function (el) {
+        el.checked = checked;
+      });
+    });
+  }
+
+  function updateLanguageDefaults() {
+    var isLatin = sourceLanguageIsLatin();
+    // This runs on many unrelated field changes, so the presets are only
+    // re-checked when the language actually switches to Latin -- otherwise
+    // it would undo what the user unchecked. Non-Latin always clears them:
+    // they're hidden then, and a box checked while hidden would still leak
+    // Latin vocabulary into a civil profile's generated prompt.
+    if (!isLatin) {
+      setLatinPresetsChecked(false);
+    } else if (pbLastLanguageWasLatin !== true) {
+      setLatinPresetsChecked(true);
+    }
+    pbLastLanguageWasLatin = isLatin;
     var monthSelect = document.querySelector('[name="monthConvention"]');
     if (monthSelect && !monthSelect.dataset.touched) {
       monthSelect.value = isLatin ? "latin_march" : "standard";
     }
-    // Same forced-sync approach as the declension checkbox above: it
-    // re-applies whenever language or record type changes, so a deliberate
-    // manual override survives until the next such change -- same tradeoff
-    // already accepted for declension. Without this, an item checked (or
-    // left at its default-checked state) while hidden would still silently
-    // leak Latin vocabulary into a civil profile's generated prompt.
     LATIN_PRESET_CHECKLISTS.forEach(function (entry) {
-      document.querySelectorAll('[name="' + entry.name + '"]').forEach(function (el) {
-        el.checked = isLatin;
-      });
       var box = document.getElementById(entry.boxId);
       if (box) box.hidden = !isLatin;
     });
@@ -1367,6 +1384,13 @@
       el.value = data.fields[name];
       el.dataset.touched = "1";
     });
+
+    // Settle the language first, so updateRecordTypeVisibility() below sees no
+    // language switch and leaves the restored boxes alone. Presets start at
+    // this language's default, for an older snapshot that lacks a group.
+    updateRecordTypeLanguageDefault();
+    pbLastLanguageWasLatin = sourceLanguageIsLatin();
+    setLatinPresetsChecked(pbLastLanguageWasLatin);
 
     // Compare against the live `.value` property, not an attribute selector --
     // a checkbox with no `value=` attribute in the markup (e.g. latinDeclension)

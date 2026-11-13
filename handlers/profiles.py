@@ -247,7 +247,7 @@ class ProfilesHandlerMixin:
             # extension happened to imply.
             detected_type = sniff_file_type(image_bytes)
             if detected_type is None:
-                raise RuntimeError("The preflight file must be a JPEG, PNG, or PDF.")
+                raise RuntimeError("The preflight file must be a JPEG or PNG.")
             suffix = next(iter(FILE_TYPE_EXTENSIONS[detected_type]))
 
             example_entry = fields.get("example_entry", "").strip()

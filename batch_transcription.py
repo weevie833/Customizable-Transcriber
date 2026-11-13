@@ -319,11 +319,11 @@ def submit_gemini_batch(
         detected = sniff_file_type(data)
         if detected is None:
             raise BatchSubmissionError(
-                f"{path.name} does not look like a JPEG, PNG, or PDF file (checked its content, "
+                f"{path.name} does not look like a JPEG or PNG file (checked its content, "
                 "not just its extension) -- aborting before submission."
             )
         contents: list[object] = [genai_types.Part.from_bytes(data=data, mime_type=FILE_TYPE_MIME[detected])]
-        crops = page_zoom.page_crops(data) if zoom_pages and detected in ("jpeg", "png") else None
+        crops = page_zoom.page_crops(data) if zoom_pages else None
         if crops:
             contents += [genai_types.Part.from_bytes(data=crop, mime_type="image/jpeg") for crop in crops]
             contents.append(USER_INSTRUCTION + page_zoom.PAGE_ZOOM_INSTRUCTION)
@@ -439,14 +439,13 @@ def submit_claude_batch(
         detected = sniff_file_type(data)
         if detected is None:
             raise BatchSubmissionError(
-                f"{path.name} does not look like a JPEG, PNG, or PDF file (checked its content, "
+                f"{path.name} does not look like a JPEG or PNG file (checked its content, "
                 "not just its extension) -- aborting before submission."
             )
         mime_type = FILE_TYPE_MIME[detected]
         encoded = base64.standard_b64encode(data).decode("utf-8")
-        block_type = "document" if mime_type == "application/pdf" else "image"
         source_block = {
-            "type": block_type,
+            "type": "image",
             "source": {"type": "base64", "media_type": mime_type, "data": encoded},
         }
         requests.append(

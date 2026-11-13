@@ -1,6 +1,6 @@
 # Customizable Transcriber
 
-Local AI transcription app for archival records, using Google Gemini or Anthropic Claude (your choice per run). It replaces the Colab/Google Drive workflow with local folder input, saved prompt profiles, selected JPEG/PNG/PDF source processing, timestamped Markdown output, and timestamped Word document output.
+Local AI transcription app for archival records, using Google Gemini or Anthropic Claude (your choice per run). It replaces the Colab/Google Drive workflow with local folder input, saved prompt profiles, selected JPEG/PNG source processing, timestamped Markdown output, and timestamped Word document output.
 
 ## Setup
 
@@ -188,7 +188,7 @@ Choose the source folder with the `Browse…` button on the Transcribe or Test M
 Current web app behavior:
 
 - Recursively scans source subfolders for the selected source file type.
-- Supports `JPEG` (`.jpg`, `.jpeg`), `PNG` (`.png`), and `PDF` (`.pdf`) from the web UI.
+- Supports `JPEG` (`.jpg`, `.jpeg`) and `PNG` (`.png`) from the web UI.
 - Runs a preflight check before transcription to confirm the selected file type exists in the source folder.
 - Sorts date folders chronologically.
 - Lets you choose `Oldest-to-newest` or `Newest-to-oldest`; `Oldest-to-newest` is the default.

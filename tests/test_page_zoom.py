@@ -165,10 +165,16 @@ def test_advice_warns_when_zoom_is_on_for_small_or_single_page_photos(tmp_path):
     assert run_support.page_zoom_advice(folder, "jpeg", "gemini-3.1-pro-preview", True) == run_support.PAGE_ZOOM_NOT_SPREADS
 
 
-def test_advice_respects_a_one_page_profile_and_pdf(tmp_path):
+def test_advice_respects_a_one_page_profile(tmp_path):
     folder = _folder_of_spreads(tmp_path)
     assert run_support.page_zoom_advice(folder, "jpeg", "gemini-3.1-pro-preview", False, "one_page") == ""
-    assert run_support.page_zoom_advice(folder, "pdf", "gemini-3.1-pro-preview", True) == run_support.PAGE_ZOOM_PDF
+
+
+def test_pdf_is_not_a_source_file_type():
+    assert "pdf" not in core.FILE_TYPE_EXTENSIONS
+    assert core.sniff_file_type(b"%PDF-1.7 rest") is None
+    with pytest.raises(RuntimeError):
+        run_support.selected_file_type(_form(file_type="pdf"))
 
 
 # --- Test Mode: per-slot Page zoom ------------------------------------------

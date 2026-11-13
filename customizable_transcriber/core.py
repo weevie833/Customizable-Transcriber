@@ -21,7 +21,6 @@ from customizable_transcriber import page_zoom, usage_ledger
 FILE_TYPE_EXTENSIONS = {
     "jpeg": frozenset({".jpg", ".jpeg"}),
     "png": frozenset({".png"}),
-    "pdf": frozenset({".pdf"}),
 }
 SUPPORTED_SOURCE_EXTENSIONS = frozenset(
     extension
@@ -31,7 +30,6 @@ SUPPORTED_SOURCE_EXTENSIONS = frozenset(
 FILE_TYPE_MIME = {
     "jpeg": "image/jpeg",
     "png": "image/png",
-    "pdf": "application/pdf",
 }
 # Leading-byte signatures for detecting a file's real format from its own
 # content, independent of whatever extension the browser/OS attached to it.
@@ -40,12 +38,11 @@ FILE_TYPE_MIME = {
 _MAGIC_BYTES: tuple[tuple[bytes, str], ...] = (
     (b"\xff\xd8\xff", "jpeg"),
     (b"\x89PNG\r\n\x1a\n", "png"),
-    (b"%PDF-", "pdf"),
 )
 
 
 def sniff_file_type(data: bytes) -> str | None:
-    """Detect jpeg/png/pdf from the file's own leading bytes (a FILE_TYPE_EXTENSIONS
+    """Detect jpeg/png from the file's own leading bytes (a FILE_TYPE_EXTENSIONS
     key), or None if it matches none of them. Trusting content over a filename
     extension means a mislabeled or renamed upload is still read correctly --
     or cleanly rejected as unsupported -- rather than silently sent to the AI
@@ -370,7 +367,7 @@ def extensions_for_file_type(file_type: str) -> frozenset[str]:
     try:
         return FILE_TYPE_EXTENSIONS[file_type]
     except KeyError as exc:
-        raise RuntimeError("Select JPEG, PNG, or PDF as the source file type.") from exc
+        raise RuntimeError("Select JPEG or PNG as the source file type.") from exc
 
 
 def count_source_files_by_type(folder: Path) -> dict[str, int]:
@@ -819,9 +816,8 @@ def _transcribe_image_claude(
     use_prompt_cache: bool = False,
 ) -> str:
     encoded = base64.standard_b64encode(data).decode("utf-8")
-    block_type = "document" if mime_type == "application/pdf" else "image"
     source_block = {
-        "type": block_type,
+        "type": "image",
         "source": {"type": "base64", "media_type": mime_type, "data": encoded},
     }
     # Streaming, not a plain (non-streaming) messages.create() call. This used
@@ -887,13 +883,13 @@ def transcribe_image(
     # someone renamed, a stray non-image file matching the extension filter by
     # accident) would otherwise be sent to the AI provider tagged with a MIME
     # type that doesn't match its real content, or -- for anything that isn't
-    # even a JPEG/PNG/PDF at all -- sent as arbitrary unvalidated bytes. This
+    # even a JPEG/PNG at all -- sent as arbitrary unvalidated bytes. This
     # rejects it as a clean per-image failure (see run_batch()'s own per-image
     # try/except) instead.
     detected_type = sniff_file_type(data)
     if detected_type is None:
         raise RuntimeError(
-            f"{image_path.name} does not look like a JPEG, PNG, or PDF file (checked its content, "
+            f"{image_path.name} does not look like a JPEG or PNG file (checked its content, "
             "not just its extension) -- skipping."
         )
     mime_type = FILE_TYPE_MIME[detected_type]

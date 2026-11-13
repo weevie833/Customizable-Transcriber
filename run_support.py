@@ -73,7 +73,6 @@ from prompt_builder_content import PROMPT_BUILDER_RECORD_TYPES
 FILE_TYPE_LABELS = {
     "jpeg": "JPEG (.jpg, .jpeg)",
     "png": "PNG (.png)",
-    "pdf": "PDF (.pdf)",
 }
 
 
@@ -174,7 +173,6 @@ PAGE_ZOOM_SUGGEST = (
     "read names more accurately, at little or no extra cost. Consider turning it on."
 )
 PAGE_ZOOM_CLAUDE = "Page zoom only works with Gemini models, so it will be skipped for this run."
-PAGE_ZOOM_PDF = "Page zoom works with JPEG and PNG photos only, so it will be skipped for PDF files."
 PAGE_ZOOM_NOT_SPREADS = (
     "Page zoom is on, but these photos don't look like high-resolution photos of two facing pages, "
     "so it is unlikely to help. Photos without a clear gutter are sent whole."
@@ -191,9 +189,7 @@ def page_zoom_advice(
     gemini = provider_for_model(model) == "gemini"
     if zoom_on and not gemini:
         return PAGE_ZOOM_CLAUDE
-    if zoom_on and file_type == "pdf":
-        return PAGE_ZOOM_PDF
-    if not gemini or file_type == "pdf" or source_folder is None:
+    if not gemini or source_folder is None:
         return ""
     if not zoom_on and page_layout == "one_page":
         return ""
@@ -218,7 +214,7 @@ def page_zoom_advice(
 def selected_file_type(form: FormData) -> str:
     file_type = form.getfirst("file_type", "jpeg") or "jpeg"
     if file_type not in FILE_TYPE_EXTENSIONS:
-        raise RuntimeError("Select JPEG, PNG, or PDF as the source file type.")
+        raise RuntimeError("Select JPEG or PNG as the source file type.")
     return file_type
 
 
@@ -241,7 +237,7 @@ def preflight_source_file_type(source_folder: Path | None, file_type: str) -> in
     if available:
         detail = " Available source files: " + ", ".join(available) + "."
     else:
-        detail = " No JPEG, PNG, or PDF source files were found."
+        detail = " No JPEG or PNG source files were found."
     raise RuntimeError(f"No {file_type_display(file_type)} files were found in the source folder.{detail}")
 
 

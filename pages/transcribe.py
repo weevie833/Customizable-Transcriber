@@ -93,7 +93,6 @@ def page() -> str:
     oldest_checked = "checked" if order != "newest" else ""
     jpeg_checked = "checked" if file_type == "jpeg" else ""
     png_checked = "checked" if file_type == "png" else ""
-    pdf_checked = "checked" if file_type == "pdf" else ""
     profile_options = profile_options_html(profile_id)
     # One data island instead of two separate window/const assignments --
     # see json_data_island_html()'s own docstring (pages/__init__.py) and
@@ -199,7 +198,6 @@ def page() -> str:
         <div class="radio-row">
           <label class="radio-option"><input type="radio" name="file_type" value="jpeg" required {jpeg_checked}>JPEG</label>
           <label class="radio-option"><input type="radio" name="file_type" value="png" required {png_checked}>PNG</label>
-          <label class="radio-option"><input type="radio" name="file_type" value="pdf" required {pdf_checked}>PDF</label>
         </div>
         <p class="hint">JPEG includes .jpg and .jpeg files.</p>
       </fieldset>

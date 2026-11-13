@@ -5,7 +5,7 @@ before sending it to an AI provider -- unlike the single-upload paths
 (Prompt Builder Preflight, XLS Conversion), which already sniff real
 magic bytes via sniff_file_type(). transcribe_image() now does the same
 content check for the batch path: a file whose real bytes don't match a
-supported JPEG/PNG/PDF signature is rejected with a clear error (which
+supported JPEG/PNG signature is rejected with a clear error (which
 run_batch()'s existing per-image try/except turns into one failed image,
 not a fatal batch abort) instead of being forwarded to the provider
 mislabeled by whatever its extension happened to claim.
@@ -48,7 +48,7 @@ def test_mislabeled_file_is_rejected_before_reaching_the_provider(tmp_path):
     fake_image.write_bytes(b"this is not an image at all")
 
     client = core.LLMClient(provider="gemini", gemini=_FakeGeminiClient())
-    with pytest.raises(RuntimeError, match="does not look like a JPEG, PNG, or PDF"):
+    with pytest.raises(RuntimeError, match="does not look like a JPEG or PNG"):
         core.transcribe_image(client, fake_image, "system prompt", "gemini-2.5-pro")
 
     # The provider must never have been called with the mislabeled content.

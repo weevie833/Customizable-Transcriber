@@ -687,7 +687,7 @@ def prompt_builder_page(
 
       <div class="pb-preflight">
         <h3>Preflight Test <span class="pb-preflight-optional">(optional but recommended)</span></h3>
-        <p class="hint">For testing your prompt, upload the image or PDF that corresponds to the selected Example entry text above. JPEG, PNG, and PDF are all supported -- detected automatically from the file itself, so its filename doesn't need to say which one it is. The app will check your example against its source and offer suggestions to improve your prompt, if needed. Clicking "Run Preflight Test" first saves your current answers as a draft profile, so nothing is lost if something goes wrong.</p>
+        <p class="hint">For testing your prompt, upload the image that corresponds to the selected Example entry text above. JPEG and PNG are both supported -- detected automatically from the file itself, so its filename doesn't need to say which one it is. The app will check your example against its source and offer suggestions to improve your prompt, if needed. Clicking "Run Preflight Test" first saves your current answers as a draft profile, so nothing is lost if something goes wrong.</p>
         <p class="hint">Preflight checks the one image you upload: it compares the selected example's Date line, Main entry and Baptism / Church Wedding Record against that image. The example's Continuation is not included, because it belongs to the next image.</p>
         <div class="row">
           <label>Model
@@ -700,7 +700,7 @@ def prompt_builder_page(
             <p class="hint">Used only for this browser session/request. It is not saved to the project files or the profile. Running a preflight test sends this key and your uploaded file directly to your chosen AI provider's API — see PRIVACY.md.</p>
           </label>
         </div>
-        {file_picker_html("pb-preflight-image", "image/jpeg,image/png,application/pdf")}
+        {file_picker_html("pb-preflight-image", "image/jpeg,image/png")}
         <label id="pb-preflight-example-row" hidden>Which example does this image show?
           <select id="pb-preflight-example-select"></select>
         </label>

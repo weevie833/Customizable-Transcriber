@@ -17,7 +17,7 @@ pillow==13.0.0
 # up a newer, unreviewed one automatically.
 # See docs/DESIGN.md's "Security hardening history" section.
 cryptography==50.0.1
-pyasn1==0.6.4
+pyasn1==0.6.5
 
 # Transitive (via requests / google-genai / anthropic's httpx stack). Exact-pinned for the
 # same reason as cryptography/pyasn1 above (L-5): installed 2.7.0 carried

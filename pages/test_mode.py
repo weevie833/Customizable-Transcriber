@@ -220,12 +220,9 @@ def test_mode_page() -> str:
       </fieldset>
     </div>
     <label>Prompt profile
-      <div class="profile-select-row">
-        <select name="profile_id">
-          {profile_options}
-        </select>
-        <button id="profile-delete-button" class="danger" type="submit" formaction="/test-mode/delete-profile" formmethod="post" disabled>Delete Profile</button>
-      </div>
+      <select name="profile_id">
+        {profile_options}
+      </select>
       <input type="hidden" name="profile_action" value="use">
       <input type="hidden" name="duplicate_profile_action" value="">
       <input type="hidden" name="new_profile_name" value="">

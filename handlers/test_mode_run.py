@@ -31,7 +31,6 @@ from http_utils import (
     pasted_value,
     uploaded_docx_field,
 )
-from profiles_store import delete_profile
 from run_support import (
     new_batch_id,
     output_stem,
@@ -222,32 +221,6 @@ class TestModeRunHandlerMixin:
         # resubmit silently with no confirmation prompt -- resends this exact
         # POST and starts a whole second batch of test runs with no user
         # intent to do so.
-        self.redirect_test_mode()
-
-    def delete_test_profile(self) -> None:
-        with test_lock:
-            already_running = test_state["running"]
-        if already_running:
-            # redirect_test_mode() doesn't acquire test_lock, so it's safe
-            # to call after releasing it above regardless -- see the
-            # POST/Redirect/GET comment on /run's final redirect_transcribe()
-            # call for why every POST handler in this file redirects instead
-            # of rendering page()/test_mode_page() directly.
-            self.redirect_test_mode()
-            return
-        try:
-            form = parse_post_form(self)
-            profile_id = selected_profile_id(form)
-            profile = delete_profile(profile_id)
-            message = f"Deleted profile: {profile.get('label', profile_id)}"
-            with test_lock:
-                test_state["summary"] = message
-                test_state["log"] = [message]
-                test_state["profile_id"] = ""
-        except Exception as exc:
-            with test_lock:
-                test_state["summary"] = f"Fatal error: {exc}"
-                test_state["log"] = [f"Fatal error: {exc}"]
         self.redirect_test_mode()
 
     def stop_test_job(self) -> None:

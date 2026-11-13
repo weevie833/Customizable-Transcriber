@@ -164,15 +164,13 @@ def test_delete_profile_stop_and_queue_endpoints_redirect(live_server, sandboxed
     host, port = live_server
     jar = _get_csrf_cookie(host, port)
 
-    profile = ctapp.save_custom_profile("Delete Redirect Test Profile", "role", "reference", "format")
+    ctapp.save_custom_profile("Delete Redirect Test Profile", "role", "reference", "format")
 
     cases = [
-        ("/delete-profile", {"profile_id": profile["id"]}, "/transcribe"),
         ("/stop", {}, "/transcribe"),
         ("/test-mode/queue/add", {"model_a": "gemini-3.1-pro-preview", "model_b": "gemini-3.1-pro-preview"}, "/test-mode"),
         ("/test-mode/queue/remove", {"batch_id": "does-not-exist"}, "/test-mode"),
         ("/test-mode/stop", {}, "/test-mode"),
-        ("/test-mode/delete-profile", {"profile_id": "does-not-exist"}, "/test-mode"),
     ]
     for path, fields, expected_location in cases:
         response = _post_no_redirect(host, port, jar, path, fields)

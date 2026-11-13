@@ -210,12 +210,9 @@ def page() -> str:
       </span>
     </fieldset>
     <label>Prompt profile
-      <div class="profile-select-row">
-        <select name="profile_id">
-          {profile_options}
-        </select>
-        <button id="profile-delete-button" class="danger" type="submit" formaction="/delete-profile" formmethod="post" disabled>Delete Profile</button>
-      </div>
+      <select name="profile_id">
+        {profile_options}
+      </select>
       <input type="hidden" name="profile_action" value="use">
       <input type="hidden" name="duplicate_profile_action" value="">
     </label>

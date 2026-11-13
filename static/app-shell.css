@@ -123,13 +123,7 @@ textarea {
   gap: 12px;
   margin-top: 8px;
 }
-.profile-select-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: end;
-}
-/* One more column than .profile-select-row: the name field plus two save
+/* The name field plus two save
    buttons ("Save Profile" overwrites in place, "Save as New Profile" keeps
    the original -- see docs/DESIGN.md's "Additional notes" section). */
 .profile-save-row {
@@ -138,7 +132,7 @@ textarea {
   gap: 10px;
   align-items: end;
 }
-.profile-save-row button, .profile-select-row button {
+.profile-save-row button {
   margin-top: 6px;
   white-space: nowrap;
 }

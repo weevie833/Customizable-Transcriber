@@ -89,7 +89,6 @@ exactly where the inline block used to sit. */
         document.querySelector('[name="profile_action"]').value = "use";
         originalProfileFields = profileFields();
         updateRunButton(false);
-        updateDeleteButton(false);
         return;
       }
       document.querySelector('[name="role_context"]').value = profile.role_context || "";
@@ -101,7 +100,6 @@ exactly where the inline block used to sit. */
       if (duplicateAction) duplicateAction.value = "";
       originalProfileFields = profileFields();
       updateRunButton(false);
-      updateDeleteButton(false);
     }
 
     function normalizeProfileName(name) {
@@ -332,7 +330,6 @@ exactly where the inline block used to sit. */
 
     function handleProfileEditsBeforeSubmit(event) {
       if (event.submitter && event.submitter.id === "reset-button") return;
-      if (event.submitter && event.submitter.id === "profile-delete-button") return;
       if (event.submitter && event.submitter.id === "run-button") {
         const missingMessage = missingRunSettingMessage();
         if (missingMessage) {
@@ -512,12 +509,10 @@ exactly where the inline block used to sit. */
       const runForm = document.querySelector('form[action="/run"]');
       if (runForm) {
         runForm.addEventListener("submit", handleProfileEditsBeforeSubmit);
-        runForm.addEventListener("submit", confirmProfileDelete);
         runForm.addEventListener("submit", confirmReset);
       }
       updateRunButton(running);
       updateRunStatus(running, initialOffPeak);
-      updateDeleteButton(running);
       if (typeof wireInfoButtons === "function") wireInfoButtons();
       if (running) {
         window.setTimeout(refreshStatus, 1500);

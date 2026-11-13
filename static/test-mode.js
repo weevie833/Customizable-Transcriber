@@ -283,7 +283,6 @@ the inline block used to sit. */
 
     function handleProfileEditsBeforeSubmit(event) {
       if (event.submitter && event.submitter.id === "reset-button") return;
-      if (event.submitter && event.submitter.id === "profile-delete-button") return;
       if (event.submitter && event.submitter.id === "add-to-batch-button") return;
       if (event.submitter && event.submitter.id === "run-button") {
         const missingMessage = missingRunSettingMessage();
@@ -796,7 +795,6 @@ the inline block used to sit. */
       if (profileSelect) {
         profileSelect.addEventListener("change", () => {
           updateRunButton(false);
-          updateDeleteButton(false);
           resetPreflight();
           hideSettingsAlert();
         });
@@ -894,13 +892,11 @@ the inline block used to sit. */
       const runForm = document.querySelector('form[action="/test-mode/run"]');
       if (runForm) {
         runForm.addEventListener("submit", handleProfileEditsBeforeSubmit);
-        runForm.addEventListener("submit", confirmProfileDelete);
         runForm.addEventListener("submit", confirmReset);
       }
       renderRunRows(initialRuns);
       updateRunButton(running);
       updateRunStatus(running);
-      updateDeleteButton(running);
       if (running) {
         window.setTimeout(refreshStatus, 1500);
       }

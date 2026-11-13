@@ -468,6 +468,9 @@ styling has diverged too much from Transcribe/Test Mode's shared shell. */
     .pb-ie-grid .pb-ie-box {
       margin: 0;
     }
+    .button-tiny.pb-danger {
+      background: #a33a2b;
+    }
     .pb-ie-box .file-picker {
       margin: 6px 0;
     }

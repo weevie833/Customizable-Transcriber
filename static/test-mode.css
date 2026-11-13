@@ -222,7 +222,7 @@ longer doubled since this isn't inside an f-string anymore). */
         padding-top: 20px;
       }
       .tm-info-panel { max-width: calc(100vw - 60px); }
-      .row, .run-options, .profile-select-row, .profile-save-row, .run-row, .extra-file-row { grid-template-columns: 1fr; }
+      .row, .run-options, .profile-save-row, .run-row, .extra-file-row { grid-template-columns: 1fr; }
       .path-control-row, .path-manual-row { grid-template-columns: 1fr; }
       .run-actions { grid-template-columns: 1fr; }
       .site-header { align-items: stretch; }

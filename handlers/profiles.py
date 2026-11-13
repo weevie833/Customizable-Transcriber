@@ -17,7 +17,7 @@ from pathlib import Path
 
 import httpx
 
-from app_state import lock, state
+from app_state import lock, state, test_lock, test_state
 from customizable_transcriber.core import (
     DEFAULT_MODEL,
     FILE_TYPE_EXTENSIONS,
@@ -38,6 +38,7 @@ from profiles_store import (
     delete_profile,
     export_profile_payload,
     import_custom_profile,
+    load_custom_profiles,
     save_custom_profile,
     update_full_profile,
     update_profile,
@@ -499,34 +500,33 @@ class ProfilesHandlerMixin:
                 )
             )
 
-    def delete_profile(self) -> None:
+    def delete_prompt_builder_profile(self) -> None:
+        """JSON-in/JSON-out delete for Prompt Builder's "Delete a Profile"
+        section -- the only place a profile can be deleted. Refused while a Transcribe or
+        Test Mode run is in progress, as the old Transcribe-page delete was."""
         with lock:
-            already_running = state["running"]
-        if already_running:
-            # redirect_transcribe() doesn't acquire `lock`, so it's safe to
-            # call after releasing it above regardless -- see the
-            # POST/Redirect/GET comment on /run's final redirect_transcribe()
-            # call for why every response in this file's POST handlers now
-            # redirects instead of rendering page()/test_mode_page() directly.
-            self.redirect_transcribe()
+            transcribe_running = state["running"]
+        with test_lock:
+            test_running = test_state["running"]
+        if transcribe_running or test_running:
+            self.respond_json(
+                {"error": "A transcription or Test Mode run is in progress. Wait for it to finish before deleting a profile."},
+                status=409,
+            )
             return
         try:
-            form = parse_post_form(self)
-            profile_id = selected_profile_id(form)
+            payload = parse_json_body(self)
+            profile_id = str(payload.get("profile_id", "") or "").strip()
+            if not profile_id:
+                raise RuntimeError("Select a profile to delete first.")
             profile = delete_profile(profile_id)
-            message = f"Deleted profile: {profile.get('label', profile_id)}"
-            with lock:
-                state["summary"] = message
-                state["log"] = [message]
-                state["download"] = ""
-                state["profile_id"] = ""
-                state["new_profile_name"] = ""
-                state["role_context"] = ""
-                state["reference_context"] = ""
-                state["output_format"] = ""
+            # Deleting a user's own copy of a shipped example brings the
+            # shipped original back under the same id.
+            still_listed = any(item["id"] == profile_id for item in load_custom_profiles())
         except Exception as exc:
-            with lock:
-                state["summary"] = f"Fatal error: {exc}"
-                state["log"] = [f"Fatal error: {exc}"]
-                state["download"] = ""
-        self.redirect_transcribe()
+            self.respond_json({"error": str(exc)}, status=400)
+            return
+        with lock:
+            if state["profile_id"] == profile_id:
+                state["profile_id"] = ""
+        self.respond_json({"id": profile_id, "label": profile.get("label", profile_id), "still_listed": still_listed})

@@ -1570,6 +1570,61 @@
     if (exportButton) exportButton.addEventListener("click", exportSelectedProfile);
     var importButton = document.getElementById("pb-import-button");
     if (importButton) importButton.addEventListener("click", importProfileFile);
+    var deleteButton = document.getElementById("pb-delete-button");
+    if (deleteButton) deleteButton.addEventListener("click", deleteSelectedProfile);
+  }
+
+  function pbTranslate(text) {
+    return window.tbTranslateStatusText ? window.tbTranslateStatusText(text) : text;
+  }
+
+  function deleteSelectedProfile() {
+    var select = document.getElementById("pb-delete-select");
+    var statusEl = document.getElementById("pb-delete-status");
+    var profileId = select ? select.value : "";
+    if (!profileId) {
+      if (statusEl) statusEl.textContent = "Select a profile to delete first.";
+      if (window.tbRefreshLanguage) window.tbRefreshLanguage();
+      return;
+    }
+    var label = select.options[select.selectedIndex].textContent;
+    if (!window.confirm(pbTranslate('"' + label + '" will be permanently deleted. This cannot be undone.'))) return;
+    if (statusEl) statusEl.textContent = "";
+    fetch("/prompt-builder/delete-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile_id: profileId })
+    })
+      .then(function (resp) {
+        return resp.json().then(function (data) { return { ok: resp.ok, data: data }; });
+      })
+      .then(function (result) {
+        if (!result.ok) throw new Error(result.data.error || "Couldn't delete that profile.");
+        var option = select.querySelector('option[value="' + profileId + '"]');
+        if (option) option.remove();
+        select.value = "";
+        var message;
+        if (result.data.still_listed) {
+          // A user's copy of the shipped example: the original is back under
+          // the same id, so the other lists keep it; their saved answers are
+          // now stale until a reload.
+          message = 'Deleted "' + label + '". The original example profile is back -- reload this page to see it.';
+        } else {
+          ["pb-load-select", "pb-export-select"].forEach(function (selectId) {
+            var other = document.getElementById(selectId);
+            var stale = other && other.querySelector('option[value="' + profileId + '"]');
+            if (stale) stale.remove();
+          });
+          if (window.PB_SAVED_PROFILES) delete window.PB_SAVED_PROFILES[profileId];
+          message = 'Deleted "' + label + '". Reload the Transcribe or Test Mode tab to remove it from the profile list there.';
+        }
+        var editIdField = document.getElementById("pb-edit-profile-id");
+        if (editIdField && editIdField.value === profileId) pbClearEditing();
+        if (statusEl) statusEl.textContent = pbTranslate(message);
+      })
+      .catch(function (err) {
+        if (statusEl) statusEl.textContent = pbTranslate((err && err.message) || String(err));
+      });
   }
 
   function exportSelectedProfile() {

@@ -110,7 +110,6 @@
     "JPEG includes .jpg and .jpeg files.": "JPEG include i file .jpg e .jpeg.",
     "Prompt profile": "Profilo del prompt",
     "Select a Profile": "Seleziona un profilo",
-    "Delete Profile": "Elimina profilo",
     "Preflight Check": "Controllo preliminare",
     "Confirm and run": "Conferma ed esegui",
     // Off-Peak Mode (batch_transcription.py/handlers/transcribe_offpeak.py).
@@ -535,6 +534,14 @@
     "Importing a profile never overwrites an existing profile.":
       "L'importazione di un profilo non sovrascrive mai un profilo esistente.",
 
+    // Prompt Builder — Delete a Profile
+    "Delete a Profile": "Elimina un profilo",
+    "Deleting a profile is permanent and cannot be undone. Export it first if you might want it back. The example profile that comes with the app can't be deleted.":
+      "L'eliminazione di un profilo è definitiva e non può essere annullata. Esportalo prima se pensi di volerlo recuperare. Il profilo di esempio fornito con l'app non può essere eliminato.",
+    "Profile to delete": "Profilo da eliminare",
+    "Delete profile": "Elimina profilo",
+    "Select a profile to delete first.": "Seleziona prima un profilo da eliminare.",
+
     // Prompt Builder — Civil records: page format & baptism-column fields
     "Page format": "Formato della pagina",
     "Printed form with handwritten entries filled in": "Modulo a stampa con voci compilate a mano",
@@ -815,6 +822,27 @@
   var TB_LANGUAGE_IT = { English: "Inglese", Italian: "Italiano" };
 
   var DYNAMIC_LINE_PATTERNS = [
+    // Prompt Builder — Delete a Profile (confirm dialog and status line).
+    {
+      re: /^"([\s\S]+)" will be permanently deleted\. This cannot be undone\.$/,
+      it: function (m) { return '"' + m[1] + '" verrà eliminato definitivamente. Questa operazione non può essere annullata.'; },
+    },
+    {
+      re: /^Deleted "([\s\S]+)"\. The original example profile is back -- reload this page to see it\.$/,
+      it: function (m) { return 'Eliminato "' + m[1] + '". Il profilo di esempio originale è di nuovo disponibile -- ricarica questa pagina per vederlo.'; },
+    },
+    {
+      re: /^Deleted "([\s\S]+)"\. Reload the Transcribe or Test Mode tab to remove it from the profile list there\.$/,
+      it: function (m) { return 'Eliminato "' + m[1] + '". Ricarica la scheda Trascrivi o Modalità di test per rimuoverlo dal relativo elenco dei profili.'; },
+    },
+    {
+      re: /^A transcription or Test Mode run is in progress\. Wait for it to finish before deleting a profile\.$/,
+      it: function () { return "È in corso una trascrizione o un'esecuzione in Modalità di test. Attendi che finisca prima di eliminare un profilo."; },
+    },
+    {
+      re: /^Select a valid prompt profile before deleting\.$/,
+      it: function () { return "Seleziona un profilo valido prima di eliminarlo."; },
+    },
     {
       re: /^"([^"]+)" is temporarily unavailable on the provider's own servers \(HTTP ([^)]+)\) -- this is not a problem with your API key or this app\. It already retried (\d+) times with a short delay before giving up\. This is usually temporary: wait a few minutes and try again, or switch to a different model for now\. \(Original error: ([\s\S]+)\)$/,
       it: function (m) {

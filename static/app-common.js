@@ -181,22 +181,6 @@ function updateRunStatus(running, offPeak) {
   }
 }
 
-function updateDeleteButton(running) {
-  const deleteButton = document.getElementById("profile-delete-button");
-  if (!deleteButton) return;
-  deleteButton.disabled = Boolean(running) || !document.querySelector('[name="profile_id"]').value;
-}
-
-function confirmProfileDelete(event) {
-  if (!event.submitter || event.submitter.id !== "profile-delete-button") return;
-  const profileId = document.querySelector('[name="profile_id"]').value;
-  const profile = profiles[profileId];
-  const label = profile ? profile.label : "the selected profile";
-  if (!window.confirm(`${label} will be permanently deleted. This cannot be undone.`)) {
-    event.preventDefault();
-  }
-}
-
 function confirmReset(event) {
   if (!event.submitter || event.submitter.id !== "reset-button") return;
   if (!window.confirm("Reset All clears the source folder, run settings, and current output. Continue?")) {

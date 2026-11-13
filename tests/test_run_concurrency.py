@@ -167,19 +167,20 @@ def test_busy_endpoints_respond_promptly_instead_of_deadlocking(live_server, san
     threading.Lock is not reentrant, hitting any of these while a job was
     running deadlocked that request's handler thread forever (reproduced:
     it never returned even after a 5s client-side timeout). Exercises
-    /delete-profile as the representative case."""
+    /test-mode/run as the representative case (both /delete-profile routes
+    were later removed; deleting moved to Prompt Builder)."""
     host, port = live_server
     # page() (called by the "still running" response path) looks up the
     # currently-selected profile unconditionally -- needs at least one to
     # exist, independent of what this test is actually exercising.
     ctapp.save_custom_profile("Deadlock Test Profile", "role", "reference", "format")
-    with ctapp.lock:
-        ctapp.state["running"] = True
+    with ctapp.test_lock:
+        ctapp.test_state["running"] = True
     try:
         jar = CookieJar()
         # retries=3 on both calls: safe here specifically because
-        # delete_profile() takes its very first branch (state["running"] is
-        # True) and returns via redirect_transcribe() without touching any
+        # run_test() takes its very first branch (test_state["running"]
+        # is True) and returns via redirect_test_mode() without touching any
         # profile or run state at all -- resending either request on a
         # flaky-socket retry can't double-apply a side effect that never
         # happens in the first place. See _open_with_retry()'s docstring for
@@ -189,7 +190,7 @@ def test_busy_endpoints_respond_promptly_instead_of_deadlocking(live_server, san
         # TimeoutError instead of returning -- that failure mode is exactly
         # what this test exists to catch.
         response = _post(
-            host, port, jar, "/delete-profile", {"profile_id": "does-not-matter"}, timeout=3, retries=3
+            host, port, jar, "/test-mode/run", {"profile_id": "does-not-matter"}, timeout=3, retries=3
         )
         assert response.status == 200
     finally:

@@ -627,8 +627,8 @@ class Handler(
             self.import_prompt_builder_profile()
             return
 
-        if self.path == "/delete-profile":
-            self.delete_profile()
+        if self.path == "/prompt-builder/delete-profile":
+            self.delete_prompt_builder_profile()
             return
 
         if self.path == "/test-mode/run":
@@ -641,10 +641,6 @@ class Handler(
 
         if self.path == "/test-mode/reset":
             self.reset_test()
-            return
-
-        if self.path == "/test-mode/delete-profile":
-            self.delete_test_profile()
             return
 
         if self.path == "/test-mode/queue/add":

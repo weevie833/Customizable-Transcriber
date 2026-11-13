@@ -9,7 +9,7 @@ import html
 
 from customizable_transcriber.core import DEFAULT_MODEL, MODELS
 from pages import FOOTER_HTML, file_picker_html, json_data_island_html
-from profiles_store import load_custom_profiles, profiles_with_display_labels
+from profiles_store import load_custom_profiles, profiles_with_display_labels, user_profile_path
 from prompt_builder_content import (
     PROMPT_BUILDER_COMMON_ABBREVIATIONS,
     PROMPT_BUILDER_CORE_RULES,
@@ -359,6 +359,13 @@ def prompt_builder_page(
     export_profile_options = "\n".join(
         f'<option value="{html.escape(profile["id"])}">{html.escape(profile["display_label"])}</option>'
         for profile in profiles_with_display_labels()
+    )
+    # Delete a Profile -- only the user's own saved profiles. A shipped
+    # example (profiles/) can't be deleted; delete_profile() refuses it.
+    delete_profile_options = "\n".join(
+        f'<option value="{html.escape(profile["id"])}">{html.escape(profile["display_label"])}</option>'
+        for profile in profiles_with_display_labels()
+        if user_profile_path(profile["id"]).exists()
     )
     # One data island instead of five separate window.PB_* assignments --
     # see json_data_island_html()'s own docstring (pages/__init__.py) and
@@ -766,6 +773,21 @@ def prompt_builder_page(
       <button id="pb-save-button" type="submit" name="save_mode" value="new">Save as New Profile</button>
     </div>
   </form>
+
+  <details class="pb-section" id="pb-delete-section">
+    <summary>
+      <span class="pb-summary-text">Delete a Profile</span>
+    </summary>
+    <p class="pb-section-caption">Deleting a profile is permanent and cannot be undone. Export it first if you might want it back. The example profile that comes with the app can't be deleted.</p>
+    <div class="pb-ie-box">
+      <select id="pb-delete-select" aria-label="Profile to delete">
+        <option value="">Select a profile</option>
+        {delete_profile_options}
+      </select>
+      <button type="button" id="pb-delete-button" class="button-tiny pb-danger">Delete profile</button>
+      <p class="hint" id="pb-delete-status" role="status" aria-live="polite"></p>
+    </div>
+  </details>
 
   <details class="pb-section" id="pb-import-export-section">
     <summary>

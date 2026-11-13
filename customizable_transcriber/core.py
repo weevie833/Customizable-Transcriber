@@ -17,6 +17,7 @@ from google.genai import errors as genai_errors
 from google.genai import types
 
 from customizable_transcriber import page_zoom, usage_ledger
+from customizable_transcriber.year_check import apply_year_check
 
 FILE_TYPE_EXTENSIONS = {
     "jpeg": frozenset({".jpg", ".jpeg"}),
@@ -1313,6 +1314,10 @@ def run_batch(
             failures=count_failures(results),
             stopped=bool(cancel_requested and cancel_requested()),
         )
+
+    # Each image is read on its own, so a misread year (1799 as 1779) can't
+    # be seen from inside one image; compare each entry with its neighbours.
+    apply_year_check(config.output_file, config.reverse_order, log)
 
     if cancel_requested and cancel_requested():
         log(f"Stopped. Partial output: {config.output_file}")

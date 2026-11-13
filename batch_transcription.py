@@ -79,6 +79,7 @@ from customizable_transcriber.core import (
     source_files,
     validate_batch_source_file,
 )
+from customizable_transcriber.year_check import apply_year_check
 from run_support import write_docx
 
 # Empirically measured this session against a real archival page scan, at
@@ -874,6 +875,13 @@ def run_off_peak_job(
                     image_results.append(ImageResult(name, True, text))
                 next_name, previous_name = physical_neighbors(names, index, reverse_order)
                 output.write(render_entry(name, entry_text, next_name, previous_name))
+
+        def log_year_check(message: str) -> None:
+            with lock:
+                state["log"].append(f"[{_log_timestamp()}] {message}")
+                state["log"] = state["log"][-300:]
+
+        apply_year_check(markdown_file, reverse_order, log_year_check)
 
         if markdown_file.exists():
             write_docx(

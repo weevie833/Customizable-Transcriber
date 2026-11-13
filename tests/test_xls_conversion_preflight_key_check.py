@@ -124,7 +124,7 @@ def test_parse_fails_fast_on_bad_key_without_the_expensive_call(jar, monkeypatch
 
 
 def test_detect_languages_honors_a_blank_key_via_env_fallback(jar, monkeypatch):
-    """CODEX_REVIEW_2.md finding M-3: validate_api_key_with_retry() already
+    """reviews/CODEX_REVIEW_2.md finding M-3: validate_api_key_with_retry() already
     resolves a blank pasted key to a configured .env key internally (see
     make_client()'s own fallback) and validates THAT -- but the handler
     used to then call detect_languages() with the original, still-blank

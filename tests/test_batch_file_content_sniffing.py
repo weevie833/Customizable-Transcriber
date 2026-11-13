@@ -1,4 +1,4 @@
-"""Regression test for part of CODEX_REVIEW.md finding M-1: the batch
+"""Regression test for part of reviews/CODEX_REVIEW.md finding M-1: the batch
 Transcribe/Test Mode source-file path trusted a file's extension alone
 (source_files() filters by suffix) and never checked its actual content
 before sending it to an AI provider -- unlike the single-upload paths
@@ -12,7 +12,7 @@ mislabeled by whatever its extension happened to claim.
 
 Note: this closes only the content-sniffing part of M-1. The file-size
 ceiling and symlink/path-containment checks the same finding also
-recommends are not addressed here -- see CLAUDE_RESPONSE.md for why those
+recommends are not addressed here -- see reviews/CLAUDE_RESPONSE.md for why those
 remain a human decision (an appropriate size limit depends on how large a
 real archival scan legitimately gets for this app's users)."""
 

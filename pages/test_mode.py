@@ -80,8 +80,8 @@ def test_mode_page() -> str:
     # One data island instead of three separate window/const assignments --
     # see json_data_island_html()'s own docstring (pages/__init__.py) for
     # why this is what lets static/test-mode.js keep reading this per-request
-    # data after CSP's script-src drops 'unsafe-inline' (CODEX_REVIEW.md
-    # finding L-2 / HUMAN_DECISIONS.md). Read back near the top of that file
+    # data after CSP's script-src drops 'unsafe-inline' (reviews/CODEX_REVIEW.md
+    # finding L-2 / reviews/HUMAN_DECISIONS.md). Read back near the top of that file
     # into the same profiles/MODEL_LABELS/initialRuns/queueLength/running
     # names the rest of the script already used.
     initial_data_html = json_data_island_html(

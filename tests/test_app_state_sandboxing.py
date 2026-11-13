@@ -42,7 +42,7 @@ def test_reset_ui_state_clears_source_folder_in_sandbox(sandboxed_user_data):
         assert app_state.APP_SETTINGS_FILE.is_relative_to(sandboxed_user_data)
 
 
-# --- off-peak job persistence (CODEX_REVIEW.md finding H-1) ----------------
+# --- off-peak job persistence (reviews/CODEX_REVIEW.md finding H-1) ----------------
 # write_off_peak_job_state()/read_off_peak_job_state()/clear_off_peak_job_state()/
 # surface_stale_off_peak_job() are all defined in app_state.py, same as the
 # source-folder functions above -- same reasoning, same regression-test

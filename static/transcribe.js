@@ -1,5 +1,5 @@
 /* Transcribe page ("/transcribe") script, extracted from pages/transcribe.py's
-inline <script> block -- see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md.
+inline <script> block -- see reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md.
 Content is unchanged from the inline block it replaced, except: (1) braces
 are no longer doubled since this isn't inside an f-string anymore; (2) the
 per-request dynamic values (profiles, running) are now read from the

@@ -340,7 +340,7 @@ def test_call_claude_json_omits_cache_control_by_default(monkeypatch):
 
 
 # --- xls_conversion/ai_parser.py: cache cleanup survives a mid-loop failure ----
-# CODEX_REVIEW.md finding L-2: parse_generic()/preflight_generic() only
+# reviews/CODEX_REVIEW.md finding L-2: parse_generic()/preflight_generic() only
 # deleted their Gemini prompt cache *after* their loop -- an exception raised
 # partway through skipped that cleanup call entirely, leaking the cache until
 # its own 1-hour ttl expired. Both loops now run inside try/finally.

@@ -1,4 +1,4 @@
-"""Regression test for CODEX_REVIEW.md finding M-4: two near-simultaneous
+"""Regression test for reviews/CODEX_REVIEW.md finding M-4: two near-simultaneous
 save_custom_profile() calls for the same name could both see the same
 available auto-suffixed id as free (each checking find_profile_path()
 independently) and race to write it -- one profile's content silently lost

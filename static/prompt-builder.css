@@ -1,5 +1,5 @@
 /* Prompt Builder page styling, extracted from pages/prompt_builder.py's
-inline <style> block -- see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md.
+inline <style> block -- see reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md.
 Content is unchanged from the inline block it replaced (braces are no
 longer doubled since this isn't inside an f-string anymore). Kept as its
 own file rather than folded into static/app-shell.css, matching this

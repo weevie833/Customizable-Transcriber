@@ -95,7 +95,7 @@ def test_process_all_over_cap_is_rejected_not_silently_processed():
 
 
 def test_repeated_marker_numbers_still_hit_the_block_cap(monkeypatch):
-    """CODEX_REVIEW_2.md finding M-2: all_image_numbers_capped() dedupes
+    """reviews/CODEX_REVIEW_2.md finding M-2: all_image_numbers_capped() dedupes
     marker numbers before comparing against the cap, but
     split_image_blocks() (which parse_generic() actually loops over, one AI
     call per entry) emits one block per marker OCCURRENCE, not per distinct

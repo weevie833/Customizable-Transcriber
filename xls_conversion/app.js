@@ -310,7 +310,7 @@
     }
     // No client-side blank-key gate here, deliberately -- unlike Preflight/
     // Convert below, Detect Languages honors a saved .env key with no key
-    // pasted at all (see setBusy()'s own comment and CODEX_REVIEW_2.md
+    // pasted at all (see setBusy()'s own comment and reviews/CODEX_REVIEW_2.md
     // finding M-3). If neither a pasted key nor a .env key exists, the
     // request below still fails cleanly with a clear server-side error.
     if (!imageRange.value.trim() && !processAll.checked) {
@@ -431,7 +431,7 @@
       // block per marker occurrence, not per distinct number). A
       // duplicate-marker transcription would otherwise let this estimate
       // (and the large-run confirmation dialog it feeds) understate the
-      // real AI-call count -- see CODEX_REVIEW_2.md finding M-2.
+      // real AI-call count -- see reviews/CODEX_REVIEW_2.md finding M-2.
       let count = 0;
       const pattern = /(?:^|\n)\s*(?:---\s*)?START OF RECORD:\s*.*?_(\d+)\.[A-Za-z0-9]+/gi;
       while (pattern.exec(sourceText)) {
@@ -931,7 +931,7 @@
     // .env key satisfy on its own, per README's/PRIVACY.md's Setup
     // section. The batch tools (Preflight/Convert/Ignore) still require an
     // explicit paste as a deliberate cost-commitment gate before a
-    // potentially large, billable run -- see CODEX_REVIEW_2.md finding M-3
+    // potentially large, billable run -- see reviews/CODEX_REVIEW_2.md finding M-3
     // and this app's own M-3 resolution notes for why that friction is
     // intentional and shouldn't be relaxed here. A click with no pasted
     // key and no .env key configured either still fails cleanly server-side

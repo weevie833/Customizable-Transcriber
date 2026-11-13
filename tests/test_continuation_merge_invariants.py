@@ -1,4 +1,4 @@
-"""CODEX_REVIEW.md H-2 / HD-2: a continuation merge must not silently erase or change
+"""reviews/CODEX_REVIEW.md H-2 / HD-2: a continuation merge must not silently erase or change
 fields the departure row already had -- original wins, conflicts are logged, and a
 different act number means "not the same record" (both rows kept)."""
 

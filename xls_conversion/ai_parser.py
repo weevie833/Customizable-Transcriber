@@ -1477,7 +1477,7 @@ def preflight_generic(
                         }
                     )
     finally:
-        # try/finally, not a bare post-loop call -- see CODEX_REVIEW.md
+        # try/finally, not a bare post-loop call -- see reviews/CODEX_REVIEW.md
         # finding L-2: an exception raised partway through the loop above
         # (a malformed AI response, an unrecoverable provider error) used to
         # skip this cleanup entirely, leaking the cache until its own 1-hour
@@ -1767,7 +1767,7 @@ _MERGE_BOOKKEEPING_FIELDS = frozenset({"notes", "image_link", "image_number"})
 def apply_merge_invariants(
     config: RecordTypeConfig, previous_row: dict[str, str], merged_row: dict[str, str]
 ) -> tuple[dict[str, str] | None, list[str]]:
-    """Field-level guard for a continuation merge (CODEX_REVIEW.md H-2 / HD-2:
+    """Field-level guard for a continuation merge (reviews/CODEX_REVIEW.md H-2 / HD-2:
     "original wins, conflict logged"). The merge call returns a whole new row that
     replaces the departure row, so without this a model could silently drop or
     change what the departure image already yielded.
@@ -1983,7 +1983,7 @@ def parse_generic(
     # transcription with the same marker repeated thousands of times (a
     # malformed or adversarial document) would pass both of those checks
     # while still producing thousands of blocks here, each triggering its
-    # own AI call in the loop below. See CODEX_REVIEW_2.md finding M-2: this
+    # own AI call in the loop below. See reviews/CODEX_REVIEW_2.md finding M-2: this
     # is the actual unit that drives AI-provider cost/call count, so it's
     # what the cap must be checked against, not the distinct-number count.
     if len(blocks) > MAX_IMAGES_PER_REQUEST:
@@ -2065,7 +2065,7 @@ def parse_generic(
         # merge.
         if not candidate_rows or not _confirms_continuation_merge(candidate_rows[0]):
             return candidate_rows, False
-        # Field-level invariants (CODEX_REVIEW.md H-2): never let the merge call erase or
+        # Field-level invariants (reviews/CODEX_REVIEW.md H-2): never let the merge call erase or
         # silently change what the departure row already had.
         checked_row, merge_conflicts = apply_merge_invariants(config, rows[-1], candidate_rows[0])
         for conflict in merge_conflicts:
@@ -2086,7 +2086,7 @@ def parse_generic(
     # see call_gemini_json()/call_claude_json()'s own caching comments in
     # core.py/this file. Only worth creating/requesting when there's more
     # than one block to amortize it against. Cleanup now runs in a
-    # try/finally around the whole loop -- see CODEX_REVIEW.md finding
+    # try/finally around the whole loop -- see reviews/CODEX_REVIEW.md finding
     # L-2: an index==0 failure (or any other exception) used to re-raise
     # out of this function before the old post-loop cleanup call was ever
     # reached, leaking the cache until its own 1-hour ttl expired.

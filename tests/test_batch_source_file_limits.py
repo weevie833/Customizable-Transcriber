@@ -1,5 +1,5 @@
-"""Regression tests for the remainder of CODEX_REVIEW.md finding M-1 /
-HUMAN_DECISIONS.md: batch source-file discovery had no per-file size
+"""Regression tests for the remainder of reviews/CODEX_REVIEW.md finding M-1 /
+reviews/HUMAN_DECISIONS.md: batch source-file discovery had no per-file size
 ceiling and no symlink rejection before sending a file's bytes to an AI
 provider. validate_batch_source_file() now rejects both cases with a clear
 RuntimeError -- which run_batch()'s existing per-image try/except turns

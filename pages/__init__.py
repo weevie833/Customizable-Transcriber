@@ -52,7 +52,7 @@ def json_data_island_html(element_id: str, value: object) -> str:
     Exists so this data can keep reaching the page's own external JS
     (static/prompt-builder.js, and Transcribe's/Test Mode's own per-page
     scripts) after CSP's script-src drops 'unsafe-inline' (see
-    CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md): a `type="application/
+    reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md): a `type="application/
     json"` element is inert data as far as the browser's JS engine is
     concerned -- it's never parsed or executed as script, so CSP's
     script-src (which only ever governs what can *execute* as script) never

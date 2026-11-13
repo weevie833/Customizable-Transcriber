@@ -32,8 +32,8 @@ does -- see that module's own comment on the off_peak/batch_provider/
 batch_job_id/batch_counts fields -- EXCEPT the small amount of non-secret
 job metadata (provider, model, job id, submission time, status) mirrored to
 app_state.OFF_PEAK_JOB_FILE at each stage of a job's lifecycle. That was a
-deliberate v1 scope decision to write nothing at all (see CODEX_REVIEW.md
-finding H-1 / HUMAN_DECISIONS.md HD-1 for why it was revisited): a batch job
+deliberate v1 scope decision to write nothing at all (see reviews/CODEX_REVIEW.md
+finding H-1 / reviews/HUMAN_DECISIONS.md HD-1 for why it was revisited): a batch job
 can run for hours, and a Stop request that the provider never actually
 confirmed -- or an app restart/crash mid-batch -- used to leave no trace
 anywhere that a real, possibly still-running (and still billing) provider
@@ -163,7 +163,7 @@ MAX_CONSECUTIVE_POLL_FAILURES = 20
 
 # How long to keep polling after Stop is pressed before giving up on
 # confirmation and reporting the cancellation as unconfirmed rather than
-# claiming success -- see CODEX_REVIEW.md finding H-1 / HUMAN_DECISIONS.md
+# claiming success -- see reviews/CODEX_REVIEW.md finding H-1 / reviews/HUMAN_DECISIONS.md
 # HD-1. Before this, the poll loop broke out the instant `cancelled` was
 # set, regardless of whether the very next status check (or even a FAILED
 # status check) actually confirmed the provider had stopped the job -- a
@@ -172,7 +172,7 @@ MAX_CONSECUTIVE_POLL_FAILURES = 20
 CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS = 600
 
 # Explicit, bounded timeouts for every provider call this module makes --
-# see CODEX_REVIEW.md finding M-3 / HUMAN_DECISIONS.md. Before this, both
+# see reviews/CODEX_REVIEW.md finding M-3 / reviews/HUMAN_DECISIONS.md. Before this, both
 # SDK clients were constructed with no timeout at all, so a network stall
 # during submission, polling, cancellation, or result retrieval could hang
 # indefinitely (the SDK's own default, if any, was never a deliberate choice
@@ -236,8 +236,8 @@ class BatchSubmissionError(RuntimeError):
     recorded in the per-image results instead."""
 
 
-# Aggregate batch-capacity caps -- see CODEX_REVIEW.md finding M-2 /
-# HUMAN_DECISIONS.md HD-2. MAX_BATCH_IMAGE_BYTES (core.py) already bounds
+# Aggregate batch-capacity caps -- see reviews/CODEX_REVIEW.md finding M-2 /
+# reviews/HUMAN_DECISIONS.md HD-2. MAX_BATCH_IMAGE_BYTES (core.py) already bounds
 # any *one* source file, but nothing bounded the batch as a whole: Gemini's
 # submit_gemini_batch() keeps every image's raw bytes in one in-memory
 # request list, and Claude's submit_claude_batch() additionally base64-
@@ -261,7 +261,7 @@ MAX_BATCH_IMAGE_COUNT = 1000
 # the cost of using that provider, not built into the number itself, so
 # both providers are held to the same real "how many original-file bytes
 # can this batch contain" limit.
-# Lowered from 2 GB to 500 MB (CODEX_REVIEW.md M-2 / HD-4): Claude's base64 expansion
+# Lowered from 2 GB to 500 MB (reviews/CODEX_REVIEW.md M-2 / HD-4): Claude's base64 expansion
 # (~1.33x) plus request-serialization copies made 2 GB a real memory-exhaustion risk
 # on an ordinary 8 GB machine, and the old number was never measured. Larger folders
 # are rejected up front with a message to split them; revisit with measured peak
@@ -277,7 +277,7 @@ def validated_images(
     duplicated, so a batch job gets identical symlink/size/type protection
     to a real-time run, not a parallel and potentially weaker check.
     reverse_order threads through to source_files() the same "newest first"
-    switch the real-time /run path already honors -- see CODEX_REVIEW.md
+    switch the real-time /run path already honors -- see reviews/CODEX_REVIEW.md
     finding M-1 / run_off_peak_job()'s own reverse_order parameter.
 
     Also enforces MAX_BATCH_IMAGE_COUNT/MAX_BATCH_AGGREGATE_BYTES (M-2,
@@ -468,7 +468,7 @@ def submit_claude_batch(
         )
     # The SDK retries a failed/timed-out request by default (twice). Batch creation is
     # not idempotent, so a retry after a lost response would create a SECOND paid
-    # batch (CODEX_REVIEW.md H-1) -- never retry this call automatically.
+    # batch (reviews/CODEX_REVIEW.md H-1) -- never retry this call automatically.
     batch = client.with_options(max_retries=0).messages.batches.create(requests=requests)
     return batch.id
 
@@ -545,7 +545,7 @@ def _batch_was_cancelled(provider: str, job) -> bool:
     takes effect, which is a legitimate "it just finished anyway" outcome,
     not a cancellation, and deserves an honest message rather than a
     blanket "cancelled" label regardless of what actually happened. See
-    CODEX_REVIEW.md finding H-1."""
+    reviews/CODEX_REVIEW.md finding H-1."""
     if provider == "claude":
         return bool(claude_batch_counts(job).get("canceled"))
     return job.state == genai_types.JobState.JOB_STATE_CANCELLED
@@ -626,7 +626,7 @@ def run_off_peak_job(
     loop). Always run on a background thread by the caller (see
     handlers/transcribe_offpeak.py), matching run_job()'s own contract.
     reverse_order mirrors run_job()'s own TranscriptionConfig.reverse_order --
-    see CODEX_REVIEW.md finding M-1: the confirmation UI promises a
+    see reviews/CODEX_REVIEW.md finding M-1: the confirmation UI promises a
     newest-to-oldest run will honor that order, so the submitted batch's
     request order (and therefore the output's entry order) must match it."""
     job_id: str | None = None
@@ -661,7 +661,7 @@ def run_off_peak_job(
             else:
                 job_id = submit_gemini_batch(heavy_client, model, system_prompt, images, zoom_pages=zoom_pages)
         except (httpx.TimeoutException, httpx.RemoteProtocolError, anthropic.APIConnectionError) as exc:
-            # Outcome UNKNOWN, not failure (CODEX_REVIEW.md H-1 / HD-1): the provider may
+            # Outcome UNKNOWN, not failure (reviews/CODEX_REVIEW.md H-1 / HD-1): the provider may
             # have accepted the batch even though its response never arrived, and it may
             # already be running -- and billing.
             elapsed = time.monotonic() - submit_started
@@ -726,7 +726,7 @@ def run_off_peak_job(
                     counts = gemini_batch_counts(job)
             except Exception as exc:
                 # Deliberately no "if cancelled: treat this as done" shortcut
-                # here (there used to be one) -- see CODEX_REVIEW.md finding
+                # here (there used to be one) -- see reviews/CODEX_REVIEW.md finding
                 # H-1: a poll failure right after Stop says nothing about
                 # whether the provider actually stopped the job, so it goes
                 # through the exact same bounded transient-retry treatment as
@@ -800,7 +800,7 @@ def run_off_peak_job(
 
         if cancellation_unconfirmed:
             # Never reached a terminal state within the confirmation window
-            # -- see CODEX_REVIEW.md finding H-1. This is the fix's whole
+            # -- see reviews/CODEX_REVIEW.md finding H-1. This is the fix's whole
             # point: report honestly that we don't know, rather than saying
             # "cancelled" just because Stop was pressed. Nothing terminal
             # means nothing to collect results from, so this ends the run
@@ -833,7 +833,7 @@ def run_off_peak_job(
         # terminal: break` above, so `job` is guaranteed to be the
         # just-polled, terminal job object at this point -- there is no
         # "cancelled before a single poll succeeded" case left to handle
-        # separately (there used to be one; see CODEX_REVIEW.md finding H-1
+        # separately (there used to be one; see reviews/CODEX_REVIEW.md finding H-1
         # for why that path could report a false "cancelled" too).
         usage_sink: list[dict] = []
         if provider == "claude":
@@ -905,7 +905,7 @@ def run_off_peak_job(
                 # (successfully or not) before the cancel request took
                 # effect. Results are fully real either way; only the
                 # wording changes, so this isn't reported as a cancellation
-                # that didn't happen. See CODEX_REVIEW.md finding H-1.
+                # that didn't happen. See reviews/CODEX_REVIEW.md finding H-1.
                 state["summary"] = (
                     f"Off-peak batch finished processing before cancellation took effect: "
                     f"{len(image_results)} image(s), {failures} failure(s)."

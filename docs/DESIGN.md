@@ -467,4 +467,4 @@ therefore roughly 1-1.5 GB resident for Claude, which fits an ordinary 8 GB host
 rejected up front with a "split this folder" message -- it cannot reach an OOM crash during
 serialization. Disk-staged / chunked-JSONL submission was considered and not built: it only
 matters for multi-gigabyte batches, which the supported workflow (split the folder) does not
-require. HUMAN_DECISIONS.md HD-4 stays open for the measured per-provider limits.
+require. reviews/HUMAN_DECISIONS.md HD-4 stays open for the measured per-provider limits.

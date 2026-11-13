@@ -39,7 +39,7 @@ from pathlib import Path
 
 # Guards every profile-store mutation (create/update/delete) against the
 # request-thread concurrency this app's ThreadingHTTPServer makes real, not
-# just theoretical -- see CODEX_REVIEW.md finding M-4. atomic_write_text()
+# just theoretical -- see reviews/CODEX_REVIEW.md finding M-4. atomic_write_text()
 # already prevents a *corrupt* (truncated/interleaved) file; this lock
 # closes a different gap it doesn't: two near-simultaneous creates each
 # independently probing find_profile_path() for a free id (the "-2"/"-3"

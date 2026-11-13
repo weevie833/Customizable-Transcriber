@@ -7,7 +7,7 @@
 // pages' own per-page scripts.
 //
 // Extracted from an inline <script> tag in xls_conversion/index.html --
-// see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md: this is what lets
+// see reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md: this is what lets
 // the CSP drop 'unsafe-inline' from script-src.
 let settingsAlertReturnFocus = null;
 document.getElementById("settings-alert-close").addEventListener("click", hideSettingsAlert);

@@ -1,4 +1,4 @@
-"""Regression test for CODEX_REVIEW.md finding L-4: load_custom_profiles()
+"""Regression test for reviews/CODEX_REVIEW.md finding L-4: load_custom_profiles()
 caught unreadable/invalid JSON, but passed any *syntactically valid* JSON
 value (a bare list, null, string, or number -- not necessarily a profile
 object) straight into normalize_profile_sections()'s dict-only `.get()`

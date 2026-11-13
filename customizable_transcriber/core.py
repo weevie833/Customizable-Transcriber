@@ -96,10 +96,10 @@ BATCH_REQUEST_TIMEOUT_SECONDS = 600
 # The "Checking API key..." call that opens every run is one tiny request, so a
 # minute is generous -- and it can't be interrupted by Stop while it blocks, so the
 # bound (not the SDK's own, much longer default) is what keeps a network stall from
-# leaving the UI stuck (CODEX_REVIEW.md M-3).
+# leaving the UI stuck (reviews/CODEX_REVIEW.md M-3).
 KEY_CHECK_TIMEOUT_SECONDS = 60
-# Per-file ceiling for a batch source image -- see CODEX_REVIEW.md finding
-# M-1 / HUMAN_DECISIONS.md. Matches app.py's own MAX_DOCX_BYTES (50MB),
+# Per-file ceiling for a batch source image -- see reviews/CODEX_REVIEW.md finding
+# M-1 / reviews/HUMAN_DECISIONS.md. Matches app.py's own MAX_DOCX_BYTES (50MB),
 # chosen as a size no legitimate archival page scan should realistically
 # exceed while still bounding the memory a single mislabeled/pathological
 # file can consume before it's even sent to a provider.
@@ -325,7 +325,7 @@ def _path_is_or_contains_symlink(path: Path, root: Path) -> bool:
 def validate_batch_source_file(image_path: Path, source_root: Path) -> None:
     """Rejects a discovered batch source file that is (or is reached
     through) a symlink, or that exceeds MAX_BATCH_IMAGE_BYTES -- see
-    CODEX_REVIEW.md finding M-1 / HUMAN_DECISIONS.md. Raises RuntimeError,
+    reviews/CODEX_REVIEW.md finding M-1 / reviews/HUMAN_DECISIONS.md. Raises RuntimeError,
     which run_batch()'s existing per-image try/except turns into one failed
     image rather than aborting the batch or, for the size check, reading an
     unbounded amount of data into memory before ever finding out it was too
@@ -447,7 +447,7 @@ def validate_api_key(
     # "None = SDK default" reasoning assumed Stop could interrupt this call, but
     # Stop is only checked between calls, so an unbounded key check could leave
     # the UI on "Checking API key..." for the SDK's full default duration
-    # (CODEX_REVIEW.md M-3). A stall is reported as a plain, non-retried error.
+    # (reviews/CODEX_REVIEW.md M-3). A stall is reported as a plain, non-retried error.
     client = make_client(project_dir, model, api_key_override, timeout_seconds=timeout_seconds)
     try:
         if client.provider == "claude":

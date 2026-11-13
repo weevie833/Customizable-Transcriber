@@ -1,5 +1,5 @@
 /* Privacy page ("/privacy") styling, extracted from pages/privacy.py's
-inline <style> block -- see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md.
+inline <style> block -- see reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md.
 Content is unchanged from the inline block it replaced (braces are no
 longer doubled since this isn't inside an f-string anymore). */
 .panel {

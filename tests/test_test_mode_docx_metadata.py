@@ -1,4 +1,4 @@
-"""Regression test for CODEX_REVIEW.md finding M-6: Test Mode's DOCX output
+"""Regression test for reviews/CODEX_REVIEW.md finding M-6: Test Mode's DOCX output
 used to omit record_type/model/profile_label metadata that the normal
 Transcribe path always writes into the header box (see write_docx()'s own
 call sites in app.py, and header_box_element()'s docstring on the invariant

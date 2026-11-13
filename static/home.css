@@ -1,5 +1,5 @@
 /* Home page ("/") styling, extracted from pages/home.py's inline <style>
-block -- see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md: moving
+block -- see reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md: moving
 inline CSS to a static file is what lets the CSP drop 'unsafe-inline' from
 style-src. Content is unchanged from the inline block it replaced. */
 .panel {

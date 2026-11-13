@@ -8,8 +8,8 @@ pillow==13.0.0
 
 # Not imported directly -- pulled in transitively via google-genai's own
 # google-auth dependency. Exact-pinned (previously floor-only, >=) to match
-# every other direct dependency in this file -- see CODEX_REVIEW.md finding
-# L-5 / HUMAN_DECISIONS.md. The floor itself was set to force a resolver
+# every other direct dependency in this file -- see reviews/CODEX_REVIEW.md finding
+# L-5 / reviews/HUMAN_DECISIONS.md. The floor itself was set to force a resolver
 # past two versions with known CVEs (PYSEC-2026-3552, PYSEC-2026-3455/6/7)
 # that were actually installed in this project's own environment when
 # audited; pinned exactly at the current latest release of each (confirmed
@@ -21,5 +21,5 @@ pyasn1==0.6.5
 
 # Transitive (via requests / google-genai / anthropic's httpx stack). Exact-pinned for the
 # same reason as cryptography/pyasn1 above (L-5): installed 2.7.0 carried
-# PYSEC-2026-4175/4176/4177 (SECURITY_REVIEW_4.md section 3); 2.8.0 is the fixed release.
+# PYSEC-2026-4175/4176/4177 (reviews/SECURITY_REVIEW_4.md section 3); 2.8.0 is the fixed release.
 urllib3==2.8.0

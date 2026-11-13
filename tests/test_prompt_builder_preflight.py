@@ -131,7 +131,7 @@ def test_preflight_test_runs_the_real_call_when_the_key_check_passes(live_server
 
 
 def test_preflight_critique_prompt_explains_labelled_example_parts(monkeypatch):
-    """CODEX_REVIEW.md M-1: the example may arrive as labelled Date / Main entry /
+    """reviews/CODEX_REVIEW.md M-1: the example may arrive as labelled Date / Main entry /
     side-block parts (never the continuation); the critique model is told how to read it."""
     from handlers import profiles as profiles_handlers
 

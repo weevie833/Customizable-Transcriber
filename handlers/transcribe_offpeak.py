@@ -148,7 +148,7 @@ class TranscribeOffPeakHandlerMixin:
                 "markdown_file": markdown_file,
                 "docx_file": docx_file,
                 "profile": profile,
-                # See CODEX_REVIEW.md finding M-1: the confirmation UI promises
+                # See reviews/CODEX_REVIEW.md finding M-1: the confirmation UI promises
                 # this order, but without threading it through, the batch was
                 # always submitted (and therefore output) oldest-to-newest.
                 "reverse_order": order != "oldest",

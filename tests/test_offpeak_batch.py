@@ -141,7 +141,7 @@ def test_submit_claude_batch_tags_each_request_with_custom_id(tmp_path):
     assert client.options_used == [{"max_retries": 0}]
 
 
-# --- reverse_order (CODEX_REVIEW.md finding M-1) ---------------------------
+# --- reverse_order (reviews/CODEX_REVIEW.md finding M-1) ---------------------------
 
 
 def test_validated_images_honors_reverse_order(tmp_path):
@@ -157,7 +157,7 @@ def test_validated_images_honors_reverse_order(tmp_path):
     assert [p.name for p in newest_first] == ["b.jpg", "a.jpg"]
 
 
-# --- aggregate batch-capacity caps (CODEX_REVIEW.md finding M-2) -----------
+# --- aggregate batch-capacity caps (reviews/CODEX_REVIEW.md finding M-2) -----------
 
 
 def test_validated_images_rejects_over_item_count_cap(tmp_path, monkeypatch):
@@ -257,7 +257,7 @@ def test_run_off_peak_job_success_writes_output_and_resets_state(tmp_path, monke
     text = markdown_file.read_text(encoding="utf-8")
     assert "Entry A" in text and "Entry B" in text
 
-    # CODEX_REVIEW.md finding H-1: a fully-resolved job leaves nothing
+    # reviews/CODEX_REVIEW.md finding H-1: a fully-resolved job leaves nothing
     # behind to (falsely) recover after a restart.
     assert app_state.read_off_peak_job_state() is None
 
@@ -275,7 +275,7 @@ def test_run_off_peak_job_success_writes_output_and_resets_state(tmp_path, monke
 
 
 def test_run_off_peak_job_persists_running_state_before_the_first_poll(tmp_path, monkeypatch, sandboxed_user_data):
-    """CODEX_REVIEW.md finding H-1: the job's non-secret identity must be on
+    """reviews/CODEX_REVIEW.md finding H-1: the job's non-secret identity must be on
     disk (for restart recovery) as soon as it exists, not only once it
     resolves -- checked from inside the very first poll call, i.e. before
     the job has had any chance to finish."""
@@ -502,12 +502,12 @@ def test_run_off_peak_job_gives_up_after_sustained_poll_failures(tmp_path, monke
     assert "already retried 3 times" not in summary  # the misleading text from the real incident
 
 
-# --- honest cancellation confirmation (CODEX_REVIEW.md finding H-1) --------
+# --- honest cancellation confirmation (reviews/CODEX_REVIEW.md finding H-1) --------
 #
 # The single test that used to live here, test_run_off_peak_job_cancellation_
 # survives_a_poll_failure, is gone -- it asserted the exact bug H-1 flagged:
 # "One test deliberately treats a post-cancel poll failure as successful
-# local completion" (CODEX_REVIEW.md finding L-1). A poll failure racing
+# local completion" (reviews/CODEX_REVIEW.md finding L-1). A poll failure racing
 # right after Stop says nothing about whether the provider actually stopped
 # the job; the two tests below replace it with the corrected, honest
 # behavior -- a transient failure is retried like any other (and confirms
@@ -746,7 +746,7 @@ def test_run_off_peak_job_cancellation_calls_provider_cancel(tmp_path, monkeypat
 def test_run_off_peak_job_reports_honestly_when_it_finishes_before_cancellation_takes_effect(
     tmp_path, monkeypatch, sandboxed_user_data
 ):
-    """CODEX_REVIEW.md finding H-1: Stop was pressed, but the provider's own
+    """reviews/CODEX_REVIEW.md finding H-1: Stop was pressed, but the provider's own
     terminal state is SUCCEEDED, not CANCELLED -- the job simply finished
     before the cancel request took effect. Real, complete results exist;
     reporting this as "cancelled" would be just as dishonest as the
@@ -805,7 +805,7 @@ def test_run_off_peak_job_reports_honestly_when_it_finishes_before_cancellation_
 
 
 def test_run_off_peak_job_honors_newest_first_order(tmp_path, monkeypatch, sandboxed_user_data):
-    """Regression test for CODEX_REVIEW.md finding M-1: the confirmation UI
+    """Regression test for reviews/CODEX_REVIEW.md finding M-1: the confirmation UI
     can promise "Newest-to-oldest" while the batch was always submitted (and
     its output therefore written) oldest-to-newest, because the selected
     order was validated and stored but never threaded through to the job."""
@@ -856,7 +856,7 @@ def test_run_off_peak_job_honors_newest_first_order(tmp_path, monkeypatch, sandb
     assert submitted_names == ["b.jpg", "a.jpg"]
 
 
-# --- explicit provider timeouts (CODEX_REVIEW.md finding M-3) --------------
+# --- explicit provider timeouts (reviews/CODEX_REVIEW.md finding M-3) --------------
 
 
 def test_run_off_peak_job_uses_explicit_heavy_and_light_gemini_timeouts(tmp_path, monkeypatch, sandboxed_user_data):
@@ -949,7 +949,7 @@ def test_run_off_peak_job_submission_timeout_produces_a_clear_error(tmp_path, mo
 
 
 def test_run_off_peak_job_tolerates_a_gemini_poll_timeout(tmp_path, monkeypatch, sandboxed_user_data):
-    """Regression test for CODEX_REVIEW.md finding M-3: Gemini's SDK lets a
+    """Regression test for reviews/CODEX_REVIEW.md finding M-3: Gemini's SDK lets a
     timeout escape as a bare httpx.TimeoutException rather than wrapping it
     in genai_errors.APIError (confirmed: xls_conversion/ai_parser.py and
     handlers/profiles.py already catch httpx.TimeoutException directly for
@@ -1159,7 +1159,7 @@ def test_run_offpeak_spawns_a_job_and_reserves_the_shared_run_slot(live_server, 
 
 
 def test_run_offpeak_forwards_newest_first_order_to_the_job(live_server, sandboxed_user_data, tmp_path, monkeypatch):
-    """Regression test for CODEX_REVIEW.md finding M-1 at the HTTP layer:
+    """Regression test for reviews/CODEX_REVIEW.md finding M-1 at the HTTP layer:
     the /run-offpeak handler validated and stored the selected order in
     state, but never passed it to the background job -- see
     test_run_off_peak_job_honors_newest_first_order for the job-level half

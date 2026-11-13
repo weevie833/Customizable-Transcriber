@@ -1,5 +1,5 @@
 /* Test Mode page ("/test-mode") script, extracted from pages/test_mode.py's
-inline <script> block -- see CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md.
+inline <script> block -- see reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md.
 Content is unchanged from the inline block it replaced, except: (1) braces
 are no longer doubled since this isn't inside an f-string anymore; (2) the
 per-request dynamic values (profiles/MODEL_LABELS/initialRuns/queueLength/
@@ -418,8 +418,8 @@ the inline block used to sit. */
         // selector below) can change which one this closure should use.
         // Previously always entry.worksheets[0], so a workbook whose real
         // index wasn't its first sheet (e.g. a first sheet of instructions/
-        // metadata) could never be mapped at all -- see CODEX_REVIEW.md
-        // finding L-7 / HUMAN_DECISIONS.md.
+        // metadata) could never be mapped at all -- see reviews/CODEX_REVIEW.md
+        // finding L-7 / reviews/HUMAN_DECISIONS.md.
         let worksheet = entry.worksheets[0];
         const panel = document.createElement("div");
         panel.className = "ic-mapping-panel";

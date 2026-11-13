@@ -1,4 +1,4 @@
-"""CODEX_REVIEW.md M-3: the initial API-key check is always bounded and reports a stall
+"""reviews/CODEX_REVIEW.md M-3: the initial API-key check is always bounded and reports a stall
 plainly (Stop cannot interrupt it while it blocks)."""
 
 from pathlib import Path

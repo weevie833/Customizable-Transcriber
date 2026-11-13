@@ -96,7 +96,7 @@ def page() -> str:
     profile_options = profile_options_html(profile_id)
     # One data island instead of two separate window/const assignments --
     # see json_data_island_html()'s own docstring (pages/__init__.py) and
-    # CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md.
+    # reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md.
     initial_data_html = json_data_island_html(
         "transcribe-initial-data",
         {"profiles": profiles_for_browser(), "running": running, "off_peak": off_peak},

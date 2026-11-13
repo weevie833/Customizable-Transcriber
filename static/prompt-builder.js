@@ -21,7 +21,7 @@
 
   // Reads the per-request dynamic data prompt_builder_page() embeds as a
   // JSON data island (see json_data_island_html() in pages/__init__.py and
-  // CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md) instead of an
+  // reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md) instead of an
   // executable inline <script> assigning these directly -- needed so this
   // file keeps working once CSP's script-src drops 'unsafe-inline'.
   // Assigned to the same window.PB_* names every reader below already
@@ -279,7 +279,7 @@
     return out;
   }
 
-  // Ground truth for Preflight Test (one uploaded image, CODEX_REVIEW.md M-1 / HD-3):
+  // Ground truth for Preflight Test (one uploaded image, reviews/CODEX_REVIEW.md M-1 / HD-3):
   // the example's Date line, Main entry and applicable Baptism / Church Wedding
   // Record -- everything visible on that one image. The Continuation is left out on
   // purpose: it is the opening of the NEXT image, which was not uploaded.

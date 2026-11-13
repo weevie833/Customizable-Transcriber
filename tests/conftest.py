@@ -101,7 +101,7 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     monkeypatch.setattr(app_state, "APP_SETTINGS_FILE", settings_file)
     monkeypatch.setattr(ctapp, "USER_OUTPUTS_DIR", outputs_dir)
     monkeypatch.setattr(ctapp, "APP_SETTINGS_FILE", settings_file)
-    # OFF_PEAK_JOB_FILE (see CODEX_REVIEW.md finding H-1) is also defined in
+    # OFF_PEAK_JOB_FILE (see reviews/CODEX_REVIEW.md finding H-1) is also defined in
     # app_state.py, and read_off_peak_job_state()/write_off_peak_job_state()/
     # clear_off_peak_job_state()/surface_stale_off_peak_job() are all
     # DEFINED there too -- unlike USER_OUTPUTS_DIR above, no other module

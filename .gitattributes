@@ -11,10 +11,7 @@
 tests/ export-ignore
 xls_conversion/tests/ export-ignore
 profiles/worksheets/ export-ignore
-CLAUDE_RESPONSE*.md export-ignore
-CODEX_REVIEW*.md export-ignore
-SECURITY_REVIEW*.md export-ignore
-HUMAN_DECISIONS.md export-ignore
+reviews/ export-ignore
 requirements-dev.txt export-ignore
 .gitignore export-ignore
 .gitattributes export-ignore

@@ -39,8 +39,8 @@ USER_OUTPUTS_DIR = USER_DATA_DIR / "outputs"
 # reset it silently instead of just failing to find it.
 APP_SETTINGS_FILE = USER_DATA_DIR / "app_settings.json"
 # Non-secret metadata (provider, model, job id, submission time, status) for
-# whatever Off-Peak batch job is currently in flight -- see CODEX_REVIEW.md
-# finding H-1 / HUMAN_DECISIONS.md HD-1. batch_transcription.py writes this
+# whatever Off-Peak batch job is currently in flight -- see reviews/CODEX_REVIEW.md
+# finding H-1 / reviews/HUMAN_DECISIONS.md HD-1. batch_transcription.py writes this
 # at each stage of a job's lifecycle and deletes it once the job is fully
 # resolved, so a job that's still unconfirmed (or that the app never got to
 # resolve at all, because it crashed or was closed) leaves a real, visible
@@ -91,8 +91,8 @@ stop_event = threading.Event()
 xls_preflight_lock = threading.Lock()
 xls_preflight_cache: dict[str, dict[str, object]] = {}
 # Guards against two concurrent AI-backed XLS Conversion requests (Parse,
-# Preflight, Detect Languages) running at once -- see CODEX_REVIEW.md
-# finding M-2 / HUMAN_DECISIONS.md. Unlike lock/test_lock above, this isn't
+# Preflight, Detect Languages) running at once -- see reviews/CODEX_REVIEW.md
+# finding M-2 / reviews/HUMAN_DECISIONS.md. Unlike lock/test_lock above, this isn't
 # reserving a *background job*: each of these three endpoints blocks its
 # own request thread for the AI call(s) it makes, with no persistent
 # "running" state to poll, so the guard is just "reject a second request
@@ -101,7 +101,7 @@ xls_preflight_cache: dict[str, dict[str, object]] = {}
 # one each -- a user has no real reason to run two of them at once, and a
 # single lock is the simplest way to bound concurrent AI-provider cost/load
 # from this page without a larger job-queue rework (left as a documented,
-# deferred decision -- see HUMAN_DECISIONS.md's M-2 entry).
+# deferred decision -- see reviews/HUMAN_DECISIONS.md's M-2 entry).
 xls_ai_lock = threading.Lock()
 
 
@@ -205,7 +205,7 @@ def write_off_peak_job_state(**fields: object) -> bool:
     file only means a crash won't be recoverable, not that the in-flight
     job breaks, matching delete_gemini_prompt_cache()'s own best-effort
     philosophy (core.py). Returns whether the write succeeded, so a caller
-    never tells the user a job id "is saved" when it isn't (CODEX_REVIEW.md
+    never tells the user a job id "is saved" when it isn't (reviews/CODEX_REVIEW.md
     L-1); a failure is also written to the run log."""
     try:
         atomic_write_text(OFF_PEAK_JOB_FILE, json.dumps(fields, indent=2) + "\n")
@@ -240,7 +240,7 @@ def surface_stale_off_peak_job() -> None:
     an off-peak job's persisted state file survived a restart -- Stop was
     requested but never confirmed, or the app was closed/crashed mid-batch
     -- this app has no way to resume watching it automatically (see
-    CODEX_REVIEW.md finding H-1 / HUMAN_DECISIONS.md HD-1: automatic
+    reviews/CODEX_REVIEW.md finding H-1 / reviews/HUMAN_DECISIONS.md HD-1: automatic
     reconnect-and-resume was explicitly scoped out in favor of this, a real
     but manual recovery path -- the job still needs a live API key to poll,
     which this app never persists). Surfacing it into the ordinary log/

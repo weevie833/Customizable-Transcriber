@@ -369,7 +369,7 @@ def prompt_builder_page(
     )
     # One data island instead of five separate window.PB_* assignments --
     # see json_data_island_html()'s own docstring (pages/__init__.py) and
-    # CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md. restore_edit_label
+    # reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md. restore_edit_label
     # carries a profile's free-text label back into the page verbatim (e.g.
     # after a failed save, or loading a profile to edit) -- a label is
     # user-settable and reachable via an imported profile's own "label"

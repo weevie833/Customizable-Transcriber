@@ -20,7 +20,7 @@ testpaths = ["tests"]
 
 # Informational only -- see .github/workflows/tests.yml's `lint` job
 # (continue-on-error: true, never fails the build). Added per
-# CODEX_REVIEW.md finding L-8 / HUMAN_DECISIONS.md: a prior review found 20
+# reviews/CODEX_REVIEW.md finding L-8 / reviews/HUMAN_DECISIONS.md: a prior review found 20
 # unused imports that had drifted in unnoticed; this surfaces that class of
 # drift in every PR's CI output without imposing a zero-findings bar on a
 # codebase that hasn't been tuned against a linter before. No `select`/

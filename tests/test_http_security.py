@@ -54,7 +54,7 @@ def test_response_headers_are_hardened(live_server):
 
 
 def test_csp_has_no_unsafe_inline(live_server):
-    """CODEX_REVIEW.md finding L-2 / HUMAN_DECISIONS.md: script-src/style-src
+    """reviews/CODEX_REVIEW.md finding L-2 / reviews/HUMAN_DECISIONS.md: script-src/style-src
     used to include 'unsafe-inline', which would let an injected <script>/
     <style> execute even if a future bug slipped past this app's escaping
     discipline (json_for_inline_script(), html.escape()). Every page's own
@@ -72,7 +72,7 @@ def test_csp_has_no_unsafe_inline(live_server):
 
 
 def test_dynamic_html_pages_are_not_cacheable(live_server):
-    """CODEX_REVIEW.md finding L-1: dynamic HTML embeds saved profile
+    """reviews/CODEX_REVIEW.md finding L-1: dynamic HTML embeds saved profile
     content and current run state, but historically lacked the same
     Cache-Control: no-store header every JSON/status/download response
     already sends -- a shared machine's browser cache/history could retain

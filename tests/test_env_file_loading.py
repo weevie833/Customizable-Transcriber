@@ -1,4 +1,4 @@
-"""Regression tests for CODEX_REVIEW.md finding L-3: load_env_file() used to
+"""Regression tests for reviews/CODEX_REVIEW.md finding L-3: load_env_file() used to
 copy every KEY=value line in .env into os.environ (not just the two
 provider keys this app documents/uses) and always overwrote an
 already-exported value. Both behaviors are fixed: only GEMINI_API_KEY/

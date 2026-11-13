@@ -1,4 +1,4 @@
-"""Regression tests for CODEX_REVIEW.md finding M-5 / HUMAN_DECISIONS.md's
+"""Regression tests for reviews/CODEX_REVIEW.md finding M-5 / reviews/HUMAN_DECISIONS.md's
 resolution:
 
 1. Test Mode API keys are now scoped by provider (one Gemini field, one

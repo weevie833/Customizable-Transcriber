@@ -1,4 +1,4 @@
-"""Regression test for CODEX_REVIEW.md finding M-2 / HUMAN_DECISIONS.md's
+"""Regression test for reviews/CODEX_REVIEW.md finding M-2 / reviews/HUMAN_DECISIONS.md's
 resolution: XLS Conversion's AI-backed endpoints (Parse, Preflight, Detect
 Languages) previously had no concurrency guard at all -- two requests could
 run real, expensive AI batches at the same time with no server-side limit.

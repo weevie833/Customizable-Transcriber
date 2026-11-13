@@ -1619,6 +1619,11 @@
         // app.py -- so only add there when the imported file actually had
         // that structured questionnaire snapshot.
         if (result.data.has_pb_answers) {
+          // Without this the new option is listed but choosing it does
+          // nothing until a reload: the loader reads answers only from
+          // PB_SAVED_PROFILES, which the server filled at page load.
+          window.PB_SAVED_PROFILES = window.PB_SAVED_PROFILES || {};
+          window.PB_SAVED_PROFILES[id] = { label: label, answers: result.data.pb_answers };
           var loadSelect = document.getElementById("pb-load-select");
           if (loadSelect && !loadSelect.querySelector('option[value="' + id + '"]')) {
             var loadOption = document.createElement("option");

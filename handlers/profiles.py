@@ -409,6 +409,11 @@ class ProfilesHandlerMixin:
                 "id": profile["id"],
                 "label": profile["label"],
                 "has_pb_answers": bool(profile.get("pb_answers")),
+                # The page keeps every loadable profile's answers in
+                # window.PB_SAVED_PROFILES, filled once at page load. Sending
+                # them back here lets the page add the imported profile too, so
+                # it can be loaded for editing without a reload.
+                "pb_answers": profile.get("pb_answers") or None,
             })
         except Exception as exc:
             self.respond_json({"error": str(exc)}, status=400)

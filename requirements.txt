@@ -16,7 +16,7 @@ pillow==13.0.0
 # via `pip index versions`) rather than leaving the resolver free to pick
 # up a newer, unreviewed one automatically.
 # See docs/DESIGN.md's "Security hardening history" section.
-cryptography==50.0.1
+cryptography==50.0.2
 pyasn1==0.6.4
 
 # Transitive (via requests / google-genai / anthropic's httpx stack). Exact-pinned for the

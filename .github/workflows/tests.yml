@@ -116,7 +116,7 @@ jobs:
 
       - name: Install with the double-click file
         shell: cmd
-        run: call "Start Customizable Transcriber.bat"
+        run: call "Start Customizable Transcriber (Windows).bat"
 
       - name: Start the app with the installed runtime
         shell: pwsh
@@ -152,7 +152,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install with the double-click file
-        run: ./"Start Customizable Transcriber.command"
+        run: ./"Start Customizable Transcriber (Mac).command"
 
       - name: Start the app with the installed runtime
         run: |
@@ -164,7 +164,7 @@ jobs:
 
   # Informational only (continue-on-error: true below) -- reports Ruff's
   # default findings on every push/PR without failing the build. Added per
-  # CODEX_REVIEW.md finding L-8 / HUMAN_DECISIONS.md, specifically to catch
+  # reviews/CODEX_REVIEW.md finding L-8 / reviews/HUMAN_DECISIONS.md, specifically to catch
   # the kind of drift (20 unused imports had accumulated unnoticed) an
   # earlier review found by running Ruff manually. One run is enough, same
   # reasoning as dependency-audit below.

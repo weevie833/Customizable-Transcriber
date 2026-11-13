@@ -1,5 +1,5 @@
 """
-What "Start Customizable Transcriber.bat" (Windows) and ".command" (macOS) run: starts the server, opens the
+What "Start Customizable Transcriber (Windows).bat" and "(Mac).command" run: starts the server, opens the
 browser once it answers, and, if a server is already running (a second
 double-click), just opens the browser. Same server as `python app.py`: this
 computer only (127.0.0.1), port 8765. With --desktop-shortcut on Windows it
@@ -19,7 +19,7 @@ import app
 
 BROWSER_WAIT_SECONDS = 120
 APP_DIR = Path(__file__).resolve().parent
-BAT_PATH = APP_DIR / "Start Customizable Transcriber.bat"
+BAT_PATH = APP_DIR / "Start Customizable Transcriber (Windows).bat"
 ICON_PATH = APP_DIR / "static" / "app-icon.ico"
 SHORTCUT_NAME = "Customizable Transcriber.lnk"
 
@@ -126,7 +126,7 @@ def ensure_desktop_shortcut(runtime_dir: Path) -> None:
 # Made on this Mac, so it carries no download quarantine and Gatekeeper doesn't
 # ask about it. It can go in the Dock and is found by Spotlight. The .command's
 # path is read from a file inside the bundle, never written into the script.
-COMMAND_PATH = APP_DIR / "Start Customizable Transcriber.command"
+COMMAND_PATH = APP_DIR / "Start Customizable Transcriber (Mac).command"
 ICNS_PATH = APP_DIR / "static" / "app-icon.icns"
 MAC_APPS_DIR = Path.home() / "Applications"
 MAC_APP_NAME = "Customizable Transcriber.app"

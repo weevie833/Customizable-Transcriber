@@ -14,6 +14,11 @@ You need:
 Nothing is installed system-wide and no administrator rights are needed.
 Jump to the section for your computer: WINDOWS or MAC.
 
+The app's folder has two start files. Double-click only the one for your
+computer:
+  Start Customizable Transcriber (Windows)   - on a Windows PC
+  Start Customizable Transcriber (Mac)       - on a Mac
+
 
 ==============================================================================
 WINDOWS
@@ -23,9 +28,9 @@ INSTALL
 
 1. Right-click the app's ZIP file and choose Extract All, then click Extract.
 
-2. Open the extracted folder until you see "Start Customizable Transcriber".
+2. Open the extracted folder until you see "Start Customizable Transcriber (Windows)".
 
-3. Double-click "Start Customizable Transcriber".
+3. Double-click "Start Customizable Transcriber (Windows)".
    If Windows says it protected your PC, click More info, then Run anyway.
 
 4. Wait a few minutes while it sets itself up. Your web browser opens when it
@@ -46,13 +51,13 @@ Pin to taskbar. On Windows 11, choose Show more options first. Then one click
 starts the app.
 
 If the shortcut isn't on your desktop, double-click "Start Customizable
-Transcriber" in the app's folder.
+Transcriber (Windows)" in the app's folder.
 
 
 UPDATING
 
 Download the new ZIP, extract it, and replace the old folder with the new one
-(or put it anywhere you like). Double-click "Start Customizable Transcriber"
+(or put it anywhere you like). Double-click "Start Customizable Transcriber (Windows)"
 in the new folder once; the desktop shortcut then points to it. Your profiles,
 transcripts and settings are kept, because they are stored outside the app's
 folder.
@@ -77,12 +82,12 @@ INSTALL
    next to it. Move that folder wherever you want to keep the app, for
    example your Documents folder.
 
-2. Open the folder and double-click "Start Customizable Transcriber"
-   (the file ending in .command).
+2. Open the folder and double-click "Start Customizable Transcriber (Mac)".
+
 
 3. The first time, macOS says it can't verify the file. Click Done (not Move
    to Trash). Then open System Settings, choose Privacy & Security, scroll
-   down to the message about "Start Customizable Transcriber", and click Open
+   down to the message about "Start Customizable Transcriber (Mac)", and click Open
    Anyway. Enter your Mac password if asked, then click Open Anyway again.
    (On macOS 14 or earlier you can instead Control-click the file, choose
    Open, then click Open.) macOS asks only once.
@@ -103,14 +108,14 @@ your home folder. Start it from there, from Spotlight (Command-Space, type
 the Dock. Your browser opens to the app, at http://127.0.0.1:8765. Close the
 Terminal window when you are finished (click Terminate if asked).
 
-If that app is missing, double-click "Start Customizable Transcriber" in the
+If that app is missing, double-click "Start Customizable Transcriber (Mac)" in the
 app's folder.
 
 
 UPDATING
 
 Download the new ZIP, open it, and replace the old folder with the new one.
-Double-click "Start Customizable Transcriber" in the new folder once (macOS
+Double-click "Start Customizable Transcriber (Mac)" in the new folder once (macOS
 asks to confirm it again, as in step 3); the app in Applications then points
 to it. Your profiles, transcripts and settings are kept, because they are
 stored outside the app's folder.

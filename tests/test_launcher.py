@@ -11,9 +11,9 @@ import pytest
 import launch
 
 ROOT = Path(__file__).resolve().parent.parent
-BAT = ROOT / "Start Customizable Transcriber.bat"
+BAT = ROOT / "Start Customizable Transcriber (Windows).bat"
 INSTRUCTIONS = ROOT / "Install Instructions.txt"
-COMMAND = ROOT / "Start Customizable Transcriber.command"
+COMMAND = ROOT / "Start Customizable Transcriber (Mac).command"
 
 
 def test_bat_keeps_windows_line_endings_and_plain_text():

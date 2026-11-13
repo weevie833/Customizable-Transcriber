@@ -1,0 +1,20 @@
+# Windows runs a .bat with bare LF endings unreliably (labels and goto can fail), so its CRLFs
+# are stored as they are and reach a ZIP download unchanged. tests/test_launcher.py checks.
+*.bat -text
+"Install Instructions.txt" -text
+# The macOS start file is a bash script: a CR at a line end would break it.
+*.command text eol=lf
+
+# Left out of the ZIP that GitHub offers ("Download ZIP" / release archives) and of
+# `git archive`: development files an end user doesn't need. A git clone still has them.
+.github/ export-ignore
+tests/ export-ignore
+xls_conversion/tests/ export-ignore
+profiles/worksheets/ export-ignore
+CLAUDE_RESPONSE*.md export-ignore
+CODEX_REVIEW*.md export-ignore
+SECURITY_REVIEW*.md export-ignore
+HUMAN_DECISIONS.md export-ignore
+requirements-dev.txt export-ignore
+.gitignore export-ignore
+.gitattributes export-ignore

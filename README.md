@@ -2,6 +2,19 @@
 
 Local AI transcription app for archival records, using Google Gemini or Anthropic Claude (your choice per run). It replaces the Colab/Google Drive workflow with local folder input, saved prompt profiles, selected JPEG/PNG source processing, timestamped Markdown output, and timestamped Word document output.
 
+## Easy install (Windows, and Macs with Apple silicon)
+
+Download the ZIP, extract it, and double-click **Start Customizable
+Transcriber** in the extracted folder (`.bat` on Windows, `.command` on a
+Mac). The first run downloads a private copy of Python and the app's packages
+(no admin rights, nothing installed system-wide), then opens the app in your
+browser. It also adds a shortcut: on the desktop on Windows, and a
+"Customizable Transcriber" app in `~/Applications` on a Mac. Step-by-step
+instructions, including the one-time security prompt, updating and removing
+the app, are in `Install Instructions.txt`.
+
+The manual setup below is for Intel Macs, or for anyone who prefers a terminal.
+
 ## Setup
 
 This is a one-time setup, requiring **Python 3.11 or newer** (developed and

@@ -1,0 +1,140 @@
+INSTALLING CUSTOMIZABLE TRANSCRIBER
+
+The app runs on your own computer. Your images, profiles and transcripts stay
+there; only the images you choose to transcribe are sent to the AI provider
+(Google Gemini or Anthropic Claude) whose API key you enter.
+
+You need:
+  - Windows 10 (2018 or later) or Windows 11, or
+    a Mac with Apple silicon (M1 or later) and macOS 11 or later
+  - An internet connection
+  - A Gemini or Claude API key (the app's Getting Started page explains how
+    to get one)
+
+Nothing is installed system-wide and no administrator rights are needed.
+Jump to the section for your computer: WINDOWS or MAC.
+
+
+==============================================================================
+WINDOWS
+==============================================================================
+
+INSTALL
+
+1. Right-click the app's ZIP file and choose Extract All, then click Extract.
+
+2. Open the extracted folder until you see "Start Customizable Transcriber".
+
+3. Double-click "Start Customizable Transcriber".
+   If Windows says it protected your PC, click More info, then Run anyway.
+
+4. Wait a few minutes while it sets itself up. Your web browser opens when it
+   is ready. Leave the black window open. Closing it stops the app.
+
+5. Click Getting Started in the app for a walkthrough of your first
+   transcription.
+
+
+USING THE APP LATER
+
+Double-click "Customizable Transcriber" on your desktop. Setup puts this
+shortcut there for you. Your browser opens to the app, at
+http://127.0.0.1:8765. Close the black window when you are finished.
+
+To start the app from the taskbar instead, right-click the shortcut and choose
+Pin to taskbar. On Windows 11, choose Show more options first. Then one click
+starts the app.
+
+If the shortcut isn't on your desktop, double-click "Start Customizable
+Transcriber" in the app's folder.
+
+
+UPDATING
+
+Download the new ZIP, extract it, and replace the old folder with the new one
+(or put it anywhere you like). Double-click "Start Customizable Transcriber"
+in the new folder once; the desktop shortcut then points to it. Your profiles,
+transcripts and settings are kept, because they are stored outside the app's
+folder.
+
+
+REMOVING THE APP
+
+Delete the desktop shortcut and the extracted folder. Then delete these two
+folders. The first holds the app's private copy of Python; the second holds
+your profiles, transcripts and settings, so keep it if you may want them back:
+  %LOCALAPPDATA%\Customizable Transcriber
+  %APPDATA%\Customizable Transcriber
+
+
+==============================================================================
+MAC
+==============================================================================
+
+INSTALL
+
+1. Double-click the app's ZIP file in your Downloads folder. A folder appears
+   next to it. Move that folder wherever you want to keep the app, for
+   example your Documents folder.
+
+2. Open the folder and double-click "Start Customizable Transcriber"
+   (the file ending in .command).
+
+3. The first time, macOS says it can't verify the file. Click Done (not Move
+   to Trash). Then open System Settings, choose Privacy & Security, scroll
+   down to the message about "Start Customizable Transcriber", and click Open
+   Anyway. Enter your Mac password if asked, then click Open Anyway again.
+   (On macOS 14 or earlier you can instead Control-click the file, choose
+   Open, then click Open.) macOS asks only once.
+
+4. A Terminal window opens. Wait a few minutes while it sets itself up. Your
+   web browser opens when it is ready. Leave the Terminal window open.
+   Closing it stops the app.
+
+5. Click Getting Started in the app for a walkthrough of your first
+   transcription.
+
+
+USING THE APP LATER
+
+Setup adds a "Customizable Transcriber" app to the Applications folder in
+your home folder. Start it from there, from Spotlight (Command-Space, type
+"Customizable"), or from Launchpad. To start it with one click, drag it to
+the Dock. Your browser opens to the app, at http://127.0.0.1:8765. Close the
+Terminal window when you are finished (click Terminate if asked).
+
+If that app is missing, double-click "Start Customizable Transcriber" in the
+app's folder.
+
+
+UPDATING
+
+Download the new ZIP, open it, and replace the old folder with the new one.
+Double-click "Start Customizable Transcriber" in the new folder once (macOS
+asks to confirm it again, as in step 3); the app in Applications then points
+to it. Your profiles, transcripts and settings are kept, because they are
+stored outside the app's folder.
+
+
+REMOVING THE APP
+
+Delete the app's folder and "Customizable Transcriber" from the Applications
+folder in your home folder. Then, in Finder, choose Go > Go to Folder, enter
+  ~/Library/Application Support/Customizable Transcriber
+and delete the folder named Runtime (the app's private copy of Python). The
+rest of that folder holds your profiles, transcripts and settings; delete it
+too only if you won't want them back.
+
+
+==============================================================================
+BOTH
+==============================================================================
+
+A browser bookmark to http://127.0.0.1:8765 opens the app only while the app's
+window (black window on Windows, Terminal on a Mac) is open. A bookmark can't
+start the app.
+
+If that window shows a message, send its text to whoever gave you the app.
+
+On an Intel Mac, or if you prefer a terminal, follow the manual setup in
+README.md.

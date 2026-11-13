@@ -101,6 +101,67 @@ jobs:
       - name: Run offline parser regression suite (xls_conversion/tests/)
         run: python xls_conversion/tests/run_parser_test.py
 
+  # The only place the Windows double-click installer really runs. Same
+  # schedule as test-cross-platform (Windows bills 2x). No setup-python: the
+  # installer downloads Python itself, as it does for a user.
+  windows-install:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      CT_INSTALL_ONLY: "1"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install with the double-click file
+        shell: cmd
+        run: call "Start Customizable Transcriber.bat"
+
+      - name: Start the app with the installed runtime
+        shell: pwsh
+        run: |
+          $py = "$env:LOCALAPPDATA\Customizable Transcriber\Runtime\venv\Scripts\python.exe"
+          $server = Start-Process $py -ArgumentList "launch.py","--no-browser" -PassThru
+          $up = $false
+          foreach ($i in 1..60) {
+            try { Invoke-WebRequest http://127.0.0.1:8765/ -UseBasicParsing | Out-Null; $up = $true; break }
+            catch { Start-Sleep -Seconds 2 }
+          }
+          Stop-Process -Id $server.Id -Force
+          if (-not $up) { throw "The app didn't answer on http://127.0.0.1:8765/" }
+
+      - name: Run the suite with the installed runtime
+        shell: pwsh
+        run: |
+          $py = "$env:LOCALAPPDATA\Customizable Transcriber\Runtime\venv\Scripts\python.exe"
+          & $py -m pip install --quiet -r requirements-dev.txt
+          & $py -m pytest tests/ -q
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+  # The macOS double-click installer, on an Apple silicon runner (macos-latest).
+  # macOS bills 10x, so same schedule as windows-install. Install only, then the
+  # app must answer from the runtime the installer made.
+  mac-install:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env:
+      CT_INSTALL_ONLY: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install with the double-click file
+        run: ./"Start Customizable Transcriber.command"
+
+      - name: Start the app with the installed runtime
+        run: |
+          py="$HOME/Library/Application Support/Customizable Transcriber/Runtime/venv/bin/python"
+          "$py" launch.py --no-browser &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:8765/ && up=1 && break; sleep 2; done
+          kill %1
+          [ -n "$up" ] || { echo "The app didn't answer on http://127.0.0.1:8765/"; exit 1; }
+
   # Informational only (continue-on-error: true below) -- reports Ruff's
   # default findings on every push/PR without failing the build. Added per
   # CODEX_REVIEW.md finding L-8 / HUMAN_DECISIONS.md, specifically to catch
@@ -143,8 +204,8 @@ jobs:
       - name: Install dependencies (pip-audit is pinned in requirements-dev.txt)
         run: python -m pip install -r requirements-dev.txt
 
-      - name: Audit Python dependencies (requirements.txt + requirements-dev.txt)
-        run: python -m pip_audit -r requirements.txt -r requirements-dev.txt
+      - name: Audit Python dependencies (requirements.lock = everything an install gets, + requirements-dev.txt)
+        run: python -m pip_audit -r requirements.lock -r requirements-dev.txt
 
       - name: Set up Node
         uses: actions/setup-node@v4

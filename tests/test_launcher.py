@@ -165,6 +165,10 @@ def test_command_is_an_executable_lf_bash_script():
     assert raw.startswith(b"#!/bin/bash\n")
     assert b"\r" not in raw and raw.isascii()
     assert os.access(COMMAND, os.X_OK) or os.name == "nt"
+    if os.name == "nt":
+        # Windows runners' bash (WSL or Git Bash) can't open a D:\ path;
+        # the syntax check runs on the Linux and macOS jobs.
+        return
     subprocess.run(["bash", "-n", str(COMMAND)], check=True)
 
 

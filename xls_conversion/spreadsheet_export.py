@@ -81,11 +81,24 @@ class SheetSpec:
 # Splunk, and others) -- it's a no-op for any field value that doesn't already
 # start with one of these, and forces the rest to be read as literal text
 # instead of evaluated.
-_CSV_FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@")
+#
+# Spreadsheet importers also skip leading whitespace and control characters
+# before deciding a cell is a formula, so "\t=1+1" or "  =1+1" must be caught
+# too (reviews/CODEX_REVIEW.md M-1). A cell that starts with a tab, CR or LF is
+# prefixed whatever follows (OWASP's CSV-injection list includes tab and CR).
+# The visible text itself is never changed, only prefixed.
+# Full-width forms included: some importers normalize them to the ASCII trigger.
+_CSV_FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@", "\uff1d", "\uff0b", "\uff0d", "\uff20")
+_CSV_LEADING_CONTROL_CHARS = ("\t", "\r", "\n")
 
 
 def _csv_safe_cell(value: str) -> str:
-    if value and value[0] in _CSV_FORMULA_TRIGGER_CHARS:
+    if not value:
+        return value
+    if value[0] in _CSV_LEADING_CONTROL_CHARS:
+        return "'" + value
+    first_meaningful = value.lstrip(" \t\r\n\v\f\u00a0\u3000")[:1]
+    if first_meaningful and first_meaningful in _CSV_FORMULA_TRIGGER_CHARS:
         return "'" + value
     return value
 

@@ -6,8 +6,6 @@ could silently spread to every later row.
 
 from __future__ import annotations
 
-import pytest
-
 from xls_conversion import ai_parser
 
 CONFIG = ai_parser.RECORD_TYPES["battesimi"]

@@ -40,7 +40,7 @@ def test_conflicting_value_keeps_original_and_is_reported(record_type):
 
 def test_same_value_differing_only_in_case_or_spacing_is_not_a_conflict():
     config = RECORD_TYPES["civil_birth"]
-    row, conflicts = apply_merge_invariants(
+    _row_out, conflicts = apply_merge_invariants(
         config, _row(config, individual_last_name="Di  Napoli"), _row(config, individual_last_name="di napoli")
     )
     assert conflicts == []

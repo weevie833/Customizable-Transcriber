@@ -1,124 +1,48 @@
 # Human Decisions Required
 
-Review date: 2026-09-20
+Review date: 2026-11-13
 
-Reviewed revision: `a4e3328`
+Reviewed revision: `2aaddbd`
 
-Four current decisions are required. All other corrective actions in `CODEX_REVIEW.md` can be made without changing product or data policy.
+One current product/support decision is required. The other corrective actions in `reviews/CODEX_REVIEW.md` can be made without changing product or data policy.
 
-## HD-1 — Ambiguous Off-Peak submission recovery
+## HD-1 — Embedded Python support and upgrade policy
 
 Related finding: `CODEX_REVIEW.md` H-1.
 
 ### Decision needed
 
-Define what the app must do when a provider may have accepted a paid batch but the create response, and therefore the job ID, was lost.
+Choose the supported embedded Python line and binary source for Windows and macOS, and define how an installed runtime is upgraded and rolled back when the application folder is replaced.
+
+Python `3.12.10`, currently installed on Windows, is no longer acceptable: it has been superseded by six security releases. Both installers also preserve any executable base interpreter indefinitely, so changing the pinned download in a later ZIP does not update existing users.
 
 ### Recommended choice
 
-Treat submission timeout as **outcome unknown**, not failure:
-
-- Persist a non-secret `submitting` record before the call with provider, unique local run ID, timestamp, image count, and request fingerprint.
-- Disable SDK retries for create unless the provider offers a documented idempotency key and that key is actually sent.
-- Use a unique Gemini display name and provider-list/dashboard reconciliation where feasible.
-- Do not invite immediate retry. Require the user to check/reconcile the provider account first, then explicitly acknowledge whether resubmission is safe.
-- Never persist the API key.
-
-### Lower-scope alternative
-
-Disable automatic create retries and change the timeout message to “submission outcome unknown; check the provider dashboard before retrying.” This does not recover the ID automatically, but it avoids positively encouraging duplication.
+- Use the same reputable, reproducible standalone-Python distributor on both platforms where practical, pinned to an archive digest.
+- Move to a currently security-supported patch release immediately. If remaining on 3.12 temporarily, use 3.12.16 or later security-equivalent builds on both platforms; otherwise adopt a current maintained feature line after dependency and application compatibility testing.
+- Store an app-owned runtime manifest outside the virtual environment containing implementation, exact version, distributor/build ID, platform/architecture, and archive digest.
+- On every launch, compare the expected manifest with the installed runtime. If it differs, download and verify into a staging directory, build/test the venv there, then atomically replace the runtime. Keep the previous runtime until the new one starts successfully so rollback is possible.
+- Treat `requirements.lock` equality as a separate package-layer decision; it must not stand in for interpreter currency.
+- Test clean install, unchanged restart, package-only update, interpreter security update, failed update/rollback, and moved-application-folder scenarios in CI.
 
 ### Human input required
 
-- Must the app reconcile ambiguous submissions itself, or is provider-dashboard recovery acceptable?
-- May a user resubmit after acknowledgement without confirmed reconciliation?
-- Is a unique non-secret submission fingerprint acceptable in persisted state?
+- Which Python feature line is supported for packaged users: patched 3.12 temporarily, or a move to 3.14/3.15?
+- Which binary distributor is trusted on each platform?
+- Must runtime security updates occur automatically at first launch of a new app version, or may the app block and require explicit confirmation?
+- How long should the previous runtime be retained for rollback?
 
-## HD-2 — Continuation merge conflict policy
+## Retained decisions that do not need reopening
 
-Related finding: `CODEX_REVIEW.md` H-2.
-
-### Decision needed
-
-Define which value wins when the original departure-image row and the context-aware continuation merge disagree.
-
-### Recommended choice
-
-Use conservative field-level merge rules:
-
-- A blank continuation value never erases a prior non-empty value.
-- Stable identity, date, act/page locator, and source-image fields remain from the original unless a conflict is explicitly surfaced for human review.
-- New continuation-only facts fill blanks or append to suitable notes/list fields.
-- Conflicting non-empty values keep the original in the export and enter a visible review/exception log containing both values.
-- If invariants cannot be satisfied, keep both source rows rather than silently replacing the original.
-
-### Alternative
-
-Allow the context-aware merge to override prior values, but retain an audit copy/diff of the original and flag every changed non-empty field for review.
-
-### Human input required
-
-- Should a later, context-rich extraction ever automatically override a prior non-empty value?
-- Which fields are immutable, append-only, or review-required for each record type?
-- Should unresolved conflicts block export or merely produce warnings?
-
-## HD-3 — Prompt Builder preflight ground-truth scope
-
-Related finding: `CODEX_REVIEW.md` M-1.
-
-### Decision needed
-
-Decide whether a preflight run validates only content visible on one uploaded image or an entire multi-image example.
-
-### Recommended choice
-
-Keep the current one-image workflow. Serialize Date, Main entry, and the applicable Baptism/Church Wedding side-column block as ground truth for that image. Exclude the Continuation field because it is explicitly the opening of the next image. Label this scope in the UI.
-
-### Alternative
-
-Permit two image uploads for examples with continuations and run/compare both images as one linked preflight. This is more complete but increases provider cost, latency, UI complexity, and test surface.
-
-### Human input required
-
-- Is one-image validation sufficient?
-- If so, should continuation be ignored or should preflight reject examples containing it with an explanation?
-- If paired-image validation is required, is the additional cost/latency acceptable?
-
-## HD-4 — Supported Off-Peak memory envelope
-
-Related finding: `CODEX_REVIEW.md` M-2.
-
-### Decision needed
-
-Replace the unmeasured 2 GB raw-input default with a limit tied to supported host memory and real batch requirements, or require a staging/streaming design.
-
-### Recommended choice
-
-Measure peak resident memory for Gemini and Claude, including base64 and HTTP serialization, on the minimum supported host. Set provider-specific aggregate limits with safety headroom and reject larger folders before reading bodies. Until that evidence exists, adopt a materially conservative temporary cap and instruct users to split batches.
-
-If multi-gigabyte batches are a product requirement, move payloads to provider-side file staging or another bounded mechanism; do not raise the in-memory limit.
-
-### Human input required
-
-- What is the minimum supported RAM configuration?
-- What are the largest legitimate batch size and total raw bytes?
-- Is manual folder splitting acceptable, or must very large batches be handled transparently?
-
-### Status (SECURITY_REVIEW_4.md SEC-4-01)
-
-Interim cap of 500 MB aggregate / 1,000 images is in force and documented in `docs/DESIGN.md` ("Off-Peak memory envelope"). Streaming/staging is deferred until a real multi-GB requirement exists.
-
-## Previously resolved constraints retained
-
-| Area | Existing decision |
+| Area | Current decision |
 |---|---|
-| Local authentication | Single-user machine only; other local OS users/processes are out of scope and documented in `SECURITY.md`. |
-| Credentials | Browser batch flows do not persist API keys; ignored `.env` fallback remains for documented tools. |
-| Off-Peak cancellation | Persist non-secret job metadata, wait for provider-confirmed terminal state, and use manual dashboard recovery after restart. |
-| Profile concurrency | Last-writer-wins across stale browser tabs is accepted. |
-| Browser tests | Browser automation remains deferred; Python/HTTP regressions are preferred for now. |
-| Lint | Ruff remains informational/non-blocking in CI. |
-| Dormant parsers | Retain the three legacy regex parsers as documented reference code. |
-| Supply chain | Exact direct/tool pins are used; fully locked transitives and commit-SHA GitHub Actions are not currently required. |
+| Local authentication | Single-user localhost use only; other local processes/users are outside the supported threat model. |
+| Credentials | Browser flows do not persist provider API keys; ignored `.env` fallback remains optional. |
+| Off-Peak recovery | Ambiguous submissions require provider-dashboard reconciliation; non-secret job metadata is persisted when an ID is known. |
+| Off-Peak capacity | 500 MB raw aggregate / 1,000 images is the interim supported envelope; larger jobs are split manually. |
+| Profile concurrency | Stale-tab edits remain last-writer-wins. |
+| Browser tests | Browser automation remains deferred. |
+| Lint | Ruff remains advisory; cleanup/no-new-warning enforcement can proceed without changing product behavior. |
+| Supply chain | Exact version locks are required; hash locks and Action commit-SHA pins remain optional defense in depth. |
 
 OVERALL STATUS: HUMAN_DECISION_REQUIRED

@@ -30,10 +30,36 @@ def test_every_goto_has_a_label():
     assert targets and targets <= labels
 
 
+def test_every_call_has_a_label():
+    text = BAT.read_text()
+    labels = set(re.findall(r"^:(\w+)", text, re.MULTILINE))
+    targets = set(re.findall(r"\bcall :(\w+)", text))
+    assert targets and targets <= labels
+
+
 def test_bat_pins_python_by_hash():
     text = BAT.read_text()
-    assert re.search(r'PYTHON_SHA512=[0-9a-f]{128}"', text)
-    assert re.search(r'PYTHON_URL=https://api\.nuget\.org/\S+/python\.3\.12\.\d+\.nupkg"', text)
+    assert re.search(r'PYTHON_SHA256=[0-9a-f]{64}"', text)
+    # %%2B: a single % before 2 would expand the batch file's second argument.
+    assert re.search(
+        r'PYTHON_URL=https://github\.com/astral-sh/python-build-standalone/releases/download/\d+/'
+        r'cpython-3\.12\.\d+%%2B\d+-x86_64-pc-windows-msvc-install_only\.tar\.gz"', text)
+
+
+def test_both_installers_pin_the_same_python_release():
+    def release(text):
+        return re.search(r"download/(\d+)/cpython-(3\.\d+\.\d+)", text).groups()
+    assert release(BAT.read_text()) == release(COMMAND.read_text())
+
+
+@pytest.mark.parametrize("path", [BAT, COMMAND], ids=["windows", "mac"])
+def test_installed_python_build_is_checked_on_every_start(path):
+    """An app update that pins a newer Python must replace the installed one, not just
+    reinstall packages (reviews/CODEX_REVIEW.md H-1)."""
+    text = path.read_text()
+    assert "python-build.txt" in text
+    assert "PYTHON_SHA256" in text.split("installed-requirements.txt", 1)[1]
+    assert "python-old" in text and "restore_previous" in text
 
 
 def test_lock_file_pins_every_direct_dependency_at_the_same_version():

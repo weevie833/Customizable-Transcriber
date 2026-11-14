@@ -34,7 +34,7 @@ import platform
 import re
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Guards every profile-store mutation (create/update/delete) against the
@@ -486,7 +486,7 @@ def export_profile_payload(profile_id: str) -> tuple[str, bytes]:
         "format": PROFILE_EXPORT_FORMAT,
         "format_version": PROFILE_EXPORT_FORMAT_VERSION,
         "app_name": "Customizable Transcriber",
-        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "exported_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "profile": {
             "label": profile["label"],
             "role_context": profile["role_context"],

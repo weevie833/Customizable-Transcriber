@@ -7,6 +7,7 @@ import re
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 import anthropic
 import httpx
@@ -1909,7 +1910,7 @@ def chunk_block_by_entries(block_text: str, max_entries: int = MAX_ENTRIES_PER_C
         return [block_text]
     cut_points = starts[max_entries::max_entries]
     bounds = [0] + cut_points + [len(lines)]
-    chunks = ["\n".join(lines[a:b]).strip() for a, b in zip(bounds, bounds[1:])]
+    chunks = ["\n".join(lines[a:b]).strip() for a, b in pairwise(bounds)]
     return [chunk for chunk in chunks if chunk]
 
 
@@ -1949,7 +1950,7 @@ def block_has_carry_forward_wording(block_text: str) -> bool:
     return bool(CARRY_FORWARD_WORDING_RE.search(block_text or ""))
 
 
-def carry_forward_for(config: "RecordTypeConfig", previous_row: dict[str, str], block_text: str) -> dict[str, str]:
+def carry_forward_for(config: RecordTypeConfig, previous_row: dict[str, str], block_text: str) -> dict[str, str]:
     """Previous-row values to offer the extractor for this block.
 
     Locator fields (page/act number) are always offered. Date fields are

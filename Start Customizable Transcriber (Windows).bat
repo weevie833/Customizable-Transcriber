@@ -7,17 +7,26 @@ title Customizable Transcriber
 pushd "%~dp0"
 
 set "PYTHONUTF8=1"
-set "PYTHON_URL=https://api.nuget.org/v3-flatcontainer/python/3.12.10/python.3.12.10.nupkg"
-set "PYTHON_SHA512=bbda4dcf688a94211b62d50968a91b38f305d0b8d1ecd90269f74a86f8a0a4fcebb7ca162a0753a47691eb3df0c964009bd3d8194c6fd19afae8d5fd01e1cc0f"
+rem Python is python-build-standalone (Astral), the same build the Mac installer uses, pinned by SHA-256.
+rem %%2B is a URL-encoded "+"; a single % would be read as a batch argument.
+set "PYTHON_URL=https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%%2B20261026-x86_64-pc-windows-msvc-install_only.tar.gz"
+set "PYTHON_SHA256=590dfcbe3a34c07301e6332e13e2188b98655cd072b08afa45a7998dc4c22bc5"
 set "RUNTIME=%LOCALAPPDATA%\Customizable Transcriber\Runtime"
-set "BASE_PYTHON=%RUNTIME%\python\tools\python.exe"
+set "BASE_PYTHON=%RUNTIME%\python\python.exe"
 set "APP_PYTHON=%RUNTIME%\venv\Scripts\python.exe"
 set "INSTALLED_LOCK=%RUNTIME%\venv\installed-requirements.txt"
+rem Which Python build is installed (its archive SHA-256). When a newer app version pins a
+rem different build, the next start replaces Python instead of keeping the old one forever.
+set "BUILD_MARKER=%RUNTIME%\python-build.txt"
+set "INSTALLED_BUILD="
+set "UPGRADING="
+if exist "%BUILD_MARKER%" set /p INSTALLED_BUILD=<"%BUILD_MARKER%"
 
 if not exist "app.py" goto not_extracted
 
-rem Already installed with these exact package versions: just start.
+rem Already installed with this Python and these exact package versions: just start.
 if not exist "%APP_PYTHON%" goto install
+if /i not "%INSTALLED_BUILD%"=="%PYTHON_SHA256%" goto install
 if not exist "%INSTALLED_LOCK%" goto install
 fc /b "requirements.lock" "%INSTALLED_LOCK%" >nul 2>&1
 if not errorlevel 1 goto start
@@ -28,7 +37,10 @@ echo Setting up Customizable Transcriber. This happens once and takes a few minu
 echo Please leave this window open, and stay connected to the internet.
 echo.
 if not exist "%RUNTIME%" mkdir "%RUNTIME%"
-if exist "%BASE_PYTHON%" goto make_venv
+if not exist "%BASE_PYTHON%" goto get_python
+if /i "%INSTALLED_BUILD%"=="%PYTHON_SHA256%" goto make_venv
+
+:get_python
 
 where curl.exe >nul 2>&1
 if errorlevel 1 goto windows_too_old
@@ -36,18 +48,32 @@ where tar.exe >nul 2>&1
 if errorlevel 1 goto windows_too_old
 
 echo Step 1 of 2: downloading Python...
-curl.exe --fail --location --silent --show-error --retry 3 --output "%RUNTIME%\python-download.zip" "%PYTHON_URL%"
+curl.exe --fail --location --silent --show-error --retry 3 --output "%RUNTIME%\python-download.tar.gz" "%PYTHON_URL%"
 if errorlevel 1 goto download_failed
-certutil -hashfile "%RUNTIME%\python-download.zip" SHA512 | findstr /i /x "%PYTHON_SHA512%" >nul
+certutil -hashfile "%RUNTIME%\python-download.tar.gz" SHA256 | findstr /i /x "%PYTHON_SHA256%" >nul
 if errorlevel 1 goto hash_failed
 if exist "%RUNTIME%\python-new" rmdir /s /q "%RUNTIME%\python-new"
 mkdir "%RUNTIME%\python-new"
-tar.exe -xf "%RUNTIME%\python-download.zip" -C "%RUNTIME%\python-new"
+tar.exe -xf "%RUNTIME%\python-download.tar.gz" -C "%RUNTIME%\python-new"
 if errorlevel 1 goto unpack_failed
-if exist "%RUNTIME%\python" rmdir /s /q "%RUNTIME%\python"
-move "%RUNTIME%\python-new" "%RUNTIME%\python" >nul
+rem Keep the current runtime until the new one is fully set up, so a failed update can go back to it.
+if exist "%RUNTIME%\python-old" rmdir /s /q "%RUNTIME%\python-old"
+if exist "%RUNTIME%\venv-old" rmdir /s /q "%RUNTIME%\venv-old"
+if not exist "%RUNTIME%\python" goto old_python_moved
+move "%RUNTIME%\python" "%RUNTIME%\python-old" >nul
+if errorlevel 1 goto in_use
+:old_python_moved
+if not exist "%RUNTIME%\venv" goto old_venv_moved
+move "%RUNTIME%\venv" "%RUNTIME%\venv-old" >nul
+if not errorlevel 1 goto old_venv_moved
+if exist "%RUNTIME%\python-old" move "%RUNTIME%\python-old" "%RUNTIME%\python" >nul
+goto in_use
+:old_venv_moved
+set "UPGRADING=1"
+move "%RUNTIME%\python-new\python" "%RUNTIME%\python" >nul
 if errorlevel 1 goto unpack_failed
-del "%RUNTIME%\python-download.zip"
+rmdir /s /q "%RUNTIME%\python-new"
+del "%RUNTIME%\python-download.tar.gz"
 
 :make_venv
 echo Step 2 of 2: installing the app's components...
@@ -56,6 +82,9 @@ if errorlevel 1 goto packages_failed
 "%APP_PYTHON%" -m pip install --quiet --disable-pip-version-check --no-input --only-binary=:all: -r requirements.lock
 if errorlevel 1 goto packages_failed
 copy /y "requirements.lock" "%INSTALLED_LOCK%" >nul
+(echo %PYTHON_SHA256%)>"%BUILD_MARKER%"
+if exist "%RUNTIME%\python-old" rmdir /s /q "%RUNTIME%\python-old"
+if exist "%RUNTIME%\venv-old" rmdir /s /q "%RUNTIME%\venv-old"
 echo Setup is complete.
 echo.
 
@@ -76,21 +105,27 @@ goto failed
 
 :download_failed
 echo Python couldn't be downloaded. Check your internet connection and try again.
-echo If it keeps failing, your network may be blocking api.nuget.org. Send this message to whoever gave you the app.
+echo If it keeps failing, your network may be blocking github.com. Send this message to whoever gave you the app.
 goto failed
 
 :hash_failed
 echo The downloaded copy of Python didn't match the expected file, so it wasn't used. Try again.
 echo If it keeps failing, send this message to whoever gave you the app.
-del "%RUNTIME%\python-download.zip"
+del "%RUNTIME%\python-download.tar.gz"
 goto failed
 
 :unpack_failed
+call :restore_previous
 echo Python couldn't be unpacked. Try again. If it keeps failing, security software may be blocking it.
 echo Send this message to whoever gave you the app.
 goto failed
 
+:in_use
+echo Python couldn't be updated because it's in use. Close every Customizable Transcriber window, then try again.
+goto failed
+
 :packages_failed
+call :restore_previous
 echo The app's components couldn't be installed. Check your internet connection and try again.
 echo If it keeps failing, your network may be blocking pypi.org. Send this window's text to whoever gave you the app.
 goto failed
@@ -110,3 +145,14 @@ exit /b 1
 :done
 popd
 exit /b 0
+
+rem A Python update failed: put the previous runtime back so the next start can try again
+rem from a working state.
+:restore_previous
+if not defined UPGRADING goto :eof
+if not exist "%RUNTIME%\python-old" goto :eof
+if exist "%RUNTIME%\python" rmdir /s /q "%RUNTIME%\python"
+if exist "%RUNTIME%\venv" rmdir /s /q "%RUNTIME%\venv"
+move "%RUNTIME%\python-old" "%RUNTIME%\python" >nul
+if exist "%RUNTIME%\venv-old" move "%RUNTIME%\venv-old" "%RUNTIME%\venv" >nul
+goto :eof

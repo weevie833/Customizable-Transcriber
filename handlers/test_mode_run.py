@@ -41,7 +41,6 @@ from run_support import (
     run_test_job,
     selected_file_type,
     selected_model_pair,
-    selected_profile_id,
     selected_zoom_pair,
     test_destination_output_file,
 )

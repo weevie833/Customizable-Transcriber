@@ -62,6 +62,10 @@ in the new folder once; the desktop shortcut then points to it. Your profiles,
 transcripts and settings are kept, because they are stored outside the app's
 folder.
 
+If the new version uses a newer Python (for example, a security update), that
+first start downloads it and sets the app up again, which takes a few minutes.
+Close any other Customizable Transcriber window first.
+
 
 REMOVING THE APP
 
@@ -119,6 +123,9 @@ Double-click "Start Customizable Transcriber (Mac)" in the new folder once (macO
 asks to confirm it again, as in step 3); the app in Applications then points
 to it. Your profiles, transcripts and settings are kept, because they are
 stored outside the app's folder.
+
+If the new version uses a newer Python (for example, a security update), that
+first start downloads it and sets the app up again, which takes a few minutes.
 
 
 REMOVING THE APP

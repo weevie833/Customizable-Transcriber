@@ -462,15 +462,15 @@ def header_box_element(
         ("DO NOT EDIT OR DELETE THIS BLOCK", True),
         ("NON MODIFICARE O ELIMINARE QUESTO BLOCCO", True),
         (
-            "Native language, record type, and translations (if present) are read by the "
+            ("Native language, record type, and translations (if present) are read by the "
             "XLSX Conversion tool. AI model and prompt profile are recorded here for "
-            "comparison tracking only.",
+            "comparison tracking only."),
             False,
         ),
         (
-            "La lingua nativa, il tipo di registro e le traduzioni (se presenti) vengono lette "
+            ("La lingua nativa, il tipo di registro e le traduzioni (se presenti) vengono lette "
             "dallo strumento di conversione XLSX. Il modello IA e il profilo prompt sono "
-            "registrati qui solo a scopo di tracciamento e confronto.",
+            "registrati qui solo a scopo di tracciamento e confronto."),
             False,
         ),
     ]
@@ -722,7 +722,7 @@ def run_test_job(
             try:
                 add_test_log(f"{tag} Checking API key before starting image processing...")
                 validate_api_key_with_retry(
-                    PROJECT_DIR, model, api_key_value, progress=lambda msg: add_test_log(f"{tag} {msg}")
+                    PROJECT_DIR, model, api_key_value, progress=lambda msg: add_test_log(f"{tag} {msg}")  # noqa: B023 -- called before the loop moves on
                 )
                 add_test_log(f"{tag} API key validated. Starting run.")
 

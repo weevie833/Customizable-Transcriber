@@ -144,7 +144,7 @@ def test_read_rows_skips_a_fully_blank_trailing_row():
     blank = _blank_row(MATRIMONI)
     xlsx_bytes = _matrimoni_xlsx([row, blank])
     infos = list_worksheets(xlsx_bytes)
-    record_type, mapping = detect_schema(infos[0].header_row1, infos[0].header_row2)
+    _record_type, mapping = detect_schema(infos[0].header_row1, infos[0].header_row2)
     rows = read_rows(xlsx_bytes, infos[0].name, MATRIMONI, mapping)
     assert len(rows) == 1
 

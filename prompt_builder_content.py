@@ -159,9 +159,9 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
             (
                 "formula_act",
                 "Act formula",
-                "Numero d'ordine [act number]\n"
+                ("Numero d'ordine [act number]\n"
                 "[Date] [Time of day] [Agent's name] Aggiunto ed Ufiziale dello Stato Civile del [District], sono comparsi [first declarant] di [declarant's city of residence] di anni [declarant's age] di professione [declarant's profession] domiciliato [where the declarant lives in the city] e [second declarant] di [declarant's city of residence] di anni [declarant's age] di professione [declarant's profession] domiciliato [where the declarant lives in the city] I quali han dichiarato, che nel giorno [date of death] alle [hour of death] è morta [decedent] di [decedent's city] di anni [decedent's age] di professione [decedent's occupation] domiciliata [where the decedent lives in the city] come sopra [son or daughter of] [status of father if deceased] [decedent's father if known] e [status of mother if deceased] [decedent's mother if known] ignorandosi il di lei stato voluto dalla legge.\n"
-                "Per esecuzione della legge, ci siamo trasferiti, insieme co' detti Testimonj, presso la persona defunta, e ne abbiamo riconosciuta la sua effettiva morte. Abbiamo indi formato il presente Atto, che abbiamo inscritto sopra i due registri, e datane lettura a' dichiaranti, si è nel giorno, mese, ed anno come sopra, segnato da Noi. e da essi dichiaranti",
+                "Per esecuzione della legge, ci siamo trasferiti, insieme co' detti Testimonj, presso la persona defunta, e ne abbiamo riconosciuta la sua effettiva morte. Abbiamo indi formato il presente Atto, che abbiamo inscritto sopra i due registri, e datane lettura a' dichiaranti, si è nel giorno, mese, ed anno come sopra, segnato da Noi. e da essi dichiaranti"),
                 False,
                 12,
             ),

@@ -14,6 +14,10 @@ RUNTIME="${CT_RUNTIME_DIR:-$HOME/Library/Application Support/Customizable Transc
 BASE_PYTHON="$RUNTIME/python/bin/python3"
 APP_PYTHON="$RUNTIME/venv/bin/python"
 INSTALLED_LOCK="$RUNTIME/venv/installed-requirements.txt"
+# Which Python build is installed (its archive SHA-256). When a newer app version pins a
+# different build, the next start replaces Python instead of keeping the old one forever.
+BUILD_MARKER="$RUNTIME/python-build.txt"
+UPGRADING=""
 
 fail() {
     echo
@@ -21,6 +25,18 @@ fail() {
     echo
     if [ -z "$CT_INSTALL_ONLY" ]; then read -r -p "Press Return to close this window. "; fi
     exit 1
+}
+
+installed_build() { cat "$BUILD_MARKER" 2>/dev/null; }
+
+# A Python update failed: put the previous runtime back so the next start can try again
+# from a working state.
+restore_previous() {
+    [ -n "$UPGRADING" ] && [ -d "$RUNTIME/python-old" ] || return 0
+    rm -rf "$RUNTIME/python" "$RUNTIME/venv"
+    mv "$RUNTIME/python-old" "$RUNTIME/python"
+    [ -d "$RUNTIME/venv-old" ] && mv "$RUNTIME/venv-old" "$RUNTIME/venv"
+    return 0
 }
 
 printf '\033]0;Customizable Transcriber\007'
@@ -33,8 +49,9 @@ if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" != "1" ]; then
         "On an Intel Mac, follow the manual setup in README.md instead."
 fi
 
-if [ -x "$APP_PYTHON" ] && [ -f "$INSTALLED_LOCK" ] && cmp -s "requirements.lock" "$INSTALLED_LOCK"; then
-    :    # already installed with these exact package versions: just start
+if [ -x "$APP_PYTHON" ] && [ "$(installed_build)" = "$PYTHON_SHA256" ] \
+    && [ -f "$INSTALLED_LOCK" ] && cmp -s "requirements.lock" "$INSTALLED_LOCK"; then
+    :    # already installed with this Python and these exact package versions: just start
 else
     echo
     echo "Setting up Customizable Transcriber. This happens once and takes a few minutes."
@@ -42,7 +59,7 @@ else
     echo
     mkdir -p "$RUNTIME" || fail "The folder $RUNTIME couldn't be created."
 
-    if [ ! -x "$BASE_PYTHON" ]; then
+    if [ ! -x "$BASE_PYTHON" ] || [ "$(installed_build)" != "$PYTHON_SHA256" ]; then
         echo "Step 1 of 2: downloading Python..."
         DOWNLOAD="$RUNTIME/python-download.tar.gz"
         curl --fail --location --silent --show-error --retry 3 --output "$DOWNLOAD" "$PYTHON_URL" \
@@ -53,20 +70,28 @@ else
             fail "The downloaded copy of Python didn't match the expected file, so it wasn't used. Try again." \
                 "If it keeps failing, send this message to whoever gave you the app."
         fi
-        rm -rf "$RUNTIME/python-new" "$RUNTIME/python"
-        mkdir "$RUNTIME/python-new" \
-            && tar -xzf "$DOWNLOAD" -C "$RUNTIME/python-new" \
-            && mv "$RUNTIME/python-new/python" "$RUNTIME/python" \
+        rm -rf "$RUNTIME/python-new"
+        mkdir "$RUNTIME/python-new" && tar -xzf "$DOWNLOAD" -C "$RUNTIME/python-new" \
             || fail "Python couldn't be unpacked. Try again. If it keeps failing, send this message to whoever gave you the app."
+        # Keep the current runtime until the new one is fully set up, so a failed update
+        # can go back to it.
+        rm -rf "$RUNTIME/python-old" "$RUNTIME/venv-old"
+        [ -d "$RUNTIME/python" ] && mv "$RUNTIME/python" "$RUNTIME/python-old"
+        [ -d "$RUNTIME/venv" ] && mv "$RUNTIME/venv" "$RUNTIME/venv-old"
+        UPGRADING=1
+        mv "$RUNTIME/python-new/python" "$RUNTIME/python" \
+            || { restore_previous; fail "Python couldn't be unpacked. Try again. If it keeps failing, send this message to whoever gave you the app."; }
         rm -rf "$RUNTIME/python-new" "$DOWNLOAD"
     fi
 
     echo "Step 2 of 2: installing the app's components..."
     "$BASE_PYTHON" -m venv --clear "$RUNTIME/venv" \
         && "$APP_PYTHON" -m pip install --quiet --disable-pip-version-check --no-input --only-binary=:all: -r requirements.lock \
-        || fail "The app's components couldn't be installed. Check your internet connection and try again." \
-            "If it keeps failing, your network may be blocking pypi.org. Send this window's text to whoever gave you the app."
+        || { restore_previous; fail "The app's components couldn't be installed. Check your internet connection and try again." \
+            "If it keeps failing, your network may be blocking pypi.org. Send this window's text to whoever gave you the app."; }
     cp "requirements.lock" "$INSTALLED_LOCK"
+    echo "$PYTHON_SHA256" > "$BUILD_MARKER"
+    rm -rf "$RUNTIME/python-old" "$RUNTIME/venv-old"
     echo "Setup is complete."
     echo
 fi

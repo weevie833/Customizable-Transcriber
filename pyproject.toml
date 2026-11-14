@@ -18,8 +18,9 @@ license = { file = "LICENSE" }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
-# Informational only -- see .github/workflows/tests.yml's `lint` job
-# (continue-on-error: true, never fails the build). Added per
+# Mostly informational -- see .github/workflows/tests.yml's `lint` job: only
+# pyflakes (F) and syntax errors (E9) fail the build (reviews/CODEX_REVIEW.md
+# L-2, 2026-11-13); everything else is continue-on-error. Added per
 # reviews/CODEX_REVIEW.md finding L-8 / reviews/HUMAN_DECISIONS.md: a prior review found 20
 # unused imports that had drifted in unnoticed; this surfaces that class of
 # drift in every PR's CI output without imposing a zero-findings bar on a
@@ -29,5 +30,5 @@ testpaths = ["tests"]
 # added for; narrowing or widening it is a separate decision for whoever
 # starts actually acting on its output.
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 120

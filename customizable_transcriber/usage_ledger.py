@@ -27,7 +27,7 @@ import uuid
 from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 SCHEMA_VERSION = 1
@@ -48,7 +48,7 @@ def configure(directory: Path | None) -> None:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 class Run:
@@ -111,7 +111,7 @@ def start_run(
     if _ledger_dir is None:
         return None
     _ledger_dir.mkdir(parents=True, exist_ok=True)
-    run_id = f"{datetime.now(timezone.utc).astimezone().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    run_id = f"{datetime.now(UTC).astimezone().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
     run = Run(_ledger_dir / f"{run_id}-{mode}-{stage}.jsonl", run_id, stage, mode, provider, model)
     run.write(
         {

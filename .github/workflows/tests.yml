@@ -118,6 +118,23 @@ jobs:
         shell: cmd
         run: call "Start Customizable Transcriber (Windows).bat"
 
+      # An installed runtime from an older app version must be replaced, not kept
+      # (reviews/CODEX_REVIEW.md H-1). Pretend the installed Python is an older build.
+      - name: Update from an older Python with the double-click file
+        shell: cmd
+        run: |
+          echo old> "%LOCALAPPDATA%\Customizable Transcriber\Runtime\python-build.txt"
+          call "Start Customizable Transcriber (Windows).bat"
+
+      - name: The installed runtime is the pinned Python
+        shell: pwsh
+        run: |
+          $rt = "$env:LOCALAPPDATA\Customizable Transcriber\Runtime"
+          $version = & "$rt\venv\Scripts\python.exe" -c "import platform; print(platform.python_version())"
+          if ($version -ne "3.12.16") { throw "Installed Python is $version" }
+          if (Test-Path "$rt\python-old") { throw "The previous runtime wasn't removed" }
+          if ((Get-Content "$rt\python-build.txt") -eq "old") { throw "The build marker wasn't updated" }
+
       - name: Start the app with the installed runtime
         shell: pwsh
         run: |
@@ -154,6 +171,18 @@ jobs:
       - name: Install with the double-click file
         run: ./"Start Customizable Transcriber (Mac).command"
 
+      - name: Update from an older Python with the double-click file
+        run: |
+          echo old > "$HOME/Library/Application Support/Customizable Transcriber/Runtime/python-build.txt"
+          ./"Start Customizable Transcriber (Mac).command"
+
+      - name: The installed runtime is the pinned Python
+        run: |
+          rt="$HOME/Library/Application Support/Customizable Transcriber/Runtime"
+          test "$("$rt/venv/bin/python" -c 'import platform; print(platform.python_version())')" = 3.12.16
+          test ! -e "$rt/python-old"
+          test "$(cat "$rt/python-build.txt")" != old
+
       - name: Start the app with the installed runtime
         run: |
           py="$HOME/Library/Application Support/Customizable Transcriber/Runtime/venv/bin/python"
@@ -162,7 +191,7 @@ jobs:
           kill %1
           [ -n "$up" ] || { echo "The app didn't answer on http://127.0.0.1:8765/"; exit 1; }
 
-  # Informational only (continue-on-error: true below) -- reports Ruff's
+  # Mostly informational (continue-on-error: true below) -- reports Ruff's
   # default findings on every push/PR without failing the build. Added per
   # reviews/CODEX_REVIEW.md finding L-8 / reviews/HUMAN_DECISIONS.md, specifically to catch
   # the kind of drift (20 unused imports had accumulated unnoticed) an
@@ -180,6 +209,12 @@ jobs:
 
       - name: Install dependencies (ruff is pinned in requirements-dev.txt)
         run: python -m pip install -r requirements-dev.txt
+
+      # Pyflakes (unused imports/names, undefined names) and syntax errors are at
+      # zero and must stay there (reviews/CODEX_REVIEW.md L-2). The rest of
+      # Ruff's findings stay advisory, in the next step.
+      - name: Run Ruff's correctness rules (fails the build)
+        run: python -m ruff check . --select F,E9
 
       - name: Run Ruff (does not fail the build -- see this job's own comment)
         continue-on-error: true

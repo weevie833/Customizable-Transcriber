@@ -66,7 +66,6 @@ MODELS = {
     "claude-opus-5-5": "Claude Opus 5.5 - highest accuracy, stronger visual reading",
     "claude-opus-5": "Claude Opus 5 - high accuracy",
     "claude-sonnet-5": "Claude Sonnet 5 - balanced speed / intelligence",
-    "claude-haiku-4-5-20251001": "Claude Haiku 4.5 - fastest, lower cost",
 }
 
 # Reverted from gemini-2.5-pro back to the preview model, 2026-09, on the

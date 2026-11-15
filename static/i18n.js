@@ -572,7 +572,6 @@
     "Claude Opus 5.5 - highest accuracy, stronger visual reading": "Claude Opus 5.5 - massima precisione, lettura visiva migliorata",
     "Claude Opus 5 - high accuracy": "Claude Opus 5 - alta precisione",
     "Claude Sonnet 5 - balanced speed / intelligence": "Claude Sonnet 5 - velocità/intelligenza bilanciate",
-    "Claude Haiku 4.5 - fastest, lower cost": "Claude Haiku 4.5 - il più veloce, costo inferiore",
     "Choose the source material": "Scegli il materiale di origine",
     "Each record type uses its own extraction criteria and output columns, matching the official index templates.":
       "Ogni tipo di registro usa i propri criteri di estrazione e le proprie colonne di output, corrispondenti ai modelli di indice ufficiali.",

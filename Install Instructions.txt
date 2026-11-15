@@ -67,6 +67,22 @@ first start downloads it and sets the app up again, which takes a few minutes.
 Close any other Customizable Transcriber window first.
 
 
+WHERE YOUR PROFILES ARE
+
+Every prompt profile you create or edit is saved as one .json file in:
+  %APPDATA%\Customizable Transcriber\profiles
+which is normally
+  C:\Users\<your name>\AppData\Roaming\Customizable Transcriber\profiles
+
+AppData is a hidden folder. To open it, click the address bar in File Explorer
+(or press Windows+R), paste the first line above, and press Enter.
+
+The example profile that comes with the app is in the "profiles" folder inside
+the app's folder. If you change it, your changed copy is saved in the folder
+above. To give a profile to someone else, use Import/Export Profiles on the
+Prompt Builder page instead of copying files.
+
+
 REMOVING THE APP
 
 Delete the desktop shortcut and the extracted folder. Then delete these two
@@ -126,6 +142,20 @@ stored outside the app's folder.
 
 If the new version uses a newer Python (for example, a security update), that
 first start downloads it and sets the app up again, which takes a few minutes.
+
+
+WHERE YOUR PROFILES ARE
+
+Every prompt profile you create or edit is saved as one .json file in:
+  ~/Library/Application Support/Customizable Transcriber/profiles
+
+The Library folder is hidden. To open it, in Finder choose Go > Go to Folder,
+paste the line above, and press Return.
+
+The example profile that comes with the app is in the "profiles" folder inside
+the app's folder. If you change it, your changed copy is saved in the folder
+above. To give a profile to someone else, use Import/Export Profiles on the
+Prompt Builder page instead of copying files.
 
 
 REMOVING THE APP

@@ -205,7 +205,7 @@ Current web app behavior:
 - Runs a preflight check before transcription to confirm the selected file type exists in the source folder.
 - Sorts date folders chronologically.
 - Lets you choose `Oldest-to-newest` or `Newest-to-oldest`; `Oldest-to-newest` is the default.
-- Provides both Gemini (Pro tier) and Claude (Opus, Sonnet, and Haiku) model options.
+- Provides both Gemini (Pro tier) and Claude (Opus and Sonnet) model options.
 - Requires the user to paste an API key matching the selected model's provider (a Gemini key for a Gemini model, a Claude key for a Claude model) and choose a saved prompt profile before a run can start. The dropdown starts at `Select a Profile` to prevent accidental runs with the wrong profile.
 - Shows a centered audible alert if `Preflight Check` is clicked before a matching API key is pasted or before a prompt profile is selected.
 - Keeps a visible `Confirm settings` box beside the run controls. Clicking `Preflight Check` fills it with process order, file type, and prompt profile, disables `Preflight Check`, and enables `Confirm and run`.
@@ -248,6 +248,14 @@ Saved profiles:
   - Linux: `$XDG_DATA_HOME/Customizable Transcriber/profiles/` (or
     `~/.local/share/Customizable Transcriber/profiles/` if that variable isn't set)
 
+  Each profile is one `.json` file. These folders are hidden by default. On
+  Windows, paste `%APPDATA%\Customizable Transcriber\profiles` into the File
+  Explorer address bar (or the Win+R Run box) and press Enter; it is normally
+  `C:\Users\<your name>\AppData\Roaming\Customizable Transcriber\profiles`.
+  On a Mac, choose Go > Go to Folder in Finder and paste the macOS path above.
+  To give a profile to someone else, use Import/Export Profiles on the
+  Prompt Builder page rather than copying files from this folder.
+
   This is deliberate: it's what keeps your own profiles safe when you update
   the app later. Updating means downloading a fresh copy of this project and
   replacing the old project folder — since your profiles live
@@ -257,7 +265,7 @@ Saved profiles:
 - Every generated `.docx`/`.md` output (Transcribe and Test Mode alike) is
   saved to the same per-user location, in an `outputs` subfolder next to
   `profiles` above (e.g. `~/Library/Application Support/Customizable
-  Transcription/outputs/` on macOS) — for the same folder-replace-safety
+  Transcriber/outputs/` on macOS) — for the same folder-replace-safety
   reason.
 - The prompt profile dropdown always starts at `Select a Profile` when the app
   starts or reloads, even if you used one last time — this is deliberate, to

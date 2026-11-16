@@ -43,7 +43,16 @@ jobs:
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 3600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
-          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          printf '%s' "$MACOS_CERTIFICATE_P12" | tr -d '[:space:]' | base64 --decode > "$RUNNER_TEMP/cert.p12" \
+            || { echo "MACOS_CERTIFICATE_P12 isn't valid base64." >&2; exit 1; }
+          # Say what is wrong with the secret, without showing it.
+          echo "MACOS_CERTIFICATE_P12: ${#MACOS_CERTIFICATE_P12} characters, $(wc -c < "$RUNNER_TEMP/cert.p12" | tr -d ' ') bytes decoded"
+          if ! openssl pkcs12 -in "$RUNNER_TEMP/cert.p12" -nokeys -noout \
+              -passin env:MACOS_CERTIFICATE_PASSWORD 2>"$RUNNER_TEMP/p12-check.txt"; then
+            echo "The certificate secret couldn't be read as a .p12 with that password:" >&2
+            head -5 "$RUNNER_TEMP/p12-check.txt" >&2
+            exit 1
+          fi
           security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign
           rm -f "$RUNNER_TEMP/cert.p12"

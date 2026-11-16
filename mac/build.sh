@@ -38,11 +38,17 @@ trap 'rm -rf "$WORK"' EXIT
 
 notarize() {
     local result status id
+    # A new developer account's first submissions can take hours; later ones minutes.
     result="$(xcrun notarytool submit "$1" --key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" \
-        --issuer "$NOTARY_ISSUER_ID" --wait --timeout 30m --output-format json)" || true
+        --issuer "$NOTARY_ISSUER_ID" --wait --timeout "${NOTARY_TIMEOUT:-2h}" --output-format json)" || true
     echo "$result"
-    status="$(plutil -extract status raw -o - - <<<"$result" 2>/dev/null || true)"
-    id="$(plutil -extract id raw -o - - <<<"$result" 2>/dev/null || true)"
+    # plutil prints its error on stdout, so a missing key must give "", not that text.
+    status="$(plutil -extract status raw -o - - <<<"$result" 2>/dev/null)" || status=""
+    id="$(plutil -extract id raw -o - - <<<"$result" 2>/dev/null)" || id=""
+    if [ -z "$status" ] && [ -n "$id" ]; then
+        echo "Apple hadn't finished checking $(basename "$1") (submission $id). Run this again later." >&2
+        exit 1
+    fi
     if [ "$status" != "Accepted" ]; then
         echo "Notarization of $(basename "$1") failed (status: ${status:-unknown})." >&2
         [ -n "$id" ] && xcrun notarytool log "$id" --key "$NOTARY_KEY_PATH" \

@@ -22,6 +22,7 @@ from app_state import (
     test_status_payload,
     test_stop_event,
 )
+from batch_transcription import run_test_off_peak_job
 from customizable_transcriber.core import key_looks_like_claude, provider_for_model
 from http_utils import (
     extract_docx_text,
@@ -109,7 +110,11 @@ class TestModeRunHandlerMixin:
                 test_state["summary"] = f"Fatal error: {exc}"
         self.redirect_test_mode()
 
-    def run_test(self) -> None:
+    def run_test(self, off_peak: bool = False) -> None:
+        """/test-mode/run (real time) and /test-mode/run-offpeak (every queued
+        run submitted to the provider's batch queue at once -- see
+        batch_transcription.run_test_off_peak_job()). Same validation and
+        run setup either way; only the background job differs."""
         with test_lock:
             # Reserve the run slot in the SAME lock acquisition as the check
             # below -- see the matching comment on handlers/transcribe_run.py's
@@ -202,14 +207,20 @@ class TestModeRunHandlerMixin:
             test_state["running"] = True
             test_state["current_run_id"] = ""
             test_state["log"] = []
-            test_state["summary"] = f"Running {len(batches)} batch(es), {len(run_specs)} run(s) total..."
+            test_state["off_peak"] = off_peak
+            test_state["summary"] = (
+                f"Submitting {len(run_specs)} off-peak batch job(s) for {len(batches)} batch(es)..."
+                if off_peak
+                else f"Running {len(batches)} batch(es), {len(run_specs)} run(s) total..."
+            )
             test_state["order"] = order
             test_state["file_type"] = file_type
             test_state["profile_id"] = profile_id
             test_state["queue"] = []
             test_state["runs"] = runs_init
 
-        thread = threading.Thread(target=run_test_job, args=(form, run_specs), daemon=True)
+        job = run_test_off_peak_job if off_peak else run_test_job
+        thread = threading.Thread(target=job, args=(form, run_specs), daemon=True)
         thread.start()
         # POST/Redirect/GET -- see the comment on handlers/transcribe_run.py's
         # run_transcription()'s final self.redirect_transcribe() call for why
@@ -226,8 +237,12 @@ class TestModeRunHandlerMixin:
         with test_lock:
             if test_state["running"]:
                 test_stop_event.set()
-                test_state["summary"] = "Stopping after the current image finishes..."
-                test_state["log"].append("Stop requested.")
+                if test_state["off_peak"]:
+                    test_state["summary"] = "Cancelling off-peak batches..."
+                    test_state["log"].append("Off-peak cancellation requested.")
+                else:
+                    test_state["summary"] = "Stopping after the current image finishes..."
+                    test_state["log"].append("Stop requested.")
                 test_state["log"] = test_state["log"][-300:]
             else:
                 test_state["summary"] = "No test run is running."

@@ -107,7 +107,7 @@ def test_mixed_provider_queue_requires_only_the_providers_in_use(
                 "batch_id": "batch-gemini",
                 "label": "Gemini Batch",
                 "model_a": "gemini-3.1-pro-preview",
-                "model_b": "gemini-2.5-pro",
+                "model_b": "gemini-3.1-pro-preview",
             },
             {
                 "batch_id": "batch-claude",
@@ -152,7 +152,7 @@ def test_mixed_provider_queue_requires_only_the_providers_in_use(
         assert len(captured_specs) == 1
         keys_by_model = {model: key for (_run_id, _label, model, key, _md, _out) in captured_specs[0]}
         assert keys_by_model["gemini-3.1-pro-preview"] == "fake-gemini-key"
-        assert keys_by_model["gemini-2.5-pro"] == "fake-gemini-key"
+        assert keys_by_model["gemini-3.1-pro-preview"] == "fake-gemini-key"
         assert keys_by_model["claude-opus-5"] == "sk-ant-fake-claude-key"
         assert keys_by_model["claude-sonnet-5"] == "sk-ant-fake-claude-key"
     finally:
@@ -194,8 +194,8 @@ def test_one_run_failure_does_not_abort_the_rest_of_the_queue(sandboxed_user_dat
         }
 
     run_specs = [
-        (run_1_id, "Run 1", "gemini-2.5-pro", "fake-key", tmp_path / "run1.md", tmp_path / "run1.docx"),
-        (run_2_id, "Run 2", "gemini-2.5-pro", "fake-key", tmp_path / "run2.md", tmp_path / "run2.docx"),
+        (run_1_id, "Run 1", "gemini-3.1-pro-preview", "fake-key", tmp_path / "run1.md", tmp_path / "run1.docx"),
+        (run_2_id, "Run 2", "gemini-3.1-pro-preview", "fake-key", tmp_path / "run2.md", tmp_path / "run2.docx"),
     ]
 
     form = ctapp.FormData(

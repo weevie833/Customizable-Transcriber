@@ -44,7 +44,7 @@ def test_run_support_output_path_helpers_stay_in_sandbox(sandboxed_user_data):
     assert output_file.is_relative_to(sandboxed_user_data)
 
     test_output_file = run_support.test_destination_output_file(
-        "some-profile", "run-1", "gemini-2.5-pro", "some-stem"
+        "some-profile", "run-1", "gemini-3.1-pro-preview", "some-stem"
     )
     assert test_output_file.is_relative_to(sandboxed_user_data)
 

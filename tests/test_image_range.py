@@ -125,7 +125,7 @@ def test_repeated_marker_numbers_still_hit_the_block_cap(monkeypatch):
             image_range="",
             image_overrides="",
             api_key="key",
-            model="gemini-2.5-pro",
+            model="gemini-3.1-pro-preview",
             target_language="English",
             target_role="",
             process_all=True,

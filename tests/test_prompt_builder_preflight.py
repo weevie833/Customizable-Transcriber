@@ -145,7 +145,7 @@ def test_preflight_critique_prompt_explains_labelled_example_parts(monkeypatch):
     monkeypatch.setattr(profiles_handlers, "call_ai_json", fake_call_ai_json)
     example = "Date:\n\n2 Gennaro 1823\n\nMain entry:\n\nbody\n\nBaptism Record:\n\nbaptism"
     profiles_handlers.critique_prompt_gap(
-        "gemini-2.5-pro", "full prompt", example, "output", "civil_birth", api_key_override="k"
+        "gemini-3.1-pro-preview", "full prompt", example, "output", "civil_birth", api_key_override="k"
     )
     assert "labelled parts" in captured["system"]
     assert "never includes the entry's continuation" in captured["system"]

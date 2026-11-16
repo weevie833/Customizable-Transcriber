@@ -152,7 +152,7 @@ def test_detect_languages_honors_a_blank_key_via_env_fallback(jar, monkeypatch):
         port,
         cookiejar,
         "/api/xls-conversion/detect-languages",
-        {"model": "gemini-2.5-pro", "gemini_api_key": "", "text": "x"},
+        {"model": "gemini-3.1-pro-preview", "gemini_api_key": "", "text": "x"},
     )
     assert response.status == 200
     assert captured["api_key"] == "env-sourced-gemini-key"

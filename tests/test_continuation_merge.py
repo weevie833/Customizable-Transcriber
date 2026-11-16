@@ -44,7 +44,7 @@ def _run(monkeypatch, fake_call_ai):
         image_range="",
         image_overrides="",
         api_key="key",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         target_language="English",
         target_role="",
         process_all=True,

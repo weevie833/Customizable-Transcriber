@@ -116,7 +116,7 @@ def test_parse_generic_one_image_failure_does_not_abort_whole_batch(monkeypatch)
         image_range="",
         image_overrides="",
         api_key="key",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         target_language="English",
         target_role="",
         process_all=True,

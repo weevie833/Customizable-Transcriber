@@ -56,7 +56,7 @@ def test_parse_generic_sends_dates_only_to_the_same_day_block(monkeypatch):
     monkeypatch.setattr(ai_parser, "create_gemini_prompt_cache", lambda *a, **k: None)
     result = ai_parser.parse_generic(
         config=CONFIG, text=TEXT, image_range="", image_overrides="", api_key="k",
-        model="gemini-2.5-pro", target_language="English", target_role="", process_all=True,
+        model="gemini-3.1-pro-preview", target_language="English", target_role="", process_all=True,
     )
     assert len(messages) == 3
     assert "baptism_year" not in messages[1]  # dated entry: no date context

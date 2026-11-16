@@ -40,7 +40,7 @@ def test_parse_generic_prunes_for_non_battesimi_only(monkeypatch):
     for key in ("matrimoni", "battesimi"):
         ai_parser.parse_generic(
             config=ai_parser.RECORD_TYPES[key], text="--- START OF RECORD: img_001.jpg ---\n\n" + PLAIN,
-            image_range="", image_overrides="", api_key="k", model="gemini-2.5-pro",
+            image_range="", image_overrides="", api_key="k", model="gemini-3.1-pro-preview",
             target_language="English", target_role="", process_all=True,
         )
     matrimoni_prompt, battesimi_prompt = seen["prompts"]

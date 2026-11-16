@@ -48,6 +48,11 @@ APP_SETTINGS_FILE = USER_DATA_DIR / "app_settings.json"
 # of silently vanishing along with the in-memory `state` dict above. The API
 # key is never written here, or anywhere else this app persists to disk.
 OFF_PEAK_JOB_FILE = USER_DATA_DIR / "off_peak_job.json"
+# Test Mode's equivalent: one record per off-peak run, keyed by run id, since
+# a Test Mode off-peak run submits several provider batches at once (see
+# batch_transcription.run_test_off_peak_job()). Same non-secret fields.
+TEST_OFF_PEAK_JOBS_FILE = USER_DATA_DIR / "test_off_peak_jobs.json"
+_test_off_peak_jobs_file_lock = threading.Lock()
 
 state = {
     "running": False,
@@ -128,6 +133,9 @@ test_state = {
     "model_b": DEFAULT_MODEL,
     "zoom_a": False,
     "zoom_b": False,
+    # True while the current run is an Off-Peak run (provider batch jobs);
+    # Stop's wording and the Progress label read it.
+    "off_peak": False,
     "order": "oldest",
     "file_type": "jpeg",
     "profile_id": "",
@@ -275,6 +283,81 @@ def surface_stale_off_peak_job() -> None:
             state["summary"] = message
 
 
+def read_test_off_peak_jobs() -> dict[str, dict[str, object]]:
+    if not TEST_OFF_PEAK_JOBS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(TEST_OFF_PEAK_JOBS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {str(k): v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+
+
+def write_test_off_peak_job_state(run_id: str, **fields: object) -> bool:
+    """write_off_peak_job_state()'s Test Mode counterpart: updates this run's
+    own entry in TEST_OFF_PEAK_JOBS_FILE. Best-effort; a failure is logged to
+    the Test Mode log and reported by the return value."""
+    try:
+        with _test_off_peak_jobs_file_lock:
+            jobs = read_test_off_peak_jobs()
+            jobs[run_id] = fields
+            atomic_write_text(TEST_OFF_PEAK_JOBS_FILE, json.dumps(jobs, indent=2) + "\n")
+    except OSError as exc:
+        add_test_log(
+            f"Warning: could not save the off-peak job record to disk ({exc}). "
+            "If this app closes, the job id will not be shown again -- copy it from this log now."
+        )
+        return False
+    return True
+
+
+def clear_test_off_peak_job_state(run_id: str | None = None) -> None:
+    """Remove one run's record, or the whole file when run_id is None."""
+    try:
+        with _test_off_peak_jobs_file_lock:
+            if run_id is None:
+                TEST_OFF_PEAK_JOBS_FILE.unlink(missing_ok=True)
+                return
+            jobs = read_test_off_peak_jobs()
+            jobs.pop(run_id, None)
+            if jobs:
+                atomic_write_text(TEST_OFF_PEAK_JOBS_FILE, json.dumps(jobs, indent=2) + "\n")
+            else:
+                TEST_OFF_PEAK_JOBS_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def surface_stale_test_off_peak_jobs() -> None:
+    """surface_stale_off_peak_job()'s Test Mode counterpart, called once at
+    startup: lists any Test Mode off-peak job left unresolved by a restart in
+    the Test Mode log. Dismissed with Test Mode's Reset All."""
+    jobs = read_test_off_peak_jobs()
+    if not jobs:
+        if TEST_OFF_PEAK_JOBS_FILE.exists():
+            add_test_log(
+                f"A Test Mode off-peak job record exists at {TEST_OFF_PEAK_JOBS_FILE} but could not be "
+                "read. It may describe batches still running on the provider's servers -- open the file "
+                "or check the provider's own console/dashboard."
+            )
+        return
+    for job in jobs.values():
+        add_test_log(
+            "A Test Mode off-peak batch job from a previous session may still be unresolved: "
+            f"provider {job.get('provider', 'unknown')}, model {job.get('model', 'unknown')}, "
+            f"job id {job.get('job_id', 'unknown')}, submitted {job.get('submitted_at', 'an unknown time')}, "
+            f"last known status \"{job.get('status', 'unknown')}\". This app cannot resume watching it "
+            "automatically after a restart -- check the provider's own console/dashboard for its actual "
+            "status. Once resolved there, click Reset All to dismiss this notice."
+        )
+    with test_lock:
+        if not test_state["summary"]:
+            test_state["summary"] = (
+                f"{len(jobs)} Test Mode off-peak batch job(s) from a previous session may still be "
+                "unresolved -- see the Progress Console."
+            )
+
+
 def reset_ui_state() -> None:
     with lock:
         state["running"] = False
@@ -310,12 +393,14 @@ def reset_test_ui_state() -> None:
         test_state["model_b"] = DEFAULT_MODEL
         test_state["zoom_a"] = False
         test_state["zoom_b"] = False
+        test_state["off_peak"] = False
         test_state["order"] = "oldest"
         test_state["file_type"] = "jpeg"
         test_state["profile_id"] = ""
         test_state["queue"] = []
         test_state["runs"] = {}
     clear_source_folder()
+    clear_test_off_peak_job_state()
 
 
 def status_payload() -> dict[str, object]:
@@ -352,5 +437,6 @@ def test_status_payload() -> dict[str, object]:
             "log": "\n".join(test_state["log"]),
             "summary": str(test_state["summary"]),
             "completed": all_complete and not bool(test_state["running"]),
+            "off_peak": bool(test_state["off_peak"]),
             "runs": runs,
         }

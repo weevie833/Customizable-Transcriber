@@ -51,7 +51,7 @@ def test_test_mode_docx_includes_model_profile_and_record_type(
 
     monkeypatch.setattr(run_support, "run_batch", fake_run_batch)
 
-    model = "gemini-2.5-pro"
+    model = "gemini-3.1-pro-preview"
     markdown_file = tmp_path / "run.md"
     output_file = tmp_path / "run.docx"
     run_specs = [("batch-a", "Batch · Model A", model, "fake-api-key", markdown_file, output_file)]

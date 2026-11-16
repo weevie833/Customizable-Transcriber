@@ -76,7 +76,7 @@ def _run(monkeypatch, fake_call_ai):
     monkeypatch.setattr(ai_parser, "call_ai", fake_call_ai)
     return ai_parser.parse_generic(
         config=CONFIG, text=TEXT, image_range="", image_overrides="", api_key="key",
-        model="gemini-2.5-pro", target_language="Italian", target_role="", process_all=True,
+        model="gemini-3.1-pro-preview", target_language="Italian", target_role="", process_all=True,
     )
 
 

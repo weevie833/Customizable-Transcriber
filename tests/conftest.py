@@ -110,6 +110,7 @@ def sandboxed_user_data(tmp_path, monkeypatch):
     # module's globals -- see this fixture's own docstring on why that's
     # safe), so patching app_state's copy alone is enough.
     monkeypatch.setattr(app_state, "OFF_PEAK_JOB_FILE", off_peak_job_file)
+    monkeypatch.setattr(app_state, "TEST_OFF_PEAK_JOBS_FILE", user_data_dir / "test_off_peak_jobs.json")
     # USER_OUTPUTS_DIR specifically is also captured by value (not read via a
     # function call back into app_state) in run_support.py -- run_job()/
     # run_test_job()/destination_output_file()/test_destination_output_file()

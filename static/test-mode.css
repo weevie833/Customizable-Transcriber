@@ -227,7 +227,15 @@ longer doubled since this isn't inside an f-string anymore). */
       .run-actions { grid-template-columns: 1fr; }
       .site-header { align-items: stretch; }
       .run-button-stack button { width: 100%; }
+      .offpeak-button-row button { width: 100%; }
     }
+/* .run-button-stack button (app-shell.css) would otherwise stretch the
+   "i" button next to Confirm and Run Off-Peak to 200px. */
+.run-button-stack .tm-info-btn {
+  width: 24px;
+  margin-left: 8px;
+}
+
 .zoom-row {
   margin-top: -4px;
 }

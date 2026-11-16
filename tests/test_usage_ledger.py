@@ -125,7 +125,7 @@ def test_missing_usage_is_recorded_as_not_reported_not_as_zero(tmp_path):
 
 
 def test_unconfigured_ledger_writes_nothing_and_run_batch_is_unaffected(tmp_path, monkeypatch):
-    config = _config(tmp_path, "gemini-2.5-pro", images=2)
+    config = _config(tmp_path, "gemini-3.1-pro-preview", images=2)
     fake = _FakeGeminiClient()
     monkeypatch.setattr(core, "make_client", lambda *a, **k: core.LLMClient(provider="gemini", gemini=fake))
 
@@ -137,7 +137,7 @@ def test_unconfigured_ledger_writes_nothing_and_run_batch_is_unaffected(tmp_path
 
 def test_run_batch_ledger_has_exactly_one_call_per_image_and_uses_the_cache(tmp_path, monkeypatch):
     usage_ledger.configure(tmp_path / "usage")
-    config = _config(tmp_path, "gemini-2.5-pro", images=3)
+    config = _config(tmp_path, "gemini-3.1-pro-preview", images=3)
     fake = _FakeGeminiClient()
     monkeypatch.setattr(core, "make_client", lambda *a, **k: core.LLMClient(provider="gemini", gemini=fake))
 
@@ -217,7 +217,7 @@ def test_ledger_failure_never_breaks_a_run(tmp_path, monkeypatch):
     blocker = tmp_path / "not-a-directory"
     blocker.write_text("x")
     usage_ledger.configure(blocker / "usage")  # cannot be created: parent is a file
-    config = _config(tmp_path, "gemini-2.5-pro", images=2)
+    config = _config(tmp_path, "gemini-3.1-pro-preview", images=2)
     fake = _FakeGeminiClient()
     monkeypatch.setattr(core, "make_client", lambda *a, **k: core.LLMClient(provider="gemini", gemini=fake))
 

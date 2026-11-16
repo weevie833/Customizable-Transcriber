@@ -23,6 +23,7 @@ from customizable_transcriber.core import (
     _is_transient_provider_error,
     claude_system_param,
     create_gemini_prompt_cache,
+    gemini_sampling_kwargs,
     delete_gemini_prompt_cache,
     provider_for_model,
 )
@@ -1084,7 +1085,7 @@ def call_gemini_json(
     config_options: dict[str, object] = {
         "response_mime_type": "application/json",
         "max_output_tokens": GEMINI_JSON_MAX_OUTPUT_TOKENS,
-        "temperature": 0,
+        **gemini_sampling_kwargs(model),
     }
     if cached_content:
         config_options["cached_content"] = cached_content
@@ -1094,7 +1095,7 @@ def call_gemini_json(
         "system_instruction": system_prompt,
         "response_mime_type": "application/json",
         "max_output_tokens": GEMINI_JSON_MAX_OUTPUT_TOKENS,
-        "temperature": 0,
+        **gemini_sampling_kwargs(model),
     }
     # Gemini 3.x models think by default, with no cap unless one is set here --
     # for a "Pro" reasoning-tier model that can burn a very long time (and a
@@ -1103,11 +1104,8 @@ def call_gemini_json(
     # makes (see parse_generic()'s loop). This is a structured-extraction pass
     # over text the model has already read, not a hard reasoning problem, so
     # MEDIUM keeps real reasoning capacity for genuinely ambiguous fields
-    # without the unbounded default's runaway latency. Only 3.x exposes
-    # thinking_level -- 2.5-series models use a token-count thinking_budget
-    # instead, so this deliberately leaves gemini-2.5-pro untouched rather
-    # than guessing at an equivalent budget for a model that wasn't reported
-    # as slow.
+    # without the unbounded default's runaway latency. Only 3.x and newer
+    # expose thinking_level.
     if model.startswith(("gemini-3", "gemini-4")) and hasattr(types, "ThinkingConfig"):
         thinking_config = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MEDIUM)
         config_options["thinking_config"] = thinking_config

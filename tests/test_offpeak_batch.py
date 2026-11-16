@@ -34,21 +34,21 @@ def _write_jpeg(path: Path) -> None:
 
 
 def test_estimate_zero_images():
-    assert bt.estimate_off_peak_savings(0, "two_facing", "gemini-2.5-pro") == (
+    assert bt.estimate_off_peak_savings(0, "two_facing", "gemini-3.1-pro-preview") == (
         "Select a source folder to see an off-peak cost estimate."
     )
 
 
 def test_estimate_varies_with_volume_and_page_layout():
-    one_page = bt.estimate_off_peak_savings(100, "one_page", "gemini-2.5-pro")
-    two_facing = bt.estimate_off_peak_savings(100, "two_facing", "gemini-2.5-pro")
+    one_page = bt.estimate_off_peak_savings(100, "one_page", "gemini-3.1-pro-preview")
+    two_facing = bt.estimate_off_peak_savings(100, "two_facing", "gemini-3.1-pro-preview")
     assert "100" in one_page and "1 register page" in one_page
     assert "100" in two_facing and "2 facing pages" in two_facing
     assert one_page != two_facing
 
 
 def test_estimate_names_the_model_implicitly_via_token_constant():
-    gemini_text = bt.estimate_off_peak_savings(10, "", "gemini-2.5-pro")
+    gemini_text = bt.estimate_off_peak_savings(10, "", "gemini-3.1-pro-preview")
     claude_text = bt.estimate_off_peak_savings(10, "", "claude-sonnet-5")
     assert str(10 * bt.GEMINI_IMAGE_TOKENS_ESTIMATE) in gemini_text.replace(",", "")
     assert str(10 * bt.CLAUDE_IMAGE_TOKENS_ESTIMATE) in claude_text.replace(",", "")
@@ -82,11 +82,11 @@ def test_submit_gemini_batch_tags_each_request_with_a_positional_index(tmp_path)
     _write_jpeg(b)
     client = _FakeGeminiClient()
 
-    job_name = bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [a, b])
+    job_name = bt.submit_gemini_batch(client, "gemini-3.1-pro-preview", "system prompt", [a, b])
 
     assert job_name == "batches/fake123"
     model, src, _config = client.batches.created_with
-    assert model == "gemini-2.5-pro"
+    assert model == "gemini-3.1-pro-preview"
     assert [req.metadata["index"] for req in src] == ["0", "1"]
 
 
@@ -96,7 +96,7 @@ def test_submit_gemini_batch_rejects_a_mislabeled_file_before_submission(tmp_pat
     client = _FakeGeminiClient()
 
     with pytest.raises(bt.BatchSubmissionError, match="does not look like"):
-        bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [fake])
+        bt.submit_gemini_batch(client, "gemini-3.1-pro-preview", "system prompt", [fake])
     assert client.batches.created_with is None
 
 
@@ -235,7 +235,7 @@ def test_run_off_peak_job_success_writes_output_and_resets_state(tmp_path, monke
         project_dir=tmp_path,
         image_folder=source_folder,
         extensions=frozenset({".jpg", ".jpeg"}),
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         provider="gemini",
         system_prompt="system prompt",
         api_key_override="fake-key",
@@ -307,7 +307,7 @@ def test_run_off_peak_job_persists_running_state_before_the_first_poll(tmp_path,
         project_dir=tmp_path,
         image_folder=source_folder,
         extensions=frozenset({".jpg", ".jpeg"}),
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         provider="gemini",
         system_prompt="system prompt",
         api_key_override="fake-key",
@@ -317,7 +317,7 @@ def test_run_off_peak_job_persists_running_state_before_the_first_poll(tmp_path,
     )
 
     assert seen_mid_run == {
-        "provider": "gemini", "model": "gemini-2.5-pro", "job_id": "batches/fake123",
+        "provider": "gemini", "model": "gemini-3.1-pro-preview", "job_id": "batches/fake123",
         "submitted_at": seen_mid_run.get("submitted_at"), "status": "running",
     }
     assert seen_mid_run.get("submitted_at")  # non-empty ISO timestamp
@@ -376,7 +376,7 @@ def test_run_off_peak_job_progress_log_dedups_unchanged_counts(tmp_path, monkeyp
         project_dir=tmp_path,
         image_folder=source_folder,
         extensions=frozenset({".jpg", ".jpeg"}),
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         provider="gemini",
         system_prompt="system prompt",
         api_key_override="fake-key",
@@ -436,7 +436,7 @@ def test_run_off_peak_job_tolerates_a_transient_poll_failure_then_succeeds(tmp_p
         project_dir=tmp_path,
         image_folder=source_folder,
         extensions=frozenset({".jpg", ".jpeg"}),
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         provider="gemini",
         system_prompt="system prompt",
         api_key_override="fake-key",
@@ -483,7 +483,7 @@ def test_run_off_peak_job_gives_up_after_sustained_poll_failures(tmp_path, monke
         project_dir=tmp_path,
         image_folder=source_folder,
         extensions=frozenset({".jpg", ".jpeg"}),
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         provider="gemini",
         system_prompt="system prompt",
         api_key_override="fake-key",
@@ -550,7 +550,7 @@ def test_run_off_peak_job_cancellation_tolerates_a_transient_poll_failure_then_c
             project_dir=tmp_path,
             image_folder=source_folder,
             extensions=frozenset({".jpg", ".jpeg"}),
-            model="gemini-2.5-pro",
+            model="gemini-3.1-pro-preview",
             provider="gemini",
             system_prompt="system prompt",
             api_key_override="fake-key",
@@ -600,7 +600,7 @@ def test_run_off_peak_job_cancellation_that_never_confirms_is_not_reported_as_su
             project_dir=tmp_path,
             image_folder=source_folder,
             extensions=frozenset({".jpg", ".jpeg"}),
-            model="gemini-2.5-pro",
+            model="gemini-3.1-pro-preview",
             provider="gemini",
             system_prompt="system prompt",
             api_key_override="fake-key",
@@ -673,7 +673,7 @@ def test_run_off_peak_job_reports_unconfirmed_when_cancellation_never_reaches_a_
             project_dir=tmp_path,
             image_folder=source_folder,
             extensions=frozenset({".jpg", ".jpeg"}),
-            model="gemini-2.5-pro",
+            model="gemini-3.1-pro-preview",
             provider="gemini",
             system_prompt="system prompt",
             api_key_override="fake-key",
@@ -727,7 +727,7 @@ def test_run_off_peak_job_cancellation_calls_provider_cancel(tmp_path, monkeypat
             project_dir=tmp_path,
             image_folder=source_folder,
             extensions=frozenset({".jpg", ".jpeg"}),
-            model="gemini-2.5-pro",
+            model="gemini-3.1-pro-preview",
             provider="gemini",
             system_prompt="system prompt",
             api_key_override="fake-key",
@@ -783,7 +783,7 @@ def test_run_off_peak_job_reports_honestly_when_it_finishes_before_cancellation_
             project_dir=tmp_path,
             image_folder=source_folder,
             extensions=frozenset({".jpg", ".jpeg"}),
-            model="gemini-2.5-pro",
+            model="gemini-3.1-pro-preview",
             provider="gemini",
             system_prompt="system prompt",
             api_key_override="fake-key",
@@ -843,7 +843,7 @@ def test_run_off_peak_job_honors_newest_first_order(tmp_path, monkeypatch, sandb
         project_dir=tmp_path,
         image_folder=source_folder,
         extensions=frozenset({".jpg", ".jpeg"}),
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         provider="gemini",
         system_prompt="system prompt",
         api_key_override="fake-key",
@@ -895,7 +895,7 @@ def test_run_off_peak_job_uses_explicit_heavy_and_light_gemini_timeouts(tmp_path
         project_dir=tmp_path,
         image_folder=source_folder,
         extensions=frozenset({".jpg", ".jpeg"}),
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         provider="gemini",
         system_prompt="system prompt",
         api_key_override="fake-key",
@@ -932,7 +932,7 @@ def test_run_off_peak_job_submission_timeout_produces_a_clear_error(tmp_path, mo
         project_dir=tmp_path,
         image_folder=source_folder,
         extensions=frozenset({".jpg", ".jpeg"}),
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         provider="gemini",
         system_prompt="system prompt",
         api_key_override="fake-key",
@@ -987,7 +987,7 @@ def test_run_off_peak_job_tolerates_a_gemini_poll_timeout(tmp_path, monkeypatch,
         project_dir=tmp_path,
         image_folder=source_folder,
         extensions=frozenset({".jpg", ".jpeg"}),
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview",
         provider="gemini",
         system_prompt="system prompt",
         api_key_override="fake-key",
@@ -1066,7 +1066,7 @@ def test_cost_estimate_endpoint_handles_a_stale_missing_source_folder(live_serve
     jar = CookieJar()
     _get(host, port, "/", jar)
     response = _get(
-        host, port, "/api/offpeak-cost-estimate?model=gemini-2.5-pro&file_type=jpeg&profile_id=", jar
+        host, port, "/api/offpeak-cost-estimate?model=gemini-3.1-pro-preview&file_type=jpeg&profile_id=", jar
     )
     assert response.status == 200
     data = json.loads(response.read())
@@ -1220,8 +1220,8 @@ def test_gemini_batches_get_a_unique_display_name(tmp_path):
             return pytypes.SimpleNamespace(name="batches/x")
 
     client = pytypes.SimpleNamespace(batches=_Batches())
-    bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [a])
-    bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [a])
+    bt.submit_gemini_batch(client, "gemini-3.1-pro-preview", "system prompt", [a])
+    bt.submit_gemini_batch(client, "gemini-3.1-pro-preview", "system prompt", [a])
     assert names[0] != names[1]
     assert all(n.startswith("customizable-transcriber-offpeak-") for n in names)
 

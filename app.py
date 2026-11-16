@@ -15,6 +15,7 @@ from app_state import (
     new_test_run_state,  # noqa: F401 -- re-exported; see tests/test_test_mode_key_scoping_and_failure_isolation.py
     state,
     surface_stale_off_peak_job,
+    surface_stale_test_off_peak_jobs,
     test_lock,  # noqa: F401 -- re-exported for tests
     test_state,  # noqa: F401 -- re-exported for tests
 )
@@ -642,6 +643,10 @@ class Handler(
             self.run_test()
             return
 
+        if self.path == "/test-mode/run-offpeak":
+            self.run_test(off_peak=True)
+            return
+
         if self.path == "/test-mode/stop":
             self.stop_test_job()
             return
@@ -761,6 +766,7 @@ def main() -> None:
     with lock:
         state["profile_id"] = ""
     surface_stale_off_peak_job()
+    surface_stale_test_off_peak_jobs()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Customizable Transcriber running at http://{HOST}:{PORT}")
     server.serve_forever()

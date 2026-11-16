@@ -62,25 +62,18 @@ def sniff_file_type(data: bytes) -> str | None:
 # app.py.
 MODELS = {
     "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview - higher accuracy",
-    "gemini-2.5-pro": "Gemini 2.5 Pro - stable, high-accuracy baseline",
+    "gemini-4-carbon": "Gemini 4 Carbon - strongest reasoning, slower",
+    "gemini-4-argon": "Gemini 4 Argon - faster Gemini 4",
     "claude-opus-5-5": "Claude Opus 5.5 - highest accuracy, stronger visual reading",
     "claude-opus-5": "Claude Opus 5 - high accuracy",
     "claude-sonnet-5": "Claude Sonnet 5 - balanced speed / intelligence",
 }
 
-# Reverted from gemini-2.5-pro back to the preview model, 2026-09, on the
-# user's own explicit instruction after their Test Mode comparisons showed
-# gemini-3.1-pro-preview producing meaningfully better transcriptions.
-# Accepted knowingly, not overlooked: this is Google's only Gemini 3.1 Pro
-# release -- there is no separate, non-preview "Gemini 3.1 Pro" to fall back
-# to (confirmed against Google's own model docs, which list only
-# gemini-3.1-pro-preview and a -customtools variant under Gemini 3.1 Pro) --
-# so the preview-deprecation risk the gemini-2.5-pro default was chosen to
-# avoid is real and still applies. If Google deprecates this model, every
-# profile/run relying on this default breaks until DEFAULT_MODEL is updated
-# again; gemini-2.5-pro remains in MODELS above as the fallback to switch
-# back to. Users who want the stable baseline instead can still select
-# "Gemini 2.5 Pro" from the model dropdown.
+# gemini-3.1-pro-preview is the default on the user's instruction (2026-09),
+# after Test Mode comparisons showed it transcribing better. It is a preview
+# model (Google has no non-preview 3.1 Pro), so if Google retires it, update
+# DEFAULT_MODEL. Gemini 2.5 Pro was removed from MODELS on 2026-11-16
+# (deprecated by Google).
 DEFAULT_MODEL = "gemini-3.1-pro-preview"
 # A per-call bound for the real Transcribe/Test Mode batch, not the tight
 # PREFLIGHT_TIMEOUT_SECONDS-style bound app.py uses for a single foreground
@@ -215,6 +208,25 @@ def claude_api_key(project_dir: Path) -> str:
 
 def provider_for_model(model: str) -> str:
     return "claude" if model.startswith("claude-") else "gemini"
+
+
+# Gemini 4 (Carbon, Argon; added 2026-11-15) differs from Gemini 3 in two ways
+# this app cares about, per Google's "What's new in Gemini 4" guides:
+#   - no explicit context caching (caches.create / cached_content); the
+#     provider caches repeated prompts on its own (implicit caching);
+#   - temperature / top_p / top_k are ignored, so they are not sent.
+# Thinking levels are low / medium (default) / high; "minimal" is not accepted.
+_GEMINI_4_PREFIX = "gemini-4"
+
+
+def gemini_supports_explicit_cache(model: str) -> bool:
+    return not model.startswith(_GEMINI_4_PREFIX)
+
+
+def gemini_sampling_kwargs(model: str) -> dict[str, object]:
+    """GenerateContentConfig sampling options for a Gemini model: temperature 0
+    where the model honours it, nothing for Gemini 4 (which ignores it)."""
+    return {} if model.startswith(_GEMINI_4_PREFIX) else {"temperature": 0}
 
 
 def key_looks_like_claude(api_key: str) -> bool:
@@ -692,7 +704,7 @@ def _gemini_thinking_is_cappable(model: str) -> bool:
     mirrors exactly. Only gemini-3.x and newer models expose ThinkingLevel at all,
     which matters to transcribe_image_with_retry()'s truncation retry below:
     no point spending a whole extra API call capping a knob that has no
-    effect for gemini-2.5-pro or Claude."""
+    effect for Claude."""
     return (
         model.startswith(_CAPPABLE_GEMINI_PREFIXES)
         and hasattr(types, "ThinkingConfig")
@@ -728,8 +740,8 @@ def _transcribe_image_gemini(
     config_kwargs: dict[str, object] = {"cached_content": cached_content} if cached_content else {
         "system_instruction": system_prompt
     }
-    config_kwargs["temperature"] = 0
-    config_kwargs_no_cache: dict[str, object] = {"system_instruction": system_prompt, "temperature": 0}
+    config_kwargs.update(gemini_sampling_kwargs(model))
+    config_kwargs_no_cache: dict[str, object] = {"system_instruction": system_prompt, **gemini_sampling_kwargs(model)}
 
     if include_thoughts and hasattr(types, "ThinkingConfig"):
         thinking_config = types.ThinkingConfig(include_thoughts=True)
@@ -1024,6 +1036,11 @@ def create_gemini_prompt_cache(
     prompt on every call" (today's behavior), never as a fatal error --
     prompt caching is a cost optimization the batch must keep working
     correctly without."""
+    if not gemini_supports_explicit_cache(model):
+        # Not an error and not worth a log line: the provider caches the
+        # repeated prompt on its own for these models.
+        usage_ledger.event("cache_unavailable", reason="model uses implicit caching only")
+        return None
     try:
         cache = client.caches.create(
             model=model,

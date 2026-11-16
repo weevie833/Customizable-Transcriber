@@ -99,7 +99,7 @@ def test_gemini_transcribe_uses_cached_content_instead_of_system_instruction(tmp
     client = core.LLMClient(provider="gemini", gemini=_FakeGeminiClient())
 
     core.transcribe_image(
-        client, image, "a long system prompt", "gemini-2.5-pro", cached_content="cachedContents/abc"
+        client, image, "a long system prompt", "gemini-3.1-pro-preview", cached_content="cachedContents/abc"
     )
 
     config = client.gemini.models.captured_configs[0]
@@ -111,7 +111,7 @@ def test_gemini_transcribe_falls_back_to_system_instruction_with_no_cache(tmp_pa
     image = _write_jpeg(tmp_path, "image_001.jpg")
     client = core.LLMClient(provider="gemini", gemini=_FakeGeminiClient())
 
-    core.transcribe_image(client, image, "a long system prompt", "gemini-2.5-pro")
+    core.transcribe_image(client, image, "a long system prompt", "gemini-3.1-pro-preview")
 
     config = client.gemini.models.captured_configs[0]
     assert config.cached_content is None
@@ -148,10 +148,10 @@ def test_claude_transcribe_omits_cache_control_by_default(tmp_path):
 
 def test_create_gemini_prompt_cache_returns_name_on_success():
     gemini = _FakeGeminiClient()
-    name = core.create_gemini_prompt_cache(gemini, "gemini-2.5-pro", "system prompt text")
+    name = core.create_gemini_prompt_cache(gemini, "gemini-3.1-pro-preview", "system prompt text")
     assert name == "cachedContents/fake123"
     (model, config) = gemini.caches.created_with[0]
-    assert model == "gemini-2.5-pro"
+    assert model == "gemini-3.1-pro-preview"
     assert config.system_instruction == "system prompt text"
 
 
@@ -193,7 +193,7 @@ def _batch_config(tmp_path: Path, model: str) -> core.TranscriptionConfig:
 
 
 def test_run_batch_creates_and_deletes_gemini_cache_for_a_multi_image_run(tmp_path, monkeypatch):
-    config = _batch_config(tmp_path, "gemini-2.5-pro")
+    config = _batch_config(tmp_path, "gemini-3.1-pro-preview")
     _write_jpeg(config.image_folder, "a.jpg")
     _write_jpeg(config.image_folder, "b.jpg")
 
@@ -214,7 +214,7 @@ def test_run_batch_creates_and_deletes_gemini_cache_for_a_multi_image_run(tmp_pa
 
 
 def test_run_batch_skips_gemini_cache_for_a_single_image_run(tmp_path, monkeypatch):
-    config = _batch_config(tmp_path, "gemini-2.5-pro")
+    config = _batch_config(tmp_path, "gemini-3.1-pro-preview")
     _write_jpeg(config.image_folder, "a.jpg")
 
     fake_gemini = _FakeGeminiClient()
@@ -290,7 +290,7 @@ def test_call_gemini_json_uses_cached_content_when_given(monkeypatch):
     fake_client = _FakeGenaiClientForJson("[]")
     monkeypatch.setattr(ai_parser.genai, "Client", lambda **kwargs: fake_client)
 
-    ai_parser.call_gemini_json("key", "gemini-2.5-pro", "system prompt", "user", "cachedContents/xyz")
+    ai_parser.call_gemini_json("key", "gemini-3.1-pro-preview", "system prompt", "user", "cachedContents/xyz")
 
     config = fake_client.captured_configs[0]
     assert config.cached_content == "cachedContents/xyz"
@@ -363,7 +363,7 @@ def test_preflight_generic_deletes_gemini_cache_even_when_the_loop_raises(monkey
             text=text,
             image_range="",
             api_key="key",
-            model="gemini-2.5-pro",
+            model="gemini-3.1-pro-preview",
             target_language="English",
             target_role="",
             process_all=True,
@@ -398,7 +398,7 @@ def test_parse_generic_deletes_gemini_cache_even_when_the_first_image_raises(mon
             image_range="",
             image_overrides="",
             api_key="key",
-            model="gemini-2.5-pro",
+            model="gemini-3.1-pro-preview",
             target_language="English",
             target_role="",
             process_all=True,

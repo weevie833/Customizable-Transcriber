@@ -19,7 +19,7 @@ def test_default_key_check_timeout_is_passed_to_the_client(monkeypatch):
         return SimpleNamespace(provider="gemini", gemini=gemini)
 
     monkeypatch.setattr(core, "make_client", fake_make_client)
-    core.validate_api_key(Path("."), "gemini-2.5-pro", "key")
+    core.validate_api_key(Path("."), "gemini-3.1-pro-preview", "key")
     assert seen["timeout"] == core.KEY_CHECK_TIMEOUT_SECONDS == 60
 
 
@@ -38,5 +38,5 @@ def test_stalled_key_check_raises_a_clear_error_and_is_not_retried(monkeypatch):
     monkeypatch.setattr(core, "make_client", fake_make_client)
     monkeypatch.setattr(core.time, "sleep", lambda _s: None)
     with pytest.raises(RuntimeError, match="did not finish within 60s"):
-        core.validate_api_key_with_retry(Path("."), "gemini-2.5-pro", "key")
+        core.validate_api_key_with_retry(Path("."), "gemini-3.1-pro-preview", "key")
     assert calls["n"] == 1

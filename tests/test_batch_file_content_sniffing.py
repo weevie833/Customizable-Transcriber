@@ -49,7 +49,7 @@ def test_mislabeled_file_is_rejected_before_reaching_the_provider(tmp_path):
 
     client = core.LLMClient(provider="gemini", gemini=_FakeGeminiClient())
     with pytest.raises(RuntimeError, match="does not look like a JPEG or PNG"):
-        core.transcribe_image(client, fake_image, "system prompt", "gemini-2.5-pro")
+        core.transcribe_image(client, fake_image, "system prompt", "gemini-3.1-pro-preview")
 
     # The provider must never have been called with the mislabeled content.
     assert client.gemini.captured_mime_type is None
@@ -64,7 +64,7 @@ def test_real_jpeg_content_is_sent_with_the_correct_mime_type_regardless_of_exte
     mislabeled.write_bytes(real_jpeg_bytes)
 
     client = core.LLMClient(provider="gemini", gemini=_FakeGeminiClient())
-    text = core.transcribe_image(client, mislabeled, "system prompt", "gemini-2.5-pro")
+    text = core.transcribe_image(client, mislabeled, "system prompt", "gemini-3.1-pro-preview")
 
     assert text == "fake transcription"
     assert client.gemini.captured_mime_type == "image/jpeg"

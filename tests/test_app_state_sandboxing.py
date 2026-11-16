@@ -53,7 +53,7 @@ def test_off_peak_job_state_round_trip_stays_in_sandbox(sandboxed_user_data):
     assert app_state.read_off_peak_job_state() is None
 
     app_state.write_off_peak_job_state(
-        provider="gemini", model="gemini-2.5-pro", job_id="batches/abc123",
+        provider="gemini", model="gemini-3.1-pro-preview", job_id="batches/abc123",
         submitted_at="2026-09-17T12:00:00", status="running",
     )
 
@@ -61,7 +61,7 @@ def test_off_peak_job_state_round_trip_stays_in_sandbox(sandboxed_user_data):
     assert app_state.OFF_PEAK_JOB_FILE.is_relative_to(sandboxed_user_data)
     job = app_state.read_off_peak_job_state()
     assert job == {
-        "provider": "gemini", "model": "gemini-2.5-pro", "job_id": "batches/abc123",
+        "provider": "gemini", "model": "gemini-3.1-pro-preview", "job_id": "batches/abc123",
         "submitted_at": "2026-09-17T12:00:00", "status": "running",
     }
     # Never persisted, on principle -- see OFF_PEAK_JOB_FILE's own comment.
@@ -85,7 +85,7 @@ def test_reset_ui_state_clears_off_peak_job_state_in_sandbox(sandboxed_user_data
 
 def test_surface_stale_off_peak_job_logs_and_sets_summary(sandboxed_user_data):
     app_state.write_off_peak_job_state(
-        provider="gemini", model="gemini-2.5-pro", job_id="batches/stale789",
+        provider="gemini", model="gemini-3.1-pro-preview", job_id="batches/stale789",
         submitted_at="2026-09-17T12:00:00", status="cancellation_requested",
     )
     with app_state.lock:

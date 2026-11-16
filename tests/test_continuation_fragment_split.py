@@ -43,7 +43,7 @@ def _run(monkeypatch, fake_call_ai):
     monkeypatch.setattr(ai_parser, "call_ai", fake_call_ai)
     return ai_parser.parse_generic(
         config=CONFIG, text=TEXT, image_range="", image_overrides="", api_key="key",
-        model="gemini-2.5-pro", target_language="English", target_role="", process_all=True,
+        model="gemini-3.1-pro-preview", target_language="English", target_role="", process_all=True,
     )
 
 
@@ -130,7 +130,7 @@ def _run_text(monkeypatch, text, fake_call_ai, language="English"):
     monkeypatch.setattr(ai_parser, "call_ai", fake_call_ai)
     return ai_parser.parse_generic(
         config=CONFIG, text=text, image_range="", image_overrides="", api_key="key",
-        model="gemini-2.5-pro", target_language=language, target_role="", process_all=True,
+        model="gemini-3.1-pro-preview", target_language=language, target_role="", process_all=True,
     )
 
 
@@ -198,7 +198,7 @@ def _preflight(monkeypatch, entries_by_image):
 
     monkeypatch.setattr(ai_parser, "call_ai_json", fake_call_ai_json)
     return ai_parser.preflight_generic(
-        text=TEXT, image_range="", api_key="key", model="gemini-2.5-pro",
+        text=TEXT, image_range="", api_key="key", model="gemini-3.1-pro-preview",
         target_language="English", target_role="translation", process_all=True,
     )
 

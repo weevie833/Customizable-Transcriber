@@ -58,7 +58,7 @@ def test_parse_generic_makes_one_call_per_chunk(monkeypatch):
     monkeypatch.setattr(ai_parser, "create_gemini_prompt_cache", lambda *a, **k: None)
     ai_parser.parse_generic(
         config=ai_parser.RECORD_TYPES["battesimi"], text=_block(n), image_range="", image_overrides="",
-        api_key="k", model="gemini-2.5-pro", target_language="English", target_role="", process_all=True,
+        api_key="k", model="gemini-3.1-pro-preview", target_language="English", target_role="", process_all=True,
     )
     assert len(seen) == 2
     assert all("Image number for every record in this source block: 007" in m or "007" in m for m in seen)
@@ -77,6 +77,6 @@ def test_parse_generic_logs_dropped_entry(monkeypatch):
     monkeypatch.setattr(ai_parser, "create_gemini_prompt_cache", lambda *a, **k: None)
     result = ai_parser.parse_generic(
         config=ai_parser.RECORD_TYPES["battesimi"], text=_block(3), image_range="", image_overrides="",
-        api_key="k", model="gemini-2.5-pro", target_language="English", target_role="", process_all=True,
+        api_key="k", model="gemini-3.1-pro-preview", target_language="English", target_role="", process_all=True,
     )
     assert any("3 entries but the AI returned 2" in line for line in result["exception_log"])

@@ -76,7 +76,7 @@ the inline block used to sit. */
       document.getElementById("summary").textContent = translateStatus(status.summary || "");
       document.getElementById("log").textContent = translateStatus(status.log || "");
       updateRunButton(status.running);
-      updateRunStatus(status.running);
+      updateRunStatus(status.running, status.off_peak);
       document.getElementById("stop-button").disabled = !status.running;
       renderRunRows(status.runs);
 
@@ -177,6 +177,7 @@ the inline block used to sit. */
       const runButton = document.getElementById("run-button");
       if (!runButton) return;
       const confirmButton = document.getElementById("confirm-run-button");
+      const offPeakButton = document.getElementById("confirm-run-offpeak-button");
       const profileSelected = Boolean(document.querySelector('[name="profile_id"]').value);
       const missingKey = Array.from(currentlyNeededProviders()).some((provider) => {
         const input = providerKeyInput(provider);
@@ -184,6 +185,7 @@ the inline block used to sit. */
       });
       runButton.disabled = Boolean(running);
       if (confirmButton && running) confirmButton.disabled = true;
+      if (offPeakButton && running) offPeakButton.disabled = true;
       if (running) {
         runButton.title = "A test run is already in progress.";
       } else if (missingKey) {
@@ -232,9 +234,11 @@ the inline block used to sit. */
       document.getElementById("confirm-batches").textContent = settings.batchSummary;
       const settingsWrap = document.getElementById("run-confirmation-settings");
       const confirmButton = document.getElementById("confirm-run-button");
+      const offPeakButton = document.getElementById("confirm-run-offpeak-button");
       const runButton = document.getElementById("run-button");
       if (settingsWrap) settingsWrap.hidden = false;
       if (confirmButton) confirmButton.disabled = false;
+      if (offPeakButton) offPeakButton.disabled = false;
       if (runButton) runButton.disabled = true;
       preflightComplete = true;
     }
@@ -303,12 +307,15 @@ the inline block used to sit. */
         runPreflightCheck();
         return;
       }
-      if (event.submitter && event.submitter.id === "confirm-run-button" && !preflightComplete) {
+      const isConfirmSubmit = event.submitter && (
+        event.submitter.id === "confirm-run-button" || event.submitter.id === "confirm-run-offpeak-button"
+      );
+      if (isConfirmSubmit && !preflightComplete) {
         event.preventDefault();
         showSettingsAlert("Please run the preflight check before starting.");
         return;
       }
-      if (event.submitter && event.submitter.id === "confirm-run-button") {
+      if (isConfirmSubmit) {
         runConfirmed = false;
         preflightComplete = false;
       }
@@ -836,6 +843,17 @@ the inline block used to sit. */
           if (runForm) runForm.requestSubmit(confirmRunButton);
         });
       }
+      const confirmOffPeakButton = document.getElementById("confirm-run-offpeak-button");
+      if (confirmOffPeakButton) {
+        confirmOffPeakButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          runConfirmed = true;
+          completionAlertShown = false;
+          // requestSubmit(submitter) posts to the button's own formaction
+          // (/test-mode/run-offpeak) instead of the form's /test-mode/run.
+          if (runForm) runForm.requestSubmit(confirmOffPeakButton);
+        });
+      }
       const closeAlertButton = document.getElementById("settings-alert-close");
       if (closeAlertButton) {
         closeAlertButton.addEventListener("click", hideSettingsAlert);
@@ -896,7 +914,7 @@ the inline block used to sit. */
       }
       renderRunRows(initialRuns);
       updateRunButton(running);
-      updateRunStatus(running);
+      updateRunStatus(running, TM_INITIAL_DATA.offPeak);
       if (running) {
         window.setTimeout(refreshStatus, 1500);
       }

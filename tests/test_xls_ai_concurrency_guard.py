@@ -81,7 +81,7 @@ def test_concurrent_xls_ai_requests_across_different_endpoints_are_rejected(live
                 port,
                 jar,
                 "/api/xls-conversion/detect-languages",
-                {"model": "gemini-2.5-pro", "gemini_api_key": "fake-key", "text": "some text", "image_range": ""},
+                {"model": "gemini-3.1-pro-preview", "gemini_api_key": "fake-key", "text": "some text", "image_range": ""},
             )
         )
 
@@ -98,7 +98,7 @@ def test_concurrent_xls_ai_requests_across_different_endpoints_are_rejected(live
             jar,
             "/api/xls-conversion/preflight",
             {
-                "model": "gemini-2.5-pro",
+                "model": "gemini-3.1-pro-preview",
                 "gemini_api_key": "fake-key",
                 "record_type": "battesimi",
                 "text": "some text",
@@ -122,7 +122,7 @@ def test_concurrent_xls_ai_requests_across_different_endpoints_are_rejected(live
         jar,
         "/api/xls-conversion/preflight",
         {
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.1-pro-preview",
             "gemini_api_key": "fake-key",
             "record_type": "battesimi",
             "text": "some text",

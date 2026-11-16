@@ -81,8 +81,8 @@ function resetPreflight() {
   if (confirmButton) confirmButton.disabled = true;
   if (runButton) runButton.disabled = false;
   if (settings) settings.hidden = true;
-  // Off-Peak Mode (Transcribe page only -- guarded lookups, so this is a
-  // no-op on Test Mode, which has neither element).
+  // Off-Peak Mode (Transcribe and Test Mode; Test Mode has no cost
+  // estimate -- guarded lookups).
   const offPeakButton = document.getElementById("confirm-run-offpeak-button");
   const costEstimate = document.getElementById("offpeak-cost-estimate");
   if (offPeakButton) offPeakButton.disabled = true;

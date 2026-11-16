@@ -18,6 +18,16 @@ TM_PAGE_ZOOM_HINT = (
 )
 
 
+TM_OFF_PEAK_INFO_TEXT = (
+    "Off-Peak submits every queued run to its provider's batch queue instead of processing "
+    "images in real time -- typically billed at roughly half the standard per-token rate. All "
+    "runs are submitted at once and finish on the provider's own schedule, which can take from "
+    "a few minutes to several hours. The app must stay open and running until every run "
+    "finishes. Clicking Stop cancels every batch on the provider's side: images not yet "
+    "completed are lost, not paused."
+)
+
+
 def tm_info_button_html(panel_id: str, text: str) -> str:
     # Small "i" popup button, mirroring Prompt Builder's own
     # pb_info_button_html (pages/prompt_builder.py) under Test Mode's own
@@ -41,6 +51,7 @@ def test_mode_page() -> str:
         summary = str(test_state["summary"])
         model_a = str(test_state["model_a"])
         model_b = str(test_state["model_b"])
+        off_peak = bool(test_state["off_peak"])
         zoom_a = bool(test_state["zoom_a"])
         zoom_b = bool(test_state["zoom_b"])
         order = str(test_state["order"])
@@ -92,6 +103,7 @@ def test_mode_page() -> str:
             "initialRuns": runs,
             "queueLength": len(queue),
             "running": running,
+            "offPeak": off_peak,
         },
     )
 
@@ -232,6 +244,10 @@ def test_mode_page() -> str:
       <div class="run-button-stack">
         <button id="run-button" type="submit" disabled>Preflight Check</button>
         <button id="confirm-run-button" type="submit" disabled>Confirm and run</button>
+        <span class="offpeak-button-row">
+          <button id="confirm-run-offpeak-button" type="submit" formaction="/test-mode/run-offpeak" formmethod="post" disabled>Confirm and Run<br>Off-Peak</button>
+          {tm_info_button_html("tm-info-offpeak", TM_OFF_PEAK_INFO_TEXT)}
+        </span>
       </div>
       <span id="run-confirmation" class="run-confirmation">
         <span class="run-confirmation-title">Confirm settings:</span>

@@ -88,7 +88,7 @@ def test_zoom_sends_full_photo_plus_both_page_crops(tmp_path):
     path.write_bytes(_jpeg_bytes(_spread()))
     client = core.LLMClient(provider="gemini", gemini=_CapturingGemini())
 
-    core.transcribe_image(client, path, "system prompt", "gemini-2.5-pro", zoom_pages=True)
+    core.transcribe_image(client, path, "system prompt", "gemini-3.1-pro-preview", zoom_pages=True)
 
     assert len(_image_parts(client.gemini.contents)) == 3
     assert client.gemini.contents[-1].endswith(page_zoom.PAGE_ZOOM_INSTRUCTION)
@@ -99,7 +99,7 @@ def test_without_zoom_only_the_full_photo_is_sent(tmp_path):
     path.write_bytes(_jpeg_bytes(_spread()))
     client = core.LLMClient(provider="gemini", gemini=_CapturingGemini())
 
-    core.transcribe_image(client, path, "system prompt", "gemini-2.5-pro")
+    core.transcribe_image(client, path, "system prompt", "gemini-3.1-pro-preview")
 
     assert len(_image_parts(client.gemini.contents)) == 1
     assert client.gemini.contents[-1] == core.USER_INSTRUCTION
@@ -111,7 +111,7 @@ def test_zoom_falls_back_to_the_full_photo_when_no_gutter_is_found(tmp_path):
     client = core.LLMClient(provider="gemini", gemini=_CapturingGemini())
     messages = []
 
-    core.transcribe_image(client, path, "system prompt", "gemini-2.5-pro", zoom_pages=True, progress=messages.append)
+    core.transcribe_image(client, path, "system prompt", "gemini-3.1-pro-preview", zoom_pages=True, progress=messages.append)
 
     assert len(_image_parts(client.gemini.contents)) == 1
     assert any("no clear gutter" in message for message in messages)
@@ -131,9 +131,9 @@ def test_off_peak_gemini_batch_includes_page_crops_when_zoom_is_on(tmp_path):
     path.write_bytes(_jpeg_bytes(_spread()))
     client = types.SimpleNamespace(batches=_FakeBatches())
 
-    bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [path], zoom_pages=True)
+    bt.submit_gemini_batch(client, "gemini-3.1-pro-preview", "system prompt", [path], zoom_pages=True)
     zoomed = client.batches.src[0].contents
-    bt.submit_gemini_batch(client, "gemini-2.5-pro", "system prompt", [path])
+    bt.submit_gemini_batch(client, "gemini-3.1-pro-preview", "system prompt", [path])
     plain = client.batches.src[0].contents
 
     assert len(_image_parts(zoomed)) == 3
@@ -218,7 +218,7 @@ def test_run_test_job_passes_each_runs_zoom_setting_to_the_batch(sandboxed_user_
         ctapp.test_state["running"] = True
         ctapp.test_state["runs"] = {"run-a": ctapp.new_test_run_state(), "run-b": ctapp.new_test_run_state()}
         ctapp.test_state["runs"]["run-b"]["zoom_pages"] = True
-    model = "gemini-2.5-pro"
+    model = "gemini-3.1-pro-preview"
     run_specs = [
         ("run-a", "Batch · Model A", model, "key", tmp_path / "a.md", tmp_path / "a.docx"),
         ("run-b", "Batch · Model B (Page zoom)", model, "key", tmp_path / "b.md", tmp_path / "b.docx"),

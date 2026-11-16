@@ -359,39 +359,7 @@ def test_truncated_claude_response_is_not_retried(monkeypatch):
     assert result == "partial text" + core._TRUNCATION_NOTICE
 
 
-def test_truncated_gemini_25_pro_response_is_not_retried(monkeypatch):
-    """gemini-2.5-pro has no ThinkingLevel to cap (_gemini_thinking_is_cappable()
-    gates on the gemini-3/gemini-4 prefixes) -- retrying would just spend a
-    second API call for no effect."""
-    calls = []
-
-    def fake_transcribe_image(
-        client,
-        image_path,
-        system_prompt,
-        model,
-        include_thoughts=False,
-        max_thinking_level=None,
-        cached_content=None,
-        use_prompt_cache=False,
-        **_kwargs,
-    ):
-        calls.append(max_thinking_level)
-        return "partial text" + core._TRUNCATION_NOTICE
-
-    monkeypatch.setattr(core, "transcribe_image", fake_transcribe_image)
-    result = core.transcribe_image_with_retry(
-        client=core.LLMClient(provider="gemini"),
-        image_path=core.Path("image_001.jpg"),
-        system_prompt="sys",
-        model="gemini-2.5-pro",
-    )
-    assert calls == [None]
-    assert result == "partial text" + core._TRUNCATION_NOTICE
-
-
-def test_gemini_thinking_cappable_covers_3_and_4_but_not_25():
+def test_gemini_thinking_cappable_covers_3_and_4_but_not_claude():
     assert core._gemini_thinking_is_cappable("gemini-3.1-pro-preview")
     assert core._gemini_thinking_is_cappable("gemini-4-argon")
-    assert not core._gemini_thinking_is_cappable("gemini-2.5-pro")
     assert not core._gemini_thinking_is_cappable("claude-opus-5-5")

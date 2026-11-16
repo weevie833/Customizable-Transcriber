@@ -182,6 +182,9 @@
     // Off-Peak Mode info-button popup (OFF_PEAK_INFO_TEXT, pages/transcribe.py).
     "Off-Peak Mode submits your whole run to your provider's batch queue instead of processing images in real time -- typically billed at roughly half the standard per-token rate. The app must stay open and running for the entire job; there is no way to submit it and close the app. The provider processes it on its own schedule, which can take anywhere from a few minutes to several hours -- there is no guaranteed turnaround time. Clicking Stop cancels the batch entirely on the provider's side: any images not yet completed are lost, not paused.":
       "La Modalità Off-Peak invia l'intera esecuzione alla coda batch del tuo provider invece di elaborare le immagini in tempo reale — di norma fatturata a circa la metà della tariffa standard per token. L'app deve rimanere aperta e in esecuzione per tutta la durata del lavoro; non è possibile inviarlo e poi chiudere l'app. Il provider lo elabora secondo i propri tempi, che possono variare da pochi minuti a diverse ore — non è garantito alcun tempo di consegna. Cliccando su Interrompi, il lotto viene annullato completamente lato provider: le immagini non ancora completate vengono perse, non messe in pausa.",
+    // Test Mode's Off-Peak info button (TM_OFF_PEAK_INFO_TEXT, pages/test_mode.py).
+    "Off-Peak submits every queued run to its provider's batch queue instead of processing images in real time -- typically billed at roughly half the standard per-token rate. All runs are submitted at once and finish on the provider's own schedule, which can take from a few minutes to several hours. The app must stay open and running until every run finishes. Clicking Stop cancels every batch on the provider's side: images not yet completed are lost, not paused.":
+      "Off-Peak invia ogni esecuzione in coda alla coda batch del relativo provider invece di elaborare le immagini in tempo reale — di norma fatturata a circa la metà della tariffa standard per token. Tutte le esecuzioni vengono inviate insieme e terminano secondo i tempi del provider, che possono variare da pochi minuti a diverse ore. L'app deve rimanere aperta e in esecuzione finché ogni esecuzione non è terminata. Cliccando su Interrompi, ogni lotto viene annullato lato provider: le immagini non ancora completate vengono perse, non messe in pausa.",
     // Page zoom in Test Mode (pages/test_mode.py) and Prompt Builder (pages/prompt_builder.py).
     "Page zoom for Model A":
       "Zoom sulle pagine per il Modello A",
@@ -568,7 +571,8 @@
 
     // XLS Conversion page
     "Gemini 3.1 Pro Preview - higher accuracy": "Gemini 3.1 Pro Preview - maggiore precisione",
-    "Gemini 2.5 Pro - stable, high-accuracy baseline": "Gemini 2.5 Pro - base stabile ad alta precisione",
+    "Gemini 4 Carbon - strongest reasoning, slower": "Gemini 4 Carbon - ragionamento più avanzato, più lento",
+    "Gemini 4 Argon - faster Gemini 4": "Gemini 4 Argon - Gemini 4 più veloce",
     "Claude Opus 5.5 - highest accuracy, stronger visual reading": "Claude Opus 5.5 - massima precisione, lettura visiva migliorata",
     "Claude Opus 5 - high accuracy": "Claude Opus 5 - alta precisione",
     "Claude Sonnet 5 - balanced speed / intelligence": "Claude Sonnet 5 - velocità/intelligenza bilanciate",

@@ -727,3 +727,44 @@ footer a {
     display: grid;
   }
 }
+
+/* "A new version is available" notice, added by static/i18n.js on every page.
+   Same rules in static/base.css and xls_conversion/styles.css. */
+.update-banner {
+  background: #eef4fb;
+  border: 1px solid #cddcee;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 0 0 20px;
+  color: #1f2a36;
+  font-size: 14px;
+}
+.update-banner p {
+  margin: 0 0 6px;
+}
+.update-banner p:last-child {
+  margin-bottom: 0;
+}
+.update-banner a {
+  color: #255c99;
+}
+.update-banner-command {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 6px;
+}
+.update-banner-command code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: #ffffff;
+  border: 1px solid #cddcee;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.update-banner-command button {
+  flex: 0 0 auto;
+}

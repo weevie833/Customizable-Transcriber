@@ -647,6 +647,20 @@
     // now that alert text is in scope for this file (see the top-of-file
     // comment).
     "Conversion completed": "Conversione completata",
+    // Update-available notice (checkForUpdate() below)
+    "Update available": "Aggiornamento disponibile",
+    "A new version of the app is available:": "È disponibile una nuova versione dell'app:",
+    "(you have": "(hai la",
+    "Download the new version for Mac": "Scarica la nuova versione per Mac",
+    "then close the app's Terminal window, open the downloaded file and drag Customizable Transcriber into Applications, choosing Replace.":
+      "poi chiudi la finestra del Terminale dell'app, apri il file scaricato e trascina Customizable Transcriber in Applicazioni, scegliendo Sostituisci.",
+    "Or copy this line, close the app's Terminal window, then paste the line into Terminal and press Return:":
+      "Oppure copia questa riga, chiudi la finestra del Terminale dell'app, poi incolla la riga nel Terminale e premi Invio:",
+    "Copy": "Copia",
+    "Copied": "Copiato",
+    "To update, download the new version from the link below and follow UPDATING in Install Instructions.txt.":
+      "Per aggiornare, scarica la nuova versione dal link qui sotto e segui la sezione UPDATING di Install Instructions.txt.",
+    "What's new in this version": "Novità di questa versione",
     "Scroll down and review the Spreadsheet output panel, then click Download to save your file(s).":
       "Scorri verso il basso, controlla il pannello Foglio di calcolo di output, poi clicca su Scarica per salvare i tuoi file.",
     // Transcribe's "Translate completed transcript" section
@@ -1106,10 +1120,105 @@
       .catch(function () {});
   }
 
+  // "A new version is available" notice, placed under the page header. The
+  // server asks GitHub (app.py /api/update-check, update_check.py); nothing is
+  // shown when it can't tell or there's nothing newer. Every fixed sentence is
+  // its own text node so the DICTIONARY translates it; version numbers sit in
+  // their own nodes.
+  function checkForUpdate() {
+    var main = document.getElementById("main-content");
+    if (!main || document.querySelector(".update-banner")) return;
+    fetch("/api/update-check", { cache: "no-store" })
+      .then(function (resp) { return resp.ok ? resp.json() : null; })
+      .then(function (data) {
+        if (!data || !data.update_available) return;
+        showUpdateBanner(main, data);
+      })
+      .catch(function () {});
+  }
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  function showUpdateBanner(main, data) {
+    var banner = el("section", "update-banner");
+    banner.setAttribute("role", "status");
+    banner.setAttribute("aria-label", "Update available");
+
+    var first = el("p");
+    first.appendChild(el("strong", "", "A new version of the app is available:"));
+    first.appendChild(document.createTextNode(" v" + data.latest + " "));
+    first.appendChild(el("span", "", "(you have"));
+    first.appendChild(document.createTextNode(" v" + data.current + ")"));
+    banner.appendChild(first);
+
+    if (data.platform === "mac") {
+      // The signed disk image (mac-release.yml) is the easy way; the Terminal
+      // line updates the same installed copy, for whoever prefers it.
+      var dmg = el("p");
+      var dmgLink = el("a", "", "Download the new version for Mac");
+      dmgLink.href = data.mac_download_url;
+      dmg.appendChild(dmgLink);
+      dmg.appendChild(document.createTextNode(" "));
+      dmg.appendChild(el("span", "",
+        "then close the app's Terminal window, open the downloaded file and drag Customizable Transcriber into Applications, choosing Replace."));
+      banner.appendChild(dmg);
+      banner.appendChild(el("p", "",
+        "Or copy this line, close the app's Terminal window, then paste the line into Terminal and press Return:"));
+      var row = el("div", "update-banner-command");
+      var code = el("code", "", data.install_line);
+      var copy = el("button", "", "Copy");
+      copy.type = "button";
+      // If the browser won't write to the clipboard, select the line instead,
+      // so Command-C copies it.
+      var selectLine = function () {
+        var range = document.createRange();
+        range.selectNodeContents(code);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      };
+      copy.addEventListener("click", function () {
+        if (!navigator.clipboard) { selectLine(); return; }
+        navigator.clipboard.writeText(data.install_line).then(function () {
+          copy.textContent = "Copied";
+          if (window.tbRefreshLanguage) window.tbRefreshLanguage();
+        }).catch(selectLine);
+      });
+      row.appendChild(code);
+      row.appendChild(copy);
+      banner.appendChild(row);
+    } else {
+      banner.appendChild(el("p", "",
+        "To update, download the new version from the link below and follow UPDATING in Install Instructions.txt."));
+    }
+
+    var last = el("p");
+    var link = el("a", "", "What's new in this version");
+    link.href = data.release_url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    last.appendChild(link);
+    banner.appendChild(last);
+
+    var header = main.querySelector(".site-header");
+    if (header && header.parentNode === main) {
+      header.insertAdjacentElement("afterend", banner);
+    } else {
+      main.insertBefore(banner, main.firstChild);
+    }
+    if (window.tbRefreshLanguage) window.tbRefreshLanguage();
+  }
+
   function init() {
     var storedLang = getCookie(STORAGE_KEY) || "en";
     applyLanguage(storedLang);
     loadAppVersion();
+    checkForUpdate();
 
     document.querySelectorAll(".lang-flag").forEach(function (button) {
       button.addEventListener("click", function () {

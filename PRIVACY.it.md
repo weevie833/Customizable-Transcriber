@@ -71,6 +71,14 @@ server gestito dall'editore del software:
 Nient'altro lascia il tuo computer. L'app non invia analitiche o telemetria
 da nessuna parte e non trasmette nulla all'editore del software.
 
+**Controllo degli aggiornamenti.** Per avvisarti quando è disponibile una
+nuova versione, l'app chiede a GitHub (github.com) il nome della sua ultima
+versione pubblicata, al massimo circa due volte al giorno mentre l'app è in
+esecuzione. La richiesta non contiene nulla su di te, sui tuoi file o sulle
+tue impostazioni; come ogni richiesta web, mostra a GitHub il tuo indirizzo
+IP. Per disattivarlo, avvia l'app con la variabile d'ambiente
+`CT_NO_UPDATE_CHECK=1`.
+
 **Gestione della chiave API** (verificata nell'audit di preparazione alla
 produzione di questo progetto): le chiavi vengono mantenute solo in memoria
 per la durata della richiesta che le utilizza. Non vengono mai scritte in

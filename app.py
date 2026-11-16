@@ -61,6 +61,7 @@ from run_support import (
     page_zoom_advice,
     run_test_job,  # noqa: F401 -- re-exported for tests
 )
+from update_check import update_status
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -398,6 +399,12 @@ class Handler(
 
         if parsed.path == "/version":
             self.respond_json({"version": APP_VERSION})
+            return
+
+        if parsed.path == "/api/update-check":
+            # Asks GitHub for the latest release (cached; see update_check.py).
+            # Done server-side because the pages' CSP allows fetch only to this app.
+            self.respond_json(update_status(APP_VERSION))
             return
 
         if parsed.path == "/api/models":

@@ -4,6 +4,7 @@ own decisions."""
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -228,3 +229,136 @@ def test_failed_mac_app_says_so_and_tries_again_next_start(monkeypatch, tmp_path
     launch.ensure_mac_app(tmp_path)
     assert "couldn't be added" in capsys.readouterr().out
     assert not list(tmp_path.iterdir())
+
+
+# --- macOS one-line installer (install-mac.sh) -----------------------------
+
+INSTALLER = ROOT / "install-mac.sh"
+
+
+def test_installer_is_an_executable_lf_bash_script():
+    raw = INSTALLER.read_bytes()
+    assert raw.startswith(b"#!/bin/bash\n")
+    assert b"\r" not in raw and raw.isascii()
+    assert os.access(INSTALLER, os.X_OK) or os.name == "nt"
+    if os.name != "nt":
+        subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
+
+
+def test_installer_runs_only_once_fully_downloaded():
+    """`curl | bash` runs a script as it arrives: everything must sit in functions, with
+    the one call to main on the last line."""
+    lines = [l for l in INSTALLER.read_text().splitlines() if l.strip()]
+    assert lines[-1] == 'main "$@"'
+    top_level = [l for l in lines if not l.startswith((" ", "\t", "#", "}"))]
+    assert all(re.match(r'(\w+=|\w+\(\) \{$|main "\$@"$)', l) for l in top_level), top_level
+
+
+def test_installer_names_this_repo_and_the_start_file():
+    text = INSTALLER.read_text()
+    readme = (ROOT / "README.md").read_text()
+    url = re.search(r"https://raw\.githubusercontent\.com/\S+/install-mac\.sh", text).group(0)
+    assert url in readme
+    repo = re.search(r'REPO="([^"]+)"', text).group(1)
+    assert f"raw.githubusercontent.com/{repo}/main/" in url
+    assert f'START_FILE="{COMMAND.name}"' in text
+
+
+def test_installer_is_left_out_of_the_zip():
+    attrs = (ROOT / ".gitattributes").read_text().splitlines()
+    assert "install-mac.sh export-ignore" in attrs
+    assert "*.sh text eol=lf" in attrs
+
+
+# --- macOS signed app (mac/: the disk image's app, built and notarized by CI) ---
+
+MAC_DIR = ROOT / "mac"
+APP_LAUNCHER = MAC_DIR / "launcher.sh"
+
+
+def write_signed_app_marker(runtime_dir, bundle):
+    (bundle / "Contents").mkdir(parents=True)
+    (bundle / "Contents" / "Info.plist").write_text("<plist/>")
+    (runtime_dir / "signed-app.txt").write_text(str(bundle))
+
+
+def test_no_own_mac_app_when_the_signed_app_is_installed(monkeypatch, tmp_path):
+    made = []
+    monkeypatch.setattr(launch, "create_mac_app", lambda: made.append(1) or True)
+    write_signed_app_marker(tmp_path, tmp_path / "Applications" / "Customizable Transcriber.app")
+    launch.ensure_mac_app(tmp_path)
+    assert made == []
+
+
+def test_signed_app_that_was_deleted_no_longer_counts(tmp_path):
+    bundle = tmp_path / "Customizable Transcriber.app"
+    write_signed_app_marker(tmp_path, bundle)
+    assert launch.signed_app_installed(tmp_path)
+    import shutil
+    shutil.rmtree(bundle)
+    assert not launch.signed_app_installed(tmp_path)
+
+
+@pytest.mark.parametrize("points_here", [True, False])
+def test_own_mac_app_is_removed_only_when_it_opens_this_copy(monkeypatch, tmp_path, points_here):
+    apps = tmp_path / "apps"
+    monkeypatch.setattr(launch, "MAC_APPS_DIR", apps)
+    apps.mkdir()
+    assert launch.create_mac_app()
+    if not points_here:
+        (apps / launch.MAC_APP_NAME / "Contents" / "Resources" / "start-file.txt").write_text("/elsewhere")
+    write_signed_app_marker(tmp_path, tmp_path / "signed" / "Customizable Transcriber.app")
+    launch.ensure_mac_app(tmp_path)
+    assert (apps / launch.MAC_APP_NAME).exists() is not points_here
+
+
+@pytest.mark.parametrize("path", ["launcher.sh", "build.sh"])
+def test_mac_scripts_are_executable_lf_bash(path):
+    script = MAC_DIR / path
+    raw = script.read_bytes()
+    assert raw.startswith(b"#!/bin/bash\n") and b"\r" not in raw
+    assert os.access(script, os.X_OK) or os.name == "nt"
+    if os.name != "nt":
+        subprocess.run(["bash", "-n", str(script)], check=True)
+
+
+def test_signed_app_identity_and_start_file():
+    import plistlib
+    info = plistlib.loads((MAC_DIR / "Info.plist").read_bytes())
+    assert info["CFBundleIdentifier"] == "io.github.weevie833.customizable-transcriber"
+    assert info["CFBundleShortVersionString"] == "__VERSION__"
+    assert f'START_FILE="{COMMAND.name}"' in APP_LAUNCHER.read_text()
+    assert "signed-app.txt" in APP_LAUNCHER.read_text()
+
+
+def test_mac_build_files_are_left_out_of_the_zip():
+    assert "mac/ export-ignore" in (ROOT / ".gitattributes").read_text().splitlines()
+
+
+@pytest.mark.skipif(sys.platform != "darwin",
+                    reason="uses ditto and xattr")
+def test_signed_app_installs_only_a_newer_copy(tmp_path):
+    bundle = tmp_path / "Customizable Transcriber.app"
+    resources = bundle / "Contents" / "Resources"
+    (resources / "app").mkdir(parents=True)
+    (resources / "launcher.sh").write_bytes(APP_LAUNCHER.read_bytes())
+    (resources / "app" / "VERSION").write_text("0.6.0\n")
+    (resources / "app" / COMMAND.name).write_text("#!/bin/bash\n")
+    app_dir = tmp_path / "support" / "App"
+    env = dict(os.environ, CT_APP_DIR=str(app_dir), CT_RUNTIME_DIR=str(tmp_path / "support" / "Runtime"),
+               CT_SERVER_URL="http://127.0.0.1:1/", CT_LAUNCH_DRY_RUN="1")
+
+    def run():
+        out = subprocess.run(["bash", str(resources / "launcher.sh")], env=env,
+                             capture_output=True, text=True, check=True).stdout
+        return out, (app_dir / "VERSION").read_text().strip()
+
+    out, version = run()
+    assert version == "0.6.0" and out.startswith("open -a Terminal ") and COMMAND.name in out
+    assert os.access(app_dir / COMMAND.name, os.X_OK)
+    assert (tmp_path / "support" / "Runtime" / "signed-app.txt").read_text() == str(bundle.resolve())
+    (app_dir / "VERSION").write_text("0.10.0\n")    # newer, e.g. from the one-line installer
+    assert run()[1] == "0.10.0"
+    (app_dir / "VERSION").write_text("0.5.9\n")
+    assert run()[1] == "0.6.0"
+    assert sorted(p.name for p in app_dir.parent.iterdir()) == ["App", "Runtime"]    # no -new or -old left

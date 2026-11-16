@@ -4,9 +4,31 @@ Local AI transcription app for archival records, using Google Gemini or Anthropi
 
 ## Easy install (Windows, and Macs with Apple silicon)
 
-Download the ZIP, extract it, and double-click **Start Customizable
-Transcriber (Windows)** or **Start Customizable Transcriber (Mac)** in the
-extracted folder. The first run downloads a private copy of Python and the app's packages
+**Mac:** download
+[Customizable-Transcriber-Mac.dmg](https://github.com/weevie833/Customizable-Transcriber/releases/latest/download/Customizable-Transcriber-Mac.dmg),
+open it, and drag **Customizable Transcriber** into **Applications**. Open it
+from Applications; macOS asks once whether to open an app downloaded from the
+internet (click **Open**). The app is signed and notarized by Apple, so there
+is no "Apple could not verify..." warning. The first start opens a Terminal
+window that downloads a private copy of Python and the app's packages (a few
+minutes), then opens the app in your browser. To update, download the new
+disk image and drag the app in again, choosing **Replace**.
+
+**Mac, with Terminal instead:** open Terminal (Applications → Utilities),
+paste this line, and press Return:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/weevie833/Customizable-Transcriber/main/install-mac.sh | bash
+```
+
+It downloads the latest release into
+`~/Library/Application Support/Customizable Transcriber/App`, sets it up, and
+starts it. Paste the same line again to update. Both ways install to the same
+folder, so you can switch between them.
+
+**Windows, or the ZIP on a Mac:** download the ZIP, extract it, and
+double-click **Start Customizable Transcriber (Windows)** or **Start
+Customizable Transcriber (Mac)** in the extracted folder. The first run downloads a private copy of Python and the app's packages
 (no admin rights, nothing installed system-wide), then opens the app in your
 browser. It also adds a shortcut: on the desktop on Windows, and a
 "Customizable Transcriber" app in `~/Applications` on a Mac. Step-by-step

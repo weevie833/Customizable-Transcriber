@@ -1,0 +1,99 @@
+# Builds the signed, notarized Mac app and disk image (mac/build.sh) and, for a version tag,
+# attaches Customizable-Transcriber-Mac.dmg to that tag's GitHub release. The file name never
+# changes, so https://github.com/<repo>/releases/latest/download/Customizable-Transcriber-Mac.dmg
+# always gets the newest one.
+#
+# Run it by hand (Actions > Mac release > Run workflow) to check signing and notarization
+# without a release: the disk image is then kept as a run artifact only.
+#
+# Secrets (repository settings > Secrets and variables > Actions):
+#   MACOS_CERTIFICATE_P12        base64 of the Developer ID Application .p12
+#   MACOS_CERTIFICATE_PASSWORD   that .p12's password
+#   NOTARY_API_KEY               contents of the App Store Connect API key (.p8)
+#   NOTARY_API_KEY_ID            its Key ID
+#   NOTARY_ISSUER_ID             its Issuer ID
+name: Mac release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write    # attach the disk image to the release
+
+concurrency:
+  group: mac-release-${{ github.ref }}
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import the signing certificate into a temporary keychain
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          # Apple's Developer ID intermediate, so codesign can build the certificate chain.
+          curl --fail --silent --show-error --output "$RUNNER_TEMP/DeveloperIDG2CA.cer" \
+            https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain" || true
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" \
+            | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)"
+          [ -n "$identity" ] || { echo "No Developer ID Application identity in the certificate." >&2; exit 1; }
+          echo "CT_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Build, sign and notarize
+        env:
+          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          export NOTARY_KEY_PATH="$RUNNER_TEMP/notary-key.p8"
+          printf '%s\n' "$NOTARY_API_KEY" > "$NOTARY_KEY_PATH"
+          trap 'rm -f "$NOTARY_KEY_PATH"' EXIT
+          mac/build.sh "$RUNNER_TEMP/out"
+
+      - name: Check the disk image's version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "VERSION is $version but the tag is $GITHUB_REF_NAME" >&2; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Customizable-Transcriber-Mac
+          path: ${{ runner.temp }}/out/Customizable-Transcriber-Mac.dmg
+          retention-days: 14
+
+      - name: Attach the disk image to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/out/Customizable-Transcriber-Mac.dmg" --clobber
+
+      - name: Remove the temporary keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true

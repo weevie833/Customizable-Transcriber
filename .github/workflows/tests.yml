@@ -191,6 +191,16 @@ jobs:
           kill %1
           [ -n "$up" ] || { echo "The app didn't answer on http://127.0.0.1:8765/"; exit 1; }
 
+      - name: Install with the one-line installer (from this commit's archive)
+        run: |
+          git archive --format=tar.gz --prefix=app/ -o "$RUNNER_TEMP/app.tar.gz" HEAD
+          CT_ARCHIVE_URL="file://$RUNNER_TEMP/app.tar.gz" CT_APP_DIR="$RUNNER_TEMP/ct/App" bash install-mac.sh
+          test -x "$RUNNER_TEMP/ct/App/Start Customizable Transcriber (Mac).command"
+          test ! -e "$RUNNER_TEMP/ct/App-old"
+          # A second run is an update: the installed copy is replaced, not duplicated.
+          CT_ARCHIVE_URL="file://$RUNNER_TEMP/app.tar.gz" CT_APP_DIR="$RUNNER_TEMP/ct/App" bash install-mac.sh
+          test ! -e "$RUNNER_TEMP/ct/App-old" && test ! -e "$RUNNER_TEMP/ct/App-new"
+
   # Mostly informational (continue-on-error: true below) -- reports Ruff's
   # default findings on every push/PR without failing the build. Added per
   # reviews/CODEX_REVIEW.md finding L-8 / reviews/HUMAN_DECISIONS.md, specifically to catch

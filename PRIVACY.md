@@ -67,6 +67,13 @@ Nothing else leaves your machine. The app does not send analytics or
 telemetry anywhere, and does not transmit anything to the software's
 publisher.
 
+**Update check.** To tell you when a newer version is available, the app
+asks GitHub (github.com) for the name of its latest release, at most about
+twice a day while the app is running. The request carries nothing about you,
+your files or your settings; like any web request, it shows GitHub your IP
+address. To turn it off, start the app with the environment variable
+`CT_NO_UPDATE_CHECK=1`.
+
 **API key handling** (verified in this project's own production-readiness
 audit): if you paste your key into the browser each run (the default, and
 the option README recommends first), the app itself never writes it to any

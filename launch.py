@@ -185,9 +185,38 @@ def create_mac_app() -> bool:
     return True
 
 
+def signed_app_installed(runtime_dir: Path) -> bool:
+    """The signed app from the disk image writes its own location here each
+    time it starts this copy (mac/launcher.sh)."""
+    try:
+        bundle = Path((runtime_dir / "signed-app.txt").read_text(encoding="utf-8").strip())
+    except OSError:
+        return False
+    return bundle.name.endswith(".app") and (bundle / "Contents" / "Info.plist").is_file()
+
+
+def remove_own_mac_app() -> None:
+    """With the signed app installed, the small app made here would be a second
+    "Customizable Transcriber" in Spotlight and Launchpad. Removed only when it
+    is ours and opens this same copy."""
+    import shutil
+    target = MAC_APPS_DIR / MAC_APP_NAME
+    try:
+        points_here = (target / "Contents" / "Resources" / "start-file.txt").read_text(
+            encoding="utf-8") == str(COMMAND_PATH)
+    except OSError:
+        return
+    if points_here and _is_our_mac_app(target):
+        shutil.rmtree(target, ignore_errors=True)
+
+
 def ensure_mac_app(runtime_dir: Path) -> None:
     """Once per app location, like the Windows shortcut: a deleted app stays
-    deleted, and a moved or replaced app folder gets an app that points at it."""
+    deleted, and a moved or replaced app folder gets an app that points at it.
+    Not made at all when the signed app is installed."""
+    if signed_app_installed(runtime_dir):
+        remove_own_mac_app()
+        return
     marker = runtime_dir / "mac-app-for.txt"
     try:
         if marker.read_text(encoding="utf-8") == str(COMMAND_PATH):

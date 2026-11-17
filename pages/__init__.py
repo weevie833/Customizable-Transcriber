@@ -82,7 +82,7 @@ def info_button_html(panel_id: str, text: str) -> str:
     )
 
 
-def file_picker_html(input_id: str = "", accept: str = "", extra_attrs: str = "") -> str:
+def file_picker_html(input_id: str = "", accept: str = "", extra_attrs: str = "", drop_zone: bool = False) -> str:
     """A <label class="file-picker"> wrapping a visually-hidden <input
     type="file"> plus a translatable "Choose file" button stand-in and a
     filename/placeholder span.
@@ -107,11 +107,17 @@ def file_picker_html(input_id: str = "", accept: str = "", extra_attrs: str = ""
     which are found by a `data-*` attribute instead of an id. `extra_attrs`
     is spliced verbatim into the <input> tag for exactly that kind of
     attribute (e.g. `data-extra-file`).
+
+    `drop_zone` adds the `drop-zone` class (a file can also be dragged onto
+    the picker; Test Mode wires this in static/test-mode.js) and a
+    placeholder that says so.
     """
     id_attr = f' id="{input_id}"' if input_id else ""
     attrs = f" {extra_attrs}" if extra_attrs else ""
+    css_class = "file-picker drop-zone" if drop_zone else "file-picker"
+    placeholder = "No file selected - or drop one here" if drop_zone else "No file selected"
     return (
-        f'<label class="file-picker"><input type="file"{id_attr} accept="{accept}"{attrs}>'
+        f'<label class="{css_class}"><input type="file"{id_attr} accept="{accept}"{attrs}>'
         '<span class="file-picker-btn">Choose file</span>'
-        '<span class="file-picker-name">No file selected</span></label>'
+        f'<span class="file-picker-name">{placeholder}</span></label>'
     )

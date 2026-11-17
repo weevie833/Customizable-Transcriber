@@ -270,18 +270,18 @@ def test_mode_page() -> str:
     <div id="extra-model-files">
       <div class="extra-file-row">
         <input type="text" placeholder="Label for this model" data-extra-label>
-        {file_picker_html(accept=".docx", extra_attrs="data-extra-file")}
+        {file_picker_html(accept=".docx", extra_attrs="data-extra-file", drop_zone=True)}
       </div>
       <div class="extra-file-row">
         <input type="text" placeholder="Label for this model" data-extra-label>
-        {file_picker_html(accept=".docx", extra_attrs="data-extra-file")}
+        {file_picker_html(accept=".docx", extra_attrs="data-extra-file", drop_zone=True)}
       </div>
     </div>
     <button id="add-extra-file-button" class="button-tiny" type="button">Add another</button>
     <label>100% Corrected DOCX</label>
     <div class="extra-file-row">
       <input type="text" id="corrected-label-input" placeholder="Label for this model">
-      {file_picker_html("corrected-file-input", ".docx")}
+      {file_picker_html("corrected-file-input", ".docx", drop_zone=True)}
     </div>
     <p id="compare-file-status" class="hint"></p>
     <div class="actions">
@@ -300,18 +300,18 @@ def test_mode_page() -> str:
     <div id="ic-candidate-files">
       <div class="extra-file-row">
         <input type="text" placeholder="Label for this model" data-ic-label>
-        {file_picker_html(accept=".xlsx", extra_attrs="data-ic-file")}
+        {file_picker_html(accept=".xlsx", extra_attrs="data-ic-file", drop_zone=True)}
       </div>
       <div class="extra-file-row">
         <input type="text" placeholder="Label for this model" data-ic-label>
-        {file_picker_html(accept=".xlsx", extra_attrs="data-ic-file")}
+        {file_picker_html(accept=".xlsx", extra_attrs="data-ic-file", drop_zone=True)}
       </div>
     </div>
     <button id="ic-add-candidate-button" class="button-tiny" type="button">Add another</button>
     <label>100% Corrected XLSX</label>
     <div class="extra-file-row">
       <input type="text" id="ic-ground-truth-label" placeholder="Label for this index">
-      {file_picker_html("ic-ground-truth-file", ".xlsx")}
+      {file_picker_html("ic-ground-truth-file", ".xlsx", drop_zone=True)}
     </div>
     <p id="ic-status" class="hint"></p>
     <div class="actions">

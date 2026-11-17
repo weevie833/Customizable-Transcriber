@@ -360,7 +360,7 @@ the inline block used to sit. */
       row.className = "extra-file-row";
       row.innerHTML =
         '<input type="text" placeholder="Label for this model" data-extra-label>' +
-        "<label class=\"file-picker\"><input type=\"file\" accept=\".docx\" data-extra-file><span class=\"file-picker-btn\">Choose file<\/span><span class=\"file-picker-name\">No file selected<\/span><\/label>" +
+        "<label class=\"file-picker drop-zone\"><input type=\"file\" accept=\".docx\" data-extra-file><span class=\"file-picker-btn\">Choose file<\/span><span class=\"file-picker-name\">No file selected - or drop one here<\/span><\/label>" +
         '<button type="button" class="danger extra-file-remove">Remove</button>';
       row.querySelector(".extra-file-remove").addEventListener("click", () => row.remove());
       container.appendChild(row);
@@ -380,7 +380,7 @@ the inline block used to sit. */
       row.className = "extra-file-row";
       row.innerHTML =
         '<input type="text" placeholder="Label for this model" data-ic-label>' +
-        "<label class=\"file-picker\"><input type=\"file\" accept=\".xlsx\" data-ic-file><span class=\"file-picker-btn\">Choose file<\/span><span class=\"file-picker-name\">No file selected<\/span><\/label>" +
+        "<label class=\"file-picker drop-zone\"><input type=\"file\" accept=\".xlsx\" data-ic-file><span class=\"file-picker-btn\">Choose file<\/span><span class=\"file-picker-name\">No file selected - or drop one here<\/span><\/label>" +
         '<button type="button" class="danger extra-file-remove">Remove</button>';
       row.querySelector(".extra-file-remove").addEventListener("click", () => row.remove());
       container.appendChild(row);
@@ -795,6 +795,56 @@ the inline block used to sit. */
       const picker = input.closest(".file-picker");
       const nameEl = picker && picker.querySelector(".file-picker-name");
       if (nameEl && input.files && input.files.length) nameEl.textContent = input.files[0].name;
+    });
+
+    // Compare Transcripts / Compare Indexes pickers are drop zones too
+    // (file_picker_html(drop_zone=True)). A dropped file is put into the
+    // picker's own <input type="file"> and a "change" event is fired, so
+    // the rest of the page reads it exactly as if it had been chosen.
+    // Files dropped anywhere else on the page are ignored rather than
+    // letting the browser navigate away to open them.
+    function dragHasFiles(event) {
+      return !!(event.dataTransfer && Array.from(event.dataTransfer.types || []).includes("Files"));
+    }
+    function fileMatchesAccept(file, accept) {
+      const exts = (accept || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+      return !exts.length || exts.some((ext) => file.name.toLowerCase().endsWith(ext));
+    }
+    document.addEventListener("dragover", (event) => {
+      if (!dragHasFiles(event)) return;
+      event.preventDefault();
+      const zone = event.target.closest && event.target.closest(".file-picker.drop-zone");
+      event.dataTransfer.dropEffect = zone ? "copy" : "none";
+      document.querySelectorAll(".file-picker.drop-zone.drag-over").forEach((el) => {
+        if (el !== zone) el.classList.remove("drag-over");
+      });
+      if (zone) zone.classList.add("drag-over");
+    });
+    document.addEventListener("dragleave", (event) => {
+      const zone = event.target.closest && event.target.closest(".file-picker.drop-zone");
+      if (zone && !zone.contains(event.relatedTarget)) zone.classList.remove("drag-over");
+    });
+    document.addEventListener("drop", (event) => {
+      if (!dragHasFiles(event)) return;
+      event.preventDefault();
+      document.querySelectorAll(".file-picker.drop-zone.drag-over").forEach((el) => el.classList.remove("drag-over"));
+      const zone = event.target.closest && event.target.closest(".file-picker.drop-zone");
+      const input = zone && zone.querySelector('input[type="file"]');
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      if (!input || !file) return;
+      if (!fileMatchesAccept(file, input.getAttribute("accept"))) {
+        const nameEl = zone.querySelector(".file-picker-name");
+        if (nameEl) {
+          nameEl.textContent = "Wrong file type - use a " + input.getAttribute("accept") + " file";
+          if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
+        }
+        input.value = "";
+        return;
+      }
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
     window.addEventListener("DOMContentLoaded", () => {

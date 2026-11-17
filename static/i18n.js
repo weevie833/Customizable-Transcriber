@@ -605,6 +605,9 @@
     "Choose DOCX file": "Scegli file DOCX",
     "or drag and drop it here": "oppure trascinalo qui",
     "No file selected": "Nessun file selezionato",
+    "No file selected - or drop one here": "Nessun file selezionato - oppure trascinalo qui",
+    "Wrong file type - use a .docx file": "Tipo di file errato - usa un file .docx",
+    "Wrong file type - use a .xlsx file": "Tipo di file errato - usa un file .xlsx",
     // Shared .file-picker component (see static/base.css) -- the translatable
     // stand-in button/placeholder used everywhere a bare <input type="file">
     // used to show the browser's own, never-translatable "Choose File" text.

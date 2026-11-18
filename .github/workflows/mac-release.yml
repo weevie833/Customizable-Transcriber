@@ -86,7 +86,7 @@ jobs:
           version="$(tr -d '[:space:]' < VERSION)"
           [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "VERSION is $version but the tag is $GITHUB_REF_NAME" >&2; exit 1; }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Customizable-Transcriber-Mac
           path: ${{ runner.temp }}/out/Customizable-Transcriber-Mac.dmg

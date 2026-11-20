@@ -213,6 +213,11 @@ function strings(lang) {
       ? "Aggiungi qui sotto le tue ulteriori abbreviazioni (come scritta = espansione = significato):"
       : "Add your own additional abbreviations below (written = expansion = meaning):",
 
+    expandAbbrevItem: it
+      ? "Scrivi le abbreviazioni per esteso nella trascrizione (forma espansa) invece che come sono scritte"
+      : "Write abbreviations out in full in the transcription (expanded form) instead of as written",
+    omitNotesItem: it ? "Non aggiungere mai note alle voci" : "Never add notes to entries",
+
     scribalLabel: it ? "Particolarità scribali / paleografiche" : "Scribal / paleographic quirks",
     scribalInfo: it
       ? "Le particolarità paleografiche sono abitudini comuni della grafia di uno scriba che possono sembrare errori ma non lo sono — cose come una ſ lunga che assomiglia a una f, o un macron sopra una vocale che indica una lettera omessa. Selezionare queste opzioni indica all'IA cosa aspettarsi da questa grafia, così da non scambiare un'abitudine scribale normale per un nome sconosciuto o un errore di battitura."
@@ -684,6 +689,7 @@ function section2Civil(S, type) {
   out.push(infoNote(S, S.civilLatinGapNote));
   out.push(hint(S.addMoreAbbrev));
   out.push(...blankLines(3));
+  out.push(soloCheckbox(S, S.expandAbbrevItem));
 
   out.push(fieldLabel(S.scribalLabel));
   out.push(infoNote(S, S.civilLatinGapNote));
@@ -697,6 +703,8 @@ function section2Civil(S, type) {
   out.push(infoNote(S, S.lexiconInfo));
   out.push(hint(S.lexiconHint));
   out.push(writingBox(S, 10, null));
+
+  out.push(soloCheckbox(S, S.omitNotesItem));
 
   return out;
 }
@@ -802,6 +810,7 @@ function section2(S, type) {
   out.push(...checklistUnchecked(S.abbrevItems));
   out.push(hint(S.addMoreAbbrev));
   out.push(...blankLines(3));
+  out.push(soloCheckbox(S, S.expandAbbrevItem));
 
   out.push(fieldLabel(S.scribalLabel));
   out.push(infoNote(S, S.scribalInfo));
@@ -817,6 +826,8 @@ function section2(S, type) {
   out.push(infoNote(S, S.lexiconInfo));
   out.push(hint(S.lexiconHint));
   out.push(writingBox(S, 10, null));
+
+  out.push(soloCheckbox(S, S.omitNotesItem));
 
   return out;
 }

@@ -51,6 +51,28 @@ PROMPT_BUILDER_CORE_RULES = [
     "If part of the page is unreadable, mark only that portion as [illegible].",
 ]
 
+# Prompt Builder's "Write abbreviations out in full in the transcription"
+# option writes a FIDELITY RULES line starting with this text into the role
+# context. When it's there, the two "preserve/never expand abbreviations" core
+# rules above are replaced by EXPANDED_ABBREVIATIONS_CORE_RULE, so the prompt
+# doesn't contradict itself (neutral_system_scaffold() in run_support.py and
+# pbAssembleFullPrompt() in static/prompt-builder.js). Detected from the text,
+# so deleting that line in the Transcribe page's editor turns it off again.
+EXPANDED_ABBREVIATIONS_MARKER = "Write every abbreviation out in full in the transcription"
+EXPANDED_ABBREVIATIONS_CORE_RULE = (
+    "Write abbreviations out in full in the transcription, as the FIDELITY RULES above say; "
+    "an abbreviation you cannot expand with confidence stays exactly as written."
+)
+PRESERVE_ABBREVIATIONS_CORE_RULES = PROMPT_BUILDER_CORE_RULES[4:6]
+
+
+def core_rules_for(role_context: str) -> list[str]:
+    if EXPANDED_ABBREVIATIONS_MARKER not in role_context:
+        return list(PROMPT_BUILDER_CORE_RULES)
+    rules = [rule for rule in PROMPT_BUILDER_CORE_RULES if rule not in PRESERVE_ABBREVIATIONS_CORE_RULES]
+    rules.insert(4, EXPANDED_ABBREVIATIONS_CORE_RULE)
+    return rules
+
 
 PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
     "battesimi": {

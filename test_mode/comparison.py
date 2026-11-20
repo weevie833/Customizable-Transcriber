@@ -17,15 +17,24 @@ _TRAILING_PUNCTUATION = re.compile(r"[^\w\s]+(?=\s|$)")
 _WHITESPACE_RUN = re.compile(r"\s+")
 
 _BLOCK_SPLIT = re.compile(r"\n\s*\n")
-_LABEL_NOTES = re.compile(r"^notes:\s*", re.IGNORECASE)
+_LABEL_NOTES = re.compile(r"^[\s*_]*notes[\s*_]*:", re.IGNORECASE)
 _LABEL_LOCATOR = re.compile(r"^page\s+\S+\s*(?:[-–—]\s*entry\s+\S+\s*)?:\s*$", re.IGNORECASE)
-_LABEL_ENGLISH_TRANSLATION_BARE = re.compile(r"^english translation:\s*$", re.IGNORECASE)
-_LABEL_ENGLISH_TRANSLATION_INLINE = re.compile(r"^english translation:\s*(.*)$", re.IGNORECASE | re.DOTALL)
+# Every translation label the app's prompts produce (static/prompt-builder.js,
+# transcript_translation.py): "English Translation:", "Italian Translation:",
+# "Traduzione in inglese:", "Church Wedding Record (English translation): ...".
+# Group 1 is any text on the same line after the label. Older transcripts
+# bold their labels ("**English Translation:**"), so * and _ are allowed.
+_LABEL_TRANSLATION = re.compile(
+    r"^[\s*_]*(?:[^\n:()]*\btranslation|traduzione\s+in\s+[^\n:()]+"
+    r"|[^\n:()]*\((?:[^\n()]*\btranslation|traduzione\s+in\s+[^\n()]+)\))[\s*_]*:(.*)$",
+    re.IGNORECASE,
+)
 
 
 def strip_non_transcription_blocks(text: str) -> str:
-    """Drop the English Translation, Notes, and synthetic Page/Entry locator
-    blocks, leaving only the native-language transcription content (including
+    """Drop every translation (any language, including a Church Wedding
+    Record's translation line), every Notes line, and the synthetic
+    Page/Entry locator, leaving only the native-language transcription content (including
     a Marginal Heading block, when present — that's a verbatim transcription
     of what the scribe wrote, not commentary, so it stays scored).
 
@@ -51,17 +60,27 @@ def strip_non_transcription_blocks(text: str) -> str:
             skip_next = False
             continue
         stripped = block.strip()
-        if _LABEL_NOTES.match(stripped):
+        # A whole Notes block (it may wrap onto more than one line) or a
+        # locator line on its own.
+        if _LABEL_NOTES.match(stripped) or _LABEL_LOCATOR.match(stripped):
             continue
-        if _LABEL_LOCATOR.match(stripped):
-            continue
-        if _LABEL_ENGLISH_TRANSLATION_BARE.match(stripped):
-            skip_next = True
-            continue
-        inline_match = _LABEL_ENGLISH_TRANSLATION_INLINE.match(stripped)
-        if inline_match and inline_match.group(1).strip():
-            continue
-        kept.append(block)
+        lines: list[str] = []
+        block_lines = block.split("\n")
+        for index, line in enumerate(block_lines):
+            # A Notes line with no blank line before it shares a block with
+            # the line above; drop just that line.
+            if _LABEL_NOTES.match(line):
+                continue
+            translation = _LABEL_TRANSLATION.match(line)
+            if translation:
+                # The translation runs to the end of this block; a bare label
+                # ending the block has its text in the next block.
+                if not translation.group(1).strip(" \t*_") and index == len(block_lines) - 1:
+                    skip_next = True
+                break
+            lines.append(line)
+        if any(line.strip() for line in lines):
+            kept.append("\n".join(lines))
     return "\n\n".join(kept)
 
 

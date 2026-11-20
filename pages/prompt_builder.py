@@ -12,6 +12,9 @@ from pages import FOOTER_HTML, file_picker_html, json_data_island_html
 from profiles_store import load_custom_profiles, profiles_with_display_labels, user_profile_path
 from prompt_builder_content import (
     PROMPT_BUILDER_COMMON_ABBREVIATIONS,
+    EXPANDED_ABBREVIATIONS_CORE_RULE,
+    EXPANDED_ABBREVIATIONS_MARKER,
+    PRESERVE_ABBREVIATIONS_CORE_RULES,
     PROMPT_BUILDER_CORE_RULES,
     PROMPT_BUILDER_RECORD_TYPES,
     PROMPT_BUILDER_RELATIONSHIP_TERMS,
@@ -381,6 +384,9 @@ def prompt_builder_page(
         "prompt-builder-initial-data",
         {
             "coreRules": PROMPT_BUILDER_CORE_RULES,
+            "preserveAbbreviationRules": PRESERVE_ABBREVIATIONS_CORE_RULES,
+            "expandedAbbreviationRule": EXPANDED_ABBREVIATIONS_CORE_RULE,
+            "expandedAbbreviationMarker": EXPANDED_ABBREVIATIONS_MARKER,
             "savedProfiles": {
                 profile["id"]: {"label": profile["label"], "answers": profile["pb_answers"]}
                 for profile in loadable_profiles
@@ -635,6 +641,7 @@ def prompt_builder_page(
       </div>
       <div id="pb-abbrev-rows"></div>
       <button type="button" id="pb-add-abbrev" class="button-tiny">Add an abbreviation</button>
+      <label class="pb-checkbox"><input type="checkbox" name="expandAbbreviationsInTranscription"> Write abbreviations out in full in the transcription (expanded form) instead of as written</label>
 
       <p class="hint">Scribal / paleographic quirks{pb_info_button_html("pb-info-scribal", PB_SCRIBAL_INFO_TEXT)}</p>
       <div class="pb-checklist pb-checklist-2col" id="pb-latin-scribal-checklist">
@@ -660,6 +667,7 @@ def prompt_builder_page(
       <label><span>Additional editorial rules (optional){pb_info_button_html("pb-info-additional-rules", PB_ADDITIONAL_RULES_INFO_TEXT)}</span>
         <textarea name="additionalRules" rows="4" placeholder="e.g. Never copy a surname from one parent to the other, even when only one is stated."></textarea>
       </label>
+      <label class="pb-checkbox"><input type="checkbox" name="omitNotes"> Never add notes to entries</label>
       <div id="pb-lint" class="pb-lint" role="status" aria-live="polite" hidden></div>
     </details>
 

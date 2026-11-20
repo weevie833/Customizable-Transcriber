@@ -256,6 +256,7 @@ def test_mode_page() -> str:
           <span>Order: <strong id="confirm-order"></strong></span>
           <span>File type: <strong id="confirm-file-type"></strong></span>
           <span>Prompt Profile: <strong id="confirm-profile"></strong></span>
+          <span id="source-file-advice" class="source-file-advice" hidden></span>
         </span>
         <span id="run-status" class="run-status" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>
       </span>

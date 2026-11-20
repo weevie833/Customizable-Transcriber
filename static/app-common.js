@@ -89,6 +89,42 @@ function resetPreflight() {
   if (costEstimate) costEstimate.hidden = true;
   const zoomAdvice = document.getElementById("page-zoom-advice");
   if (zoomAdvice) zoomAdvice.hidden = true;
+  const sourceAdvice = document.getElementById("source-file-advice");
+  if (sourceAdvice) sourceAdvice.hidden = true;
+}
+
+// Preflight Check's file-type check (Transcribe and Test Mode): asks the
+// server whether the source folder holds files of the selected File type
+// (source_file_type_check() in run_support.py). Returns true when the run
+// may go ahead; on a mismatch shows the alert and returns false. A warning
+// (the folder also holds the other type) goes in #source-file-advice. A
+// failed request doesn't block: the run itself checks again.
+async function checkSourceFileType() {
+  const selected = document.querySelector('[name="file_type"]:checked');
+  const advice = document.getElementById("source-file-advice");
+  if (advice) advice.hidden = true;
+  let data;
+  try {
+    const params = new URLSearchParams({ file_type: selected ? selected.value : "jpeg" });
+    const response = await fetch("/api/source-file-check?" + params.toString(), { cache: "no-store" });
+    if (!response.ok) return true;
+    data = await response.json();
+  } catch (err) {
+    return true;
+  }
+  const message = typeof window.tbTranslateStatusText === "function"
+    ? window.tbTranslateStatusText(data.message || "")
+    : (data.message || "");
+  if (!data.ok) {
+    resetPreflight();
+    showSettingsAlert(message);
+    return false;
+  }
+  if (advice && message) {
+    advice.textContent = message;
+    advice.hidden = false;
+  }
+  return true;
 }
 
 function applySourceFolder(path) {

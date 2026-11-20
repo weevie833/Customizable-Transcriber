@@ -431,6 +431,9 @@
     "filius/filia = son/daughter of": "filius/filia = figlio/figlia di",
     "Abbreviation key — common terms (toggle on what applies)": "Legenda delle abbreviazioni — termini comuni (attiva quelli che si applicano)",
     "Add an abbreviation": "Aggiungi un'abbreviazione",
+    "Write abbreviations out in full in the transcription (expanded form) instead of as written":
+      "Scrivi le abbreviazioni per esteso nella trascrizione (forma espansa) invece che come sono scritte",
+    "Never add notes to entries": "Non aggiungere mai note alle voci",
     "Written, e.g. Sac.os": "Come scritto, ad es. Sac.os",
     "Expansion": "Espansione",
     "Meaning": "Significato",
@@ -842,6 +845,33 @@
   var TB_LANGUAGE_IT = { English: "Inglese", Italian: "Italiano" };
 
   var DYNAMIC_LINE_PATTERNS = [
+    // Preflight Check's file-type check (source_file_type_check() in run_support.py).
+    {
+      re: /^Choose a source folder before running \(use the Browse… button above\)\.$/,
+      it: function () { return "Scegli una cartella di origine prima di avviare (usa il pulsante Sfoglia… qui sopra)."; },
+    },
+    {
+      re: /^The source folder can't be found\. Choose it again with the Browse… button\.$/,
+      it: function () { return "La cartella di origine non è stata trovata. Sceglila di nuovo con il pulsante Sfoglia…."; },
+    },
+    {
+      re: /^The source folder has no JPEG or PNG files\.$/,
+      it: function () { return "La cartella di origine non contiene file JPEG o PNG."; },
+    },
+    {
+      re: /^The source folder has no (JPEG|PNG) files, but it has (\d+) (JPEG|PNG) files?\. Change File type to (JPEG|PNG)\.$/,
+      it: function (m) {
+        return "La cartella di origine non contiene file " + m[1] + ", ma contiene " + m[2] + " file " + m[3] +
+          ". Cambia il Tipo di file in " + m[4] + ".";
+      },
+    },
+    {
+      re: /^The source folder also has (\d+) (JPEG|PNG) files?\. Only the (\d+) (JPEG|PNG) files? will be transcribed\.$/,
+      it: function (m) {
+        return "La cartella di origine contiene anche " + m[1] + " file " + m[2] + ". Verranno trascritti solo " +
+          m[3] + " file " + m[4] + ".";
+      },
+    },
     // Prompt Builder — Delete a Profile (confirm dialog and status line).
     {
       re: /^"([\s\S]+)" will be permanently deleted\. This cannot be undone\.$/,

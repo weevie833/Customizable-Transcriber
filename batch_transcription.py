@@ -89,6 +89,7 @@ from customizable_transcriber.core import (
     source_files,
     validate_batch_source_file,
 )
+from customizable_transcriber.page_check import apply_page_check
 from customizable_transcriber.year_check import apply_year_check
 from profiles_store import PROJECT_DIR
 from run_support import (
@@ -1046,6 +1047,7 @@ def run_off_peak_job(
             sink.log(f"[{_log_timestamp()}] {message}")
 
         apply_year_check(markdown_file, reverse_order, log_year_check)
+        apply_page_check(markdown_file, reverse_order, log_year_check)
 
         if markdown_file.exists():
             write_docx(

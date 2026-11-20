@@ -234,6 +234,7 @@ def page() -> str:
           <span>Prompt Profile: <strong id="confirm-profile"></strong></span>
           <span>Page zoom: <strong id="confirm-zoom"></strong></span>
           <span id="page-zoom-advice" class="page-zoom-advice" hidden></span>
+          <span id="source-file-advice" class="source-file-advice" hidden></span>
           <span id="offpeak-cost-estimate" hidden></span>
         </span>
         <span id="run-status" class="run-status" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span>Process running. Review the Progress Console below.</span>

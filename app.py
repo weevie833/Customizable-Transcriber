@@ -60,6 +60,7 @@ from profiles_store import (
 )
 from run_support import (
     page_zoom_advice,
+    source_file_type_check,
     run_test_job,  # noqa: F401 -- re-exported for tests
 )
 from update_check import update_status
@@ -422,6 +423,17 @@ class Handler(
                     "default": DEFAULT_MODEL,
                 }
             )
+            return
+
+        if parsed.path == "/api/source-file-check":
+            # Read-only: counts JPEG/PNG files in the source folder already
+            # stored server-side; file_type is a validated enum, never a path.
+            query = urllib.parse.parse_qs(parsed.query)
+            file_type = (query.get("file_type") or ["jpeg"])[0]
+            if file_type not in FILE_TYPE_EXTENSIONS:
+                self.respond_json({"error": "Invalid file type."}, status=400)
+                return
+            self.respond_json(source_file_type_check(load_source_folder(), file_type))
             return
 
         if parsed.path == "/api/page-zoom-check":

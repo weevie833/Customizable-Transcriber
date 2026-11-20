@@ -412,3 +412,9 @@ pre {
   margin: 0 0 10px;
   font-size: 16px;
 }
+
+/* Preflight Check's file-type warning (Transcribe and Test Mode; see
+checkSourceFileType() in app-common.js). Same colour as the Page zoom advice. */
+.source-file-advice {
+  color: #7a4b00;
+}

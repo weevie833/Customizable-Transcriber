@@ -224,9 +224,10 @@ the inline block used to sit. */
       return { orderLabel, fileTypeLabel, profileLabel, modelALabel, modelBLabel, batchSummary };
     }
 
-    function runPreflightCheck() {
+    async function runPreflightCheck() {
       const panel = document.getElementById("run-confirmation");
       if (!panel) return;
+      if (!(await checkSourceFileType())) return;
       const settings = selectedRunSettings();
       document.getElementById("confirm-order").textContent = settings.orderLabel;
       document.getElementById("confirm-file-type").textContent = settings.fileTypeLabel;

@@ -30,6 +30,11 @@
     var el = document.getElementById("prompt-builder-initial-data");
     var data = el ? JSON.parse(el.textContent) : {};
     window.PB_CORE_RULES = data.coreRules;
+    window.PB_ABBREVIATION_RULES = {
+      preserve: data.preserveAbbreviationRules || [],
+      expanded: data.expandedAbbreviationRule || "",
+      marker: data.expandedAbbreviationMarker || "",
+    };
     window.PB_SAVED_PROFILES = data.savedProfiles;
     window.PB_RESTORE_ON_ERROR = data.restoreOnError;
     window.PB_RESTORE_EDIT_ID = data.restoreEditId;
@@ -88,19 +93,35 @@
     // hyphen. A real Napoli marriage run rejoined them in two acts but kept
     // "ottocen- toventitre" (hyphen plus a space) in a third.
     lines.push("- When a word is split across two lines by a hyphen at the end of a line, rejoin it as one word with no hyphen and no space (`ottocen-` at the end of one line and `toventitre` at the start of the next is written `ottocentoventitre`). Only a hyphen that falls at a line break is removed this way; a hyphen inside a word within a line is part of the text and stays.");
-    if (hasTranslation) {
+    // "Write abbreviations out in full" (Section 2, under the abbreviation
+    // key): the one place the transcription departs from the page's letters.
+    var expandBox = document.querySelector('[name="expandAbbreviationsInTranscription"]');
+    var expandInTranscription = !!(expandBox && expandBox.checked);
+    if (expandInTranscription) {
+      lines.push("- Write every abbreviation out in full in the transcription" + (hasTranslation ? " and the " + translationWord : "") + ", using the ABBREVIATION KEY where it lists the abbreviation (for example `Sac.os` is written `Sacerdos`). Write the expansion as plain text, with no brackets. Expand only an abbreviation whose full form you are sure of; one you cannot expand with confidence stays exactly as written. Everything else in the transcription -- spelling, capitalization, scribal error -- is still kept exactly as on the page.");
+    } else if (hasTranslation) {
       lines.push("- Preserve abbreviations exactly as written in the transcription. Do NOT insert bracketed expansions into the transcription itself. Expand them only in the " + translationWord + ".");
-      lines.push("- Retain source-language name forms in the " + translationWord + " too -- do not anglicize, modernize, or translate a personal name to an English or Italian equivalent.");
     } else {
       lines.push("- Preserve abbreviations exactly as written. Do not expand them.");
     }
-    lines.push("- Write abbreviations using standard inline characters, not Unicode superscript characters, even when the source clearly raises a letter above the line (write `M.s`, `p.nti`, `R.di`, not `M.ˢ`, `p.ⁿᵗⁱ`, `R.ᵈⁱ`). This is a rule about how to encode the character, not a fidelity concession -- the abbreviation itself is still transcribed exactly as written, letter for letter.");
+    if (hasTranslation) {
+      lines.push("- Retain source-language name forms in the " + translationWord + " too -- do not anglicize, modernize, or translate a personal name to an English or Italian equivalent.");
+    }
+    lines.push("- Write abbreviations using standard inline characters, not Unicode superscript characters, even when the source clearly raises a letter above the line (write `M.s`, `p.nti`, `R.di`, not `M.ˢ`, `p.ⁿᵗⁱ`, `R.ᵈⁱ`). This is a rule about how to encode the character, not a fidelity concession -- " + (expandInTranscription ? "an abbreviation left unexpanded is still transcribed exactly as written, letter for letter." : "the abbreviation itself is still transcribed exactly as written, letter for letter."));
     lines.push("- Surname particles (`de`, `di`, `d'`, `lo`, `la`, `le`, `li`) are part of the surname and must be transcribed exactly as written. If the particle itself is unclear, mark it uncertain rather than choosing the more common form.");
     if (hasTranslation) {
       lines.push("- A name must be identical in the transcription and in the " + translationWord + ", apart from any necessary change of grammatical case ending.");
     }
-    lines.push("- Do not summarize, comment, or add editorial content outside the Notes block defined in the output format.");
+    lines.push(omitNotesChecked()
+      ? "- Do not summarize, comment, or add editorial content anywhere in your output (see NOTES in the output format)."
+      : "- Do not summarize, comment, or add editorial content outside the Notes block defined in the output format.");
     return lines.join("\n");
+  }
+
+  // "Never add notes to entries" (Section 2, under Additional editorial rules).
+  function omitNotesChecked() {
+    var box = document.querySelector('[name="omitNotes"]');
+    return !!(box && box.checked);
   }
 
   var UNCERTAINTY_PROTOCOL_BLOCK = [
@@ -287,6 +308,15 @@
     return exampleAsPromptText({ date: example.date, text: example.text, wedding: example.wedding, baptism: example.baptism, continuation: "" });
   }
 
+  // With "Write abbreviations out in full" on, an example that keeps the
+  // register's abbreviations must not teach the model to keep them too.
+  function exampleAbbreviationCaveat() {
+    var box = document.querySelector('[name="expandAbbreviationsInTranscription"]');
+    return box && box.checked
+      ? " One exception: where an example keeps an abbreviation as written, write it out in full in your own transcription, as the FIDELITY RULES say."
+      : "";
+  }
+
   function exampleFormatNotes(examples) {
     var notes = [];
     if (examples.some(function (e) { return e.date; })) {
@@ -394,7 +424,10 @@
     parts.push(task);
 
     if (volumeRange) {
-      parts.push("This volume covers " + volumeRange + ". If an entry's year is unclear or absent, infer it from adjacent entries on this image, write the inferred year in square brackets with a question mark (for example [1754?]) wherever it appears, and record how you inferred it in Notes. You see one image at a time, so an entry near the top of an image may have no adjacent entry to infer from: leave that year as [year?] rather than guessing.");
+      // Background only: a stated range pulled misread years toward it
+      // (Rende Morti, 2026-11-13). Keep in step with volume_range_sentence()
+      // in run_support.py, which rewrites older profiles' wording at run time.
+      parts.push("The register's cover gives its dates as " + volumeRange + ". This is background only: registers often hold entries dated outside that range (late insertions, entries copied in, a misdated cover). Always transcribe a legible year exactly as written, even when it falls outside the range, and never change a year to fit it. Use the range only when an entry's year is truly absent or illegible: then infer it from adjacent entries on this image, write the inferred year in square brackets with a question mark (for example [1754?]) wherever it appears, and record how you inferred it in Notes. You see one image at a time, so an entry near the top of an image may have no adjacent entry to infer from: leave that year as [year?] rather than guessing.");
     }
 
     if (handDescriptor) {
@@ -757,7 +790,9 @@
       : language + " Transcription:";
     blockLines.push(
       "    Date: <date exactly as written> [<day> <Month> <year>]", "",
-      "    Notes: <one line -- optional, omit if there is nothing to say>", "",
+      omitNotesChecked()
+        ? "    Notes: <only a fixed continuation sentence (see NOTES) -- omit this block otherwise>"
+        : "    Notes: <one line -- optional, omit if there is nothing to say>", "",
       "    " + transcriptionLabel, "", "    <the body of the entry, as ONE unbroken line>"
     );
     langs.forEach(function (lang) {
@@ -836,7 +871,7 @@
     if (examples.length === 1) {
       parts.push(
         "# EXAMPLE ENTRY (REFERENCE ONLY)\n\n" +
-        "The following is a verified, complete, 100% accurate transcription of one real entry from this exact register, given purely as a formatting and style reference. Match its conventions -- spelling, abbreviation style, how it handles line breaks -- but do not copy its content into your own output; it is not the entry you are transcribing.\n\n" +
+        "The following is a verified, complete, 100% accurate transcription of one real entry from this exact register, given purely as a formatting and style reference. Match its conventions -- spelling, abbreviation style, how it handles line breaks -- but do not copy its content into your own output; it is not the entry you are transcribing." + exampleAbbreviationCaveat() + "\n\n" +
         exampleAsPromptText(examples[0]) + exampleFormatNotes(examples)
       );
     } else if (examples.length > 1) {
@@ -845,7 +880,7 @@
       });
       parts.push(
         "# EXAMPLE ENTRIES (REFERENCE ONLY)\n\n" +
-        "The following are verified, complete, 100% accurate transcriptions of real entries from this exact register, given purely as formatting and style references -- deliberately covering more than one situation (e.g. a straightforward entry, one with an uncertain reading, one where a heading and body disagree). Match their conventions -- spelling, abbreviation style, how they handle line breaks -- but do not copy their content into your own output; none of them is the entry you are transcribing.\n\n" +
+        "The following are verified, complete, 100% accurate transcriptions of real entries from this exact register, given purely as formatting and style references -- deliberately covering more than one situation (e.g. a straightforward entry, one with an uncertain reading, one where a heading and body disagree). Match their conventions -- spelling, abbreviation style, how they handle line breaks -- but do not copy their content into your own output; none of them is the entry you are transcribing." + exampleAbbreviationCaveat() + "\n\n" +
         exampleBlocks.join("\n\n---\n\n") + exampleFormatNotes(examples)
       );
     }
@@ -878,11 +913,17 @@
       if (phrasingLines.length > 2) parts.push(phrasingLines.join("\n").trim());
     }
 
-    var notesLines = ["Notes carries everything the other blocks cannot: scribal errors, conflicting dates, marginalia, your confidence when a reading is weak, and any disagreement between blocks."];
-    if (selectedRecordType().indexOf("civil_") === 0) {
-      notesLines.push("If a note was added in this register's margin at a later date -- for example a cross-reference to a subsequent marriage or death recorded elsewhere in the register -- record it here too, not in the main transcription.");
+    if (omitNotesChecked()) {
+      // The continuation sentences stay: render_entry() (core.py) and XLS
+      // Conversion find split entries by them.
+      parts.push("# NOTES\n\nDo not write notes. Leave out the Notes block for every entry -- no comments on legibility, confidence, scribal errors, inferred years, titles or disagreements. This overrides every other instruction in this prompt that says to record, flag or move something to Notes: where a rule says to put something in Notes, leave it out (marking uncertain text in square brackets in the transcription still applies). The one exception is the fixed continuation sentences \"Entry appears to continue on the next image.\" and \"Entry appears to continue from the previous image.\": when an entry is split across images, write the matching sentence as the entry's Notes block, and nothing else in it.");
+    } else {
+      var notesLines = ["Notes carries everything the other blocks cannot: scribal errors, conflicting dates, marginalia, your confidence when a reading is weak, and any disagreement between blocks."];
+      if (selectedRecordType().indexOf("civil_") === 0) {
+        notesLines.push("If a note was added in this register's margin at a later date -- for example a cross-reference to a subsequent marriage or death recorded elsewhere in the register -- record it here too, not in the main transcription.");
+      }
+      parts.push("# NOTES\n\n" + notesLines.join(" "));
     }
-    parts.push("# NOTES\n\n" + notesLines.join(" "));
 
     var checklist = ["# FINAL CHECK BEFORE YOU OUTPUT", "",
       "1. Every block separated by a blank line; " + language + (langs.length ? " and " + langs.join("/") : "") + " each on one line.",
@@ -898,7 +939,14 @@
   // ---- Wiring ----
 
   function pbAssembleFullPrompt(role, reference, format) {
-    var rules = window.PB_CORE_RULES.map(function (r) { return "- " + r; }).join("\n");
+    // Mirrors core_rules_for() in prompt_builder_content.py.
+    var coreRules = window.PB_CORE_RULES.slice();
+    var abbr = window.PB_ABBREVIATION_RULES;
+    if (abbr && abbr.marker && role.indexOf(abbr.marker) !== -1) {
+      coreRules = coreRules.filter(function (r) { return abbr.preserve.indexOf(r) === -1; });
+      coreRules.splice(4, 0, abbr.expanded);
+    }
+    var rules = coreRules.map(function (r) { return "- " + r; }).join("\n");
     var scaffold = "# ROLE AND LOCAL CONTEXT\n" + role + "\n\n# CORE TRANSCRIPTION RULES\n" + rules + "\n\n# OUTPUT FORMAT\n" + format;
     var sections = [scaffold];
     // Editorial rules are instructions, not reference data: keep them outside
@@ -942,7 +990,11 @@
     },
     {
       re: /\bexpand\b[^.\n]{0,40}\babbreviations?\b[^.\n]{0,40}\btranscription\b/i,
-      message: "This asks for abbreviations to be expanded in the transcription, but the core rules say to expand them only in a translation."
+      message: "This asks for abbreviations to be expanded in the transcription, but the core rules say to expand them only in a translation. To expand them in the transcription, check \"Write abbreviations out in full in the transcription\" under the abbreviation key instead.",
+      skip: function () {
+        var box = document.querySelector('[name="expandAbbreviationsInTranscription"]');
+        return !!(box && box.checked);
+      }
     },
     {
       re: /\b(anglici[sz]e|translate)\b[^.\n]{0,25}\bnames?\b/i,
@@ -980,7 +1032,7 @@
     if (!additional || !additional.trim()) return warnings;
     LINT_CONFLICTS.forEach(function (c) {
       var m = c.re.exec(additional);
-      if (m && !lintNegatedBefore(additional, m.index)) warnings.push(c.message);
+      if (m && !lintNegatedBefore(additional, m.index) && !(c.skip && c.skip())) warnings.push(c.message);
     });
     if (/\bfili[ua]s?\b/i.test(additional) && generated.indexOf("# LATIN NAME DECLENSION") !== -1) {
       warnings.push("This mentions filius/filia, which the Latin declension guidance already covers. Remove the repeat or the two copies may drift apart.");

@@ -411,10 +411,14 @@ A few decisions worth calling out:
 
 ## Test Mode scoring
 
-Test Mode's `strip_non_transcription_blocks()` removes the translation
-block, the notes block, and the synthetic per-entry locator line before
-computing character/word error rates, on both the corrected reference and
-every candidate. Test Mode's purpose is comparing models on transcription
+Test Mode's `strip_non_transcription_blocks()` removes every translation
+(any language and label form: `English Translation:`, `Italian
+Translation:`, `Traduzione in ...:`, `Church Wedding Record (English
+translation):`, inline or with the text in the next paragraph, bold or
+not), every `Notes:` line (also one not separated by a blank line), and the
+synthetic per-entry locator line before computing character/word error
+rates, on both the corrected reference and every candidate. The Church
+Wedding Record and Baptism Record transcriptions themselves stay scored. Test Mode's purpose is comparing models on transcription
 accuracy specifically; scoring the full raw text conflates that with
 translation-phrasing style and note-writing style, neither of which
 reflects how well a model reads handwriting.

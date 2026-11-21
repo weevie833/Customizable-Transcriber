@@ -6,11 +6,32 @@ from __future__ import annotations
 import html
 import json
 
+KOFI_URL = "https://ko-fi.com/forestiero"
+"""Ko-fi donation page. Also hard-coded in xls_conversion/index.html (a
+static file), so change both together."""
+
+# A plain styled link, not Ko-fi's hosted button image: the CSP's img-src
+# is 'self' data:, and a link sends nothing to Ko-fi until it is clicked.
+# The cup is inline SVG (no text, so i18n.js leaves it alone).
+FOOTER_SUPPORT_HTML = (
+    '<div class="footer-support">'
+    f'<a class="kofi-button" href="{KOFI_URL}" target="_blank" '
+    'rel="noopener noreferrer">'
+    '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" '
+    'height="16"><path fill="currentColor" d="M4 5h13v2h1.5a3.5 3.5 0 0 1 0 7H17'
+    'a6 6 0 0 1-6 5H10a6 6 0 0 1-6-6V5zm13 4v3h1.5a1.5 1.5 0 0 0 0-3H17z"/></svg>'
+    "<span>Support on Ko-fi</span></a>"
+    "<span>Help offset the costs for developing and maintaining this "
+    "application.</span></div>"
+)
+
 FOOTER_HTML = (
-    '<footer class="license">&copy; 2026 Steve Covello. All rights reserved '
+    '<footer class="license">'
+    + FOOTER_SUPPORT_HTML
+    + "<div>&copy; 2026 Steve Covello. All rights reserved "
     "— free to download and run for personal use; redistribution, "
     "hosting, and derivative works require permission. &middot; "
-    '<a href="/privacy">Privacy</a> <span id="app-version"></span></footer>'
+    '<a href="/privacy">Privacy</a> <span id="app-version"></span></div></footer>'
 )
 """The single footer every page (app.py's own getting_started_page()
 included) embeds verbatim. Kept here, not duplicated per page, so a wording

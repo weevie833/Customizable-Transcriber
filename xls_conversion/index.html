@@ -179,7 +179,11 @@
         <div id="downloadRows" class="action-row"></div>
       </section>
 
-      <footer>&copy; 2026 Steve Covello. All rights reserved — free to download and run for personal use; redistribution, hosting, and derivative works require permission. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></footer>
+      <footer>
+        <!-- Same markup as FOOTER_SUPPORT_HTML in pages/__init__.py; keep the Ko-fi URL in sync. -->
+        <div class="footer-support"><a class="kofi-button" href="https://ko-fi.com/forestiero" target="_blank" rel="noopener noreferrer"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M4 5h13v2h1.5a3.5 3.5 0 0 1 0 7H17a6 6 0 0 1-6 5H10a6 6 0 0 1-6-6V5zm13 4v3h1.5a1.5 1.5 0 0 0 0-3H17z"/></svg><span>Support on Ko-fi</span></a><span>Help offset the costs for developing and maintaining this application.</span></div>
+        <div>&copy; 2026 Steve Covello. All rights reserved — free to download and run for personal use; redistribution, hosting, and derivative works require permission. &middot; <a href="/privacy">Privacy</a> <span id="app-version"></span></div>
+      </footer>
     </main>
 
     <script src="/static/app-common.js"></script>

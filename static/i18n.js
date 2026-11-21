@@ -80,6 +80,9 @@
     // covers every page instead of one per distinct wording.
     "© 2026 Steve Covello. All rights reserved — free to download and run for personal use; redistribution, hosting, and derivative works require permission. ·":
       "© 2026 Steve Covello. Tutti i diritti riservati — libero da scaricare ed eseguire per uso personale; la ridistribuzione, l'hosting e le opere derivate richiedono un'autorizzazione. ·",
+    "Support on Ko-fi": "Sostieni su Ko-fi",
+    "Help offset the costs for developing and maintaining this application.":
+      "Aiuta a coprire i costi di sviluppo e manutenzione di questa applicazione.",
 
     // Source folder / run controls shared by Transcribe + Test Mode
     "Source folder": "Cartella di origine",

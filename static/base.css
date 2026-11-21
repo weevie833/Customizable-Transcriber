@@ -220,6 +220,35 @@ h1 {
 .license a {
   color: #255c99;
 }
+
+/* Ko-fi donation row above the license line (FOOTER_SUPPORT_HTML in
+   pages/__init__.py). App blue, not Ko-fi's light blue: white text on
+   Ko-fi's brand colour fails WCAG AA contrast. */
+.footer-support {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+.kofi-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #255c99;
+  color: #fff !important;
+  font-weight: 600;
+  text-decoration: none;
+}
+.kofi-button:hover {
+  background: #1d4a7c;
+}
+.kofi-button:focus-visible {
+  outline: 3px solid #255c99;
+  outline-offset: 2px;
+}
 @media (max-width: 520px) {
   .site-header { flex-direction: column; }
 }

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
@@ -43,7 +44,7 @@ from profiles_store import (
     update_full_profile,
     update_profile,
 )
-from prompt_builder_content import PROMPT_BUILDER_RECORD_TYPES
+from prompt_builder_content import CATASTO_RECORD_TYPE, PROMPT_BUILDER_RECORD_TYPES
 from run_support import selected_profile_id
 from xls_conversion.ai_parser import call_ai_json
 
@@ -64,6 +65,25 @@ PREFLIGHT_SUGGESTION_CATEGORIES = {
     "role_vocab",
     "other",
 }
+
+
+def prompt_builder_saved_banner(query: str) -> dict[str, str]:
+    """The success banner for the page a profile save redirects to
+    (/prompt-builder?saved=<id> or ?updated=<id>). An unknown id shows none."""
+    params = urllib.parse.parse_qs(query)
+    for mode in ("saved", "updated"):
+        profile_id = (params.get(mode) or [""])[0]
+        if not profile_id:
+            continue
+        label = next((p["label"] for p in load_custom_profiles() if p.get("id") == profile_id), "")
+        if not label:
+            return {}
+        if mode == "updated":
+            message = f'Updated profile "{label}". Reload the Transcribe or Test Mode tab to see the change there.'
+        else:
+            message = f'Saved profile "{label}". Reload the Transcribe or Test Mode tab to see it in the profile list there.'
+        return {"message": message, "message_kind": "success"}
+    return {}
 
 
 def critique_prompt_gap(
@@ -89,6 +109,34 @@ def critique_prompt_gap(
     key = (api_key_override or "").strip() or (
         claude_api_key(PROJECT_DIR) if provider_for_model(model) == "claude" else api_key(PROJECT_DIR)
     )
+    whole_page = record_type == CATASTO_RECORD_TYPE
+    if whole_page:
+        # A Catasto example is the whole page, and the profile has no
+        # relative-date, relationship or role-vocabulary fields to add to.
+        matching = (
+            "The example is the complete transcription of the whole uploaded page (one image), not a single "
+            "entry. Compare it with the transcription block of the AI's output for the whole page; ignore any "
+            "translation block. Line structure is part of the expected format: one person per line with "
+            "their age, each item on its own line, and figures at the end of the line they belong to.\n\n"
+        )
+        excluded_categories = {"relative_date_term", "relationship_term", "role_vocab"}
+    else:
+        matching = (
+            "IMPORTANT: the source image may contain several entries (a real register page or civil "
+            "act often has more than one record on it), so the AI's actual output may cover multiple "
+            "entries while the known-correct example covers only ONE of them. Before comparing, first "
+            "identify which single entry in the AI's output corresponds to the example -- match it by "
+            "name, date, or other distinctive content. Compare ONLY that one entry against the example. "
+            "Completely ignore every other entry in the output: never flag anything about content that "
+            "has no counterpart in the example, even if it looks like an error, since you have no "
+            "ground truth for those other entries.\n\n"
+            "The example may be split into labelled parts -- \"Date:\", \"Main entry:\", and a side block "
+            "such as \"Baptism Record:\" or \"Church Wedding Record:\". Compare each labelled part with the "
+            "corresponding block of the matched entry in the AI's output (the Date part with its Date "
+            "block, and so on). The example never includes the entry's continuation onto the next "
+            "image, so ignore any note or text in the output about the entry continuing.\n\n"
+        )
+        excluded_categories = set()
     system_prompt = (
         "You are helping a non-expert user improve a transcription prompt for archival "
         f"{record_type or 'record'} images, used to instruct an AI model that reads images of "
@@ -98,20 +146,8 @@ def critique_prompt_gap(
         "etc.); (2) a known-100%-accurate example entry the user transcribed by hand from one of "
         "their own source images; (3) the AI's actual output when the current prompt was run "
         "against that same image.\n\n"
-        "IMPORTANT: the source image may contain several entries (a real register page or civil "
-        "act often has more than one record on it), so the AI's actual output may cover multiple "
-        "entries while the known-correct example covers only ONE of them. Before comparing, first "
-        "identify which single entry in the AI's output corresponds to the example -- match it by "
-        "name, date, or other distinctive content. Compare ONLY that one entry against the example. "
-        "Completely ignore every other entry in the output: never flag anything about content that "
-        "has no counterpart in the example, even if it looks like an error, since you have no "
-        "ground truth for those other entries.\n\n"
-        "The example may be split into labelled parts -- \"Date:\", \"Main entry:\", and a side block "
-        "such as \"Baptism Record:\" or \"Church Wedding Record:\". Compare each labelled part with the "
-        "corresponding block of the matched entry in the AI's output (the Date part with its Date "
-        "block, and so on). The example never includes the entry's continuation onto the next "
-        "image, so ignore any note or text in the output about the entry continuing.\n\n"
-        "Compare the matched entry to the known-correct example. Identify concrete gaps in the "
+        + matching
+        + "Compare the matched entry to the known-correct example. Identify concrete gaps in the "
         "PROMPT -- not just errors in this one run -- that likely caused any difference. Only flag "
         "real, specific differences. Do not invent generic advice, and do not comment on anything "
         "that already matches. If the two texts are effectively equivalent in content and "
@@ -157,7 +193,7 @@ def critique_prompt_gap(
         if not isinstance(item, dict):
             continue
         category = str(item.get("category", "")).strip()
-        if category not in PREFLIGHT_SUGGESTION_CATEGORIES:
+        if category not in PREFLIGHT_SUGGESTION_CATEGORIES or category in excluded_categories:
             continue
         note = str(item.get("note") or "").strip()
         if category == "abbreviation":
@@ -461,10 +497,7 @@ class ProfilesHandlerMixin:
                     record_type=record_type,
                     pb_answers=pb_answers,
                 )
-                message = (
-                    f'Updated profile "{profile["label"]}". Reload the Transcribe or Test Mode '
-                    "tab to see the change there."
-                )
+                saved_mode = "updated"
             else:
                 profile = save_custom_profile(
                     new_profile_name,
@@ -477,17 +510,15 @@ class ProfilesHandlerMixin:
                     record_type=record_type,
                     pb_answers=pb_answers,
                 )
-                message = (
-                    f'Saved profile "{profile["label"]}". Reload the Transcribe or Test Mode '
-                    "tab to see it in the profile list there."
-                )
-            self.respond(
-                prompt_builder_page(
-                    new_profile_name="",
-                    message=message,
-                    message_kind="success",
-                )
-            )
+                saved_mode = "saved"
+            # Post/Redirect/Get: the page after a save is a plain GET, so
+            # reloading it never sends the save again (a resent save made a
+            # duplicate profile, or failed the request-token check once the
+            # app had restarted).
+            query = urllib.parse.urlencode({saved_mode: profile["id"]})
+            self.send_response(303)
+            self.send_header("Location", f"/prompt-builder?{query}")
+            self.end_headers()
         except Exception as exc:
             self.respond(
                 prompt_builder_page(

@@ -250,7 +250,7 @@ def extract_docx_text(payload: bytes) -> str:
         raise RuntimeError("The DOCX document text could not be read.") from exc
 
     namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-    paragraphs: list[str] = []
+    read: list[tuple[str, str | None]] = []  # (text, its direct "space after")
     for paragraph_node in root.iter(f"{{{namespace}}}p"):
         parts: list[str] = []
         for node in paragraph_node.iter():
@@ -260,7 +260,21 @@ def extract_docx_text(payload: bytes) -> str:
                 parts.append("\t")
             elif node.tag in {f"{{{namespace}}}br", f"{{{namespace}}}cr"}:
                 parts.append("\n")
-        paragraphs.append("".join(parts).rstrip())
+        spacing = paragraph_node.find(f"{{{namespace}}}pPr/{{{namespace}}}spacing")
+        after = spacing.get(f"{{{namespace}}}after") if spacing is not None else None
+        read.append(("".join(parts).rstrip(), after))
+
+    # A compact transcript (run_support.write_docx() for the Catasto Onciario)
+    # has no empty paragraphs: 12 pt after a line stands for the blank line
+    # that followed it. Read it back as that blank line, but only in a
+    # document that also has lines set to 0 pt after (one of ours), so a
+    # document spaced the same way throughout gains no blank lines.
+    compact = any(text and after == "0" for text, after in read)
+    paragraphs: list[str] = []
+    for text, after in read:
+        paragraphs.append(text)
+        if compact and text and after == "240":
+            paragraphs.append("")
 
     text = "\n".join(paragraphs).strip()
     if not text:

@@ -90,7 +90,9 @@ class TranscribeTranslateHandlerMixin:
             if key_problem:
                 plan.errors.append(key_problem)
             prompt_chars = (
-                len(build_translation_prompt(plan.profile, plan.native_language, plan.languages, plan.options))
+                len(build_translation_prompt(
+                    plan.profile, plan.native_language, plan.languages, plan.options, line_structure=plan.line_structure
+                ))
                 if plan.languages
                 else 0
             )

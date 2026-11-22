@@ -393,6 +393,16 @@ styling has diverged too much from Transcribe/Test Mode's shared shell. */
     #pb-abbrev-rows .pb-row {
       grid-template-columns: 1fr 1fr 1fr auto;
     }
+    /* Written + full form, with Remove in the third column (where the
+       general abbreviation rows have their Meaning field). */
+    #pb-name-abbrev-rows .pb-row {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    #pb-name-abbrev-rows .pb-row-remove {
+      margin-top: 0;
+      align-self: center;
+      justify-self: start;
+    }
     .pb-row-simple {
       grid-template-columns: 1fr auto;
     }
@@ -592,7 +602,7 @@ styling has diverged too much from Transcribe/Test Mode's shared shell. */
         padding-top: 20px;
       }
       .site-header { align-items: stretch; }
-      .pb-row, #pb-abbrev-rows .pb-row { grid-template-columns: 1fr; }
+      .pb-row, #pb-abbrev-rows .pb-row, #pb-name-abbrev-rows .pb-row { grid-template-columns: 1fr; }
       .pb-row-remove { margin-top: 4px; }
       .pb-checklist-2col { grid-template-columns: 1fr; }
       .pb-checklist-2col .pb-checkbox { white-space: normal; }

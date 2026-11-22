@@ -82,6 +82,7 @@ from customizable_transcriber.core import (
     display_name,
     gemini_sampling_kwargs,
     humanize_provider_error,
+    keeps_line_structure,
     physical_neighbors,
     provider_for_model,
     render_entry,
@@ -1041,7 +1042,9 @@ def run_off_peak_job(
                     entry_text = text
                     image_results.append(ImageResult(name, True, text))
                 next_name, previous_name = physical_neighbors(names, index, reverse_order)
-                output.write(render_entry(name, entry_text, next_name, previous_name))
+                output.write(
+                    render_entry(name, entry_text, next_name, previous_name, keeps_line_structure(system_prompt))
+                )
 
         def log_year_check(message: str) -> None:
             sink.log(f"[{_log_timestamp()}] {message}")

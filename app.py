@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import http.cookies
 import json
+import os
+import re
 import secrets
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,7 +30,7 @@ from customizable_transcriber.core import (
     count_source_files_by_type,
 )
 from handlers.index_compare import IndexCompareHandlerMixin
-from handlers.profiles import ProfilesHandlerMixin
+from handlers.profiles import ProfilesHandlerMixin, prompt_builder_saved_banner
 from handlers.settings import SettingsHandlerMixin
 from handlers.test_mode_run import TestModeRunHandlerMixin
 from handlers.transcribe_offpeak import TranscribeOffPeakHandlerMixin
@@ -80,14 +82,39 @@ PORT = 8765
 #      defeats rebinding regardless of what the request's source IP is.
 #   2. Origin header (sent by every modern browser on state-changing
 #      requests) must match this server's own origin when present.
-#   3. A random token, generated fresh each time the app starts and handed to
-#      the browser as a SameSite=Strict cookie on first load, must come back
-#      on every state-changing request. SameSite=Strict means the browser
-#      will never attach it to a request initiated from a different site,
-#      so a cross-site page has no way to produce it even if it guesses the
-#      URL and endpoint shape exactly.
+#   3. A random token, handed to the browser as a SameSite=Strict cookie on
+#      first load, must come back on every state-changing request.
+#      SameSite=Strict means the browser will never attach it to a request
+#      initiated from a different site, so a cross-site page has no way to
+#      produce it even if it guesses the URL and endpoint shape exactly.
+#      main() keeps it in the user-data folder (load_request_token()), so a
+#      page left open across a restart of the app can still save; before,
+#      a new token at every start made its next save fail with "missing or
+#      invalid request token".
 CSRF_COOKIE_NAME = "ct_token"
 CSRF_TOKEN = secrets.token_urlsafe(32)
+REQUEST_TOKEN_FILE_NAME = "request-token"
+
+
+def load_request_token(folder: Path) -> str:
+    """The token saved in `folder`, made on first use (readable only by this
+    user). A fresh one for this run if the file can't be read or written."""
+    path = folder / REQUEST_TOKEN_FILE_NAME
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+        if re.fullmatch(r"[A-Za-z0-9_-]{32,}", token):
+            return token
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(32)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(token)
+    except OSError:
+        pass
+    return token
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 ALLOWED_ORIGINS = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"}
 
@@ -523,7 +550,7 @@ class Handler(
             return
 
         if parsed.path in {"/prompt-builder", "/prompt-builder/"}:
-            self.respond(prompt_builder_page())
+            self.respond(prompt_builder_page(**prompt_builder_saved_banner(parsed.query)))
             return
 
         if parsed.path in {"/privacy", "/privacy/"}:
@@ -772,7 +799,9 @@ class Handler(
 
 
 def main() -> None:
+    global CSRF_TOKEN
     ensure_profiles_dir()
+    CSRF_TOKEN = load_request_token(USER_DATA_DIR)
     usage_ledger.configure(USER_DATA_DIR / "usage")
     migrate_legacy_outputs_and_settings()
     with lock:

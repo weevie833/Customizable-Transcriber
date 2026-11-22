@@ -57,7 +57,16 @@ from xls_conversion.ai_parser import AI_REQUEST_TIMEOUT_SECONDS, TruncatedRespon
 
 # Recorded in the usage ledger and the report, so a translation can be traced
 # back to the prompt wording that produced it. Bump on any prompt change.
-PROMPT_VERSION = "translate-v2"
+PROMPT_VERSION = "translate-v3"
+
+# Keep in step with fidelityRulesBlock() in static/prompt-builder.js.
+AMERICAN_ENGLISH_RULE = (
+    "- Write the English translation in American English spelling and usage (laborer, color, honor, neighbor), "
+    "not British."
+)
+
+# The record type whose transcription keeps the register's line structure.
+LINE_STRUCTURE_RECORD_TYPE = "catasto_onciario"
 
 TARGET_LANGUAGES = ("English", "Italian")
 
@@ -385,6 +394,9 @@ class Plan:
     warnings: list[str]
     accepted_edits: list[str]
     skipped: dict[str, str]  # entry_id -> reason nothing was requested
+    # Catasto Onciario: the transcription keeps the register's lines, and the
+    # translation follows it line for line instead of being one paragraph.
+    line_structure: bool = False
 
     @property
     def entries_to_translate(self) -> list[Entry]:
@@ -495,6 +507,7 @@ def build_plan(text: str, profile_id: str, languages: list[str], options: Transl
     plan = Plan(
         parsed, profile, detected, native, languages, options or TranslationOptions(),
         work, cwr_work, errors, warnings, accepted, skipped,
+        line_structure=record_type_for(parsed, profile) == LINE_STRUCTURE_RECORD_TYPE,
     )
     for entry in plan.entries_to_translate:
         size = _payload_size(entry, plan)
@@ -560,50 +573,86 @@ def _fence(text: str) -> str:
     return "`" * max(3, longest + 1)
 
 
+def _line_structure_rules(languages: list[str], options: TranslationOptions) -> list[str]:
+    """Translation rules for a Catasto Onciario page, kept in step with the
+    TRANSLATION section of Prompt Builder's Catasto output format
+    (buildCatastoOutputFormat() in static/prompt-builder.js)."""
+    targets = " and ".join(languages)
+    rules = [
+        ("- Translate line for line. The translation has exactly the same lines as the transcription, in the same "
+        "order, with a blank line wherever the transcription has one; write the line breaks as \\n in the JSON "
+        "string. Never join two lines or split one: the lines are read one by one to rebuild each household."),
+        ("- Write each person's line as `<name>, <relationship or occupation>, age <N>` (for example `Rosolia Bruno, "
+        "wife, age 26`). Translate every heading in the same place, keep every figure as written, and translate the "
+        "rest literally; units may be translated (oncie = ounces)."),
+        ("- Keep the uncertainty markers exactly as they appear: `[illegible]`, `[damaged]`, `[blank]`, and bracketed "
+        "letters such as `Pu[?]io`."),
+    ]
+    if "English" in languages:
+        rules.append(AMERICAN_ENGLISH_RULE)
+    if options.expand_abbreviations:
+        rules.append("- Expand every abbreviation to its full form in the translation.")
+    else:
+        rules.append("- Carry abbreviations over as written; do not expand them.")
+    if options.convert_names:
+        rules.append(f"- Give personal names in their standard {targets} form.")
+    else:
+        rules.append(
+            "- Keep personal names exactly as the transcription writes them; do not anglicize, modernize, or translate them."
+        )
+    return rules
+
+
 def build_translation_prompt(
-    profile: dict | None, native_language: str, languages: list[str], options: TranslationOptions
+    profile: dict | None,
+    native_language: str,
+    languages: list[str],
+    options: TranslationOptions,
+    line_structure: bool = False,
 ) -> str:
     native = native_language or "the source language"
     targets = " and ".join(languages)
-    rules = [
+    rules = _line_structure_rules(languages, options) if line_structure else [
         ("- Write each translation as one paragraph with no line breaks. The app places it in the document, and a "
         "line break would split the block when the document is turned into a spreadsheet."),
         ("- Keep the uncertainty markers exactly as they appear: `[illegible]`, `[damaged]`, `[blank]`, and bracketed "
         "letters such as `Pu[?]io`. They record what could not be read, and a reader of the translation needs to see "
         "them in the same places."),
     ]
-    if "English" in languages:
+    if not line_structure:
+        if "English" in languages:
+            rules.append(AMERICAN_ENGLISH_RULE)
+            rules.append(
+                '- English: open with "On the Nth day of <Month> <year>." (a numeral with its ordinal suffix, and always '
+                "the year). Take the date from the entry's `date` field, whose bracketed part is the date already worked "
+                "out, for example `[19 July 1834]`. Keep an inferred year in brackets with a question mark, for example "
+                "[1754?]."
+            )
+        if "Italian" in languages:
+            rules.append(
+                '- Italian: open with the date, for example "Il giorno 23 di settembre 1752." Always state the year, and '
+                "keep an inferred year in brackets with a question mark, for example [1754?]."
+            )
         rules.append(
-            '- English: open with "On the Nth day of <Month> <year>." (a numeral with its ordinal suffix, and always '
-            "the year). Take the date from the entry's `date` field, whose bracketed part is the date already worked "
-            "out, for example `[19 July 1834]`. Keep an inferred year in brackets with a question mark, for example "
-            "[1754?]."
+            '- An entry marked `"fragment": true` continues an entry begun on the previous image, and one marked '
+            '`"front_matter": true` is the register\'s title or administrative page. Neither has a date of its own, so '
+            "its translation begins directly with the translated text."
         )
-    if "Italian" in languages:
-        rules.append(
-            '- Italian: open with the date, for example "Il giorno 23 di settembre 1752." Always state the year, and '
-            "keep an inferred year in brackets with a question mark, for example [1754?]."
-        )
-    rules.append(
-        '- An entry marked `"fragment": true` continues an entry begun on the previous image, and one marked '
-        '`"front_matter": true` is the register\'s title or administrative page. Neither has a date of its own, so '
-        "its translation begins directly with the translated text."
-    )
-    if options.expand_abbreviations:
-        rules.append("- Expand every abbreviation to its full form in the translation.")
-    else:
-        rules.append("- Carry abbreviations over as written; do not expand them.")
-    if options.convert_names:
-        rules.append(
-            f"- Give personal names in their standard {targets} form (for example Ioannes becomes John in English, "
-            "Giovanni in Italian)."
-        )
-    else:
-        rules.append(
-            "- Keep personal names in the form the transcription uses; do not anglicize, modernize, or translate them. "
-            "A name may change only in its grammatical case ending."
-        )
-    if options.honorifics:
+        if options.expand_abbreviations:
+            rules.append("- Expand every abbreviation to its full form in the translation.")
+        else:
+            rules.append("- Carry abbreviations over as written; do not expand them.")
+        if options.convert_names:
+            rules.append(
+                f"- Give personal names in their standard {targets} form (for example Ioannes becomes John in English, "
+                "Giovanni in Italian)."
+            )
+        else:
+            rules.append(
+                "- Keep personal names in the form the transcription uses; do not anglicize, modernize, or translate them. "
+                "A name may change only in its grammatical case ending."
+            )
+    if options.honorifics and not line_structure:
         rules.append(
             f"- When naming someone in a role (godparent, witness, informant, or similar), keep only "
             f"{' or '.join(options.honorifics)} with the name. Leave any other title out of the translation; the "
@@ -651,11 +700,32 @@ def build_translation_prompt(
     return "\n\n".join(sections)
 
 
+def _keep_lines(text: object) -> str:
+    """Text with its lines kept: trailing spaces dropped, runs of blank lines
+    reduced to one, no blank lines at either end."""
+    out: list[str] = []
+    for line in str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = line.rstrip()
+        if line.strip() or (out and out[-1]):
+            out.append(line)
+    return "\n".join(out).strip("\n")
+
+
+def _block_lines_text(lines: list[str], block: Block) -> str:
+    """A block's text with its line breaks (Block.text joins them)."""
+    first = lines[block.start]
+    rest = first.split(":", 1)[1].strip() if block.label_inline else ""
+    return _keep_lines("\n".join(([rest] if rest else []) + lines[block.start + 1 : block.end]))
+
+
 def _entry_payload(entry: Entry, plan: Plan) -> dict[str, object]:
+    transcription = (
+        _block_lines_text(plan.parsed.lines, entry.transcription) if plan.line_structure else entry.transcription.text
+    )
     payload: dict[str, object] = {
         "id": entry.entry_id,
         "languages": plan.work.get(entry.entry_id, []),
-        "transcription": entry.transcription.text,
+        "transcription": transcription,
     }
     date = entry.first("date")
     if date is not None and date.text:
@@ -736,6 +806,7 @@ def _translate_chunk(
         reason = humanize_provider_error(exc, model)
         return {}, {}, {entry.entry_id: reason for entry in chunk}
 
+    clean = _keep_lines if plan.line_structure else _one_line
     items = response.get("entries") if isinstance(response, dict) else response
     by_id = {str(item.get("id")): item for item in items or [] if isinstance(item, dict)}
     translations: dict[str, dict[str, str]] = {}
@@ -748,7 +819,7 @@ def _translate_chunk(
             continue
         wanted = plan.work.get(entry.entry_id, [])
         given = item.get("translations") if isinstance(item.get("translations"), dict) else {}
-        got = {lang: _one_line(given.get(lang)) for lang in wanted if _one_line(given.get(lang))}
+        got = {lang: clean(given.get(lang)) for lang in wanted if clean(given.get(lang))}
         cwr_wanted = plan.cwr_work.get(entry.entry_id, [])
         cwr_given = item.get("church_wedding_record") if isinstance(item.get("church_wedding_record"), dict) else {}
         cwr_got = {lang: _one_line(cwr_given.get(lang)) for lang in cwr_wanted if _one_line(cwr_given.get(lang))}
@@ -994,7 +1065,9 @@ def run_translation_job(
         plan = build_plan(text, profile_id, languages, options)
         if plan.errors:
             raise RuntimeError(" ".join(plan.errors))
-        system_prompt = build_translation_prompt(plan.profile, plan.native_language, plan.languages, plan.options)
+        system_prompt = build_translation_prompt(
+            plan.profile, plan.native_language, plan.languages, plan.options, line_structure=plan.line_structure
+        )
         profile = plan.profile or {}
         if not profile:
             add_log("No saved prompt profile was found; translating without background on the register.")

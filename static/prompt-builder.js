@@ -35,6 +35,7 @@
       expanded: data.expandedAbbreviationRule || "",
       marker: data.expandedAbbreviationMarker || "",
     };
+    window.PB_LINE_STRUCTURE = data.lineStructure || null;
     window.PB_SAVED_PROFILES = data.savedProfiles;
     window.PB_RESTORE_ON_ERROR = data.restoreOnError;
     window.PB_RESTORE_EDIT_ID = data.restoreEditId;
@@ -60,6 +61,9 @@
     civil_birth: { label: "Civil Nati", nounSingular: "Battesimi", nounPlural: "Battesimi", principal: "the child", locatorKind: "act", hasMarginalHeadingDefault: false },
     civil_marriage: { label: "Civil Matrimoni", nounSingular: "Matrimoni", nounPlural: "Matrimoni", principal: "the couple", locatorKind: "act", hasMarginalHeadingDefault: false },
     civil_death: { label: "Civil Morti", nounSingular: "Morti", nounPlural: "Morti", principal: "the deceased", locatorKind: "act", hasMarginalHeadingDefault: false },
+    // Not entry-based: one block per image, read line by line. Its prompt is
+    // built by buildCatastoRoleContext()/buildCatastoOutputFormat() instead.
+    catasto_onciario: { label: "Catasto Onciario", nounSingular: "Catasto Onciario", nounPlural: "Catasto Onciario", principal: "the household", locatorKind: "none", hasMarginalHeadingDefault: false },
   };
 
   var LATIN_DECLENSION_BLOCK = [
@@ -109,10 +113,13 @@
     }
     lines.push("- Write abbreviations using standard inline characters, not Unicode superscript characters, even when the source clearly raises a letter above the line (write `M.s`, `p.nti`, `R.di`, not `M.ˢ`, `p.ⁿᵗⁱ`, `R.ᵈⁱ`). This is a rule about how to encode the character, not a fidelity concession -- " + (expandInTranscription ? "an abbreviation left unexpanded is still transcribed exactly as written, letter for letter." : "the abbreviation itself is still transcribed exactly as written, letter for letter."));
     lines.push("- Surname particles (`de`, `di`, `d'`, `lo`, `la`, `le`, `li`) are part of the surname and must be transcribed exactly as written. If the particle itself is unclear, mark it uncertain rather than choosing the more common form.");
+    if (langs.indexOf("English") !== -1) {
+      lines.push("- Write the English translation in American English spelling and usage (laborer, color, honor, neighbor), not British.");
+    }
     if (hasTranslation) {
       lines.push("- A name must be identical in the transcription and in the " + translationWord + ", apart from any necessary change of grammatical case ending.");
     }
-    lines.push(omitNotesChecked()
+    lines.push(omitNotesChecked() || isCatasto()
       ? "- Do not summarize, comment, or add editorial content anywhere in your output (see NOTES in the output format)."
       : "- Do not summarize, comment, or add editorial content outside the Notes block defined in the output format.");
     return lines.join("\n");
@@ -279,8 +286,10 @@
   function pbExampleEntries() {
     var weddingActive = churchWeddingColumnActive();
     var baptismActive = baptismColumnActive();
+    var pageOnly = isCatasto();
     return pbRows("pb-example-rows", ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation", "pb-example-baptism", "pb-example-date"])
       .map(function (row) {
+        if (pageOnly) return { label: row[0], text: row[1], wedding: "", continuation: "", baptism: "", date: "" };
         return { label: row[0], text: row[1], wedding: weddingActive ? row[2] : "", continuation: row[3], baptism: baptismActive ? row[4] : "", date: row[5] };
       })
       .filter(function (example) { return example.text; });
@@ -365,6 +374,10 @@
     return RECORD_TYPES[selectedRecordType()] || RECORD_TYPES.battesimi;
   }
 
+  function isCatasto() {
+    return selectedRecordType() === "catasto_onciario";
+  }
+
   function translationLanguages() {
     var langs = [];
     var en = document.querySelector('[name="translateEnglish"]');
@@ -377,6 +390,7 @@
   // ---- Section 1: Role & Local Context ----
 
   function buildRoleContext() {
+    if (isCatasto()) return buildCatastoRoleContext();
     var meta = typeMeta();
     var isCivil = selectedRecordType().indexOf("civil_") === 0;
     var language = pbVal("language") || "the source language";
@@ -588,11 +602,174 @@
     return parts.join("\n\n");
   }
 
+  // ---- Catasto Onciario (Section 1 and Section 3) ----
+  //
+  // The register is described at the level of a concept on purpose: what it
+  // is and what it usually records, and that its sections and layout vary.
+  // Section-by-section detail would push the model to read what it expects
+  // instead of what is on the page. The line structure is fixed because the
+  // Catasto Visualizer finds households from it (catasto-parser.js: one
+  // person per line with the age, a new household at a person line with no
+  // relationship word, headings on their own line between blank lines).
+
+  // Keep the first words in step with LINE_STRUCTURE_MARKER (core.py): its
+  // presence switches the core rules and keeps the lines when rendering.
+  var CATASTO_LINE_STRUCTURE_RULE = "- Keep the register's line structure exactly as the OUTPUT FORMAT describes. A household is read line by line downstream, so a person or an item merged into another line is lost.";
+
+  // On by default ("ignoreWatermark"): archive photos (Antenati and others)
+  // usually carry one; a user whose photos don't can turn it off.
+  var CATASTO_WATERMARK_RULE = "Ignore any watermark, stamp or copyright mark added to the photograph (for example a diagonal archive name across the page): it is not part of the register. Never transcribe it, and where it crosses the writing, read the handwriting underneath.";
+
+  var CATASTO_BACKGROUND_BLOCK = [
+    "# THE CATASTO ONCIARIO",
+    "",
+    "The Catasto Onciario was the general tax survey of the Kingdom of Naples, ordered in 1740-1741. Each community (Università) produced several documents for it: preliminary acts, the households' own declarations (rivele), the officials' valuations (apprezzi), and finally the onciario, the definitive register from which the tax was levied. You are transcribing an onciario.",
+    "",
+    "It lists the community's taxpayers one after another. A household entry usually names the head of the household and the people living with them, with relationship, occupation or condition, and age; where they live (their own house or a rented one) and whose property borders it; the land, buildings, animals and credits they hold, with place, size, borders and estimated income; what they owe to others; and the resulting figures. Money is counted in ducati, carlini, grana and cavalli, and the assessment in oncie and grana.",
+    "",
+    "Taxpayers are grouped into sections by category -- for example resident citizens, widows and unmarried women, absent citizens, local clergy, local churches and confraternities, outsiders living in the community, and outsiders who only own property there. Each section has its own heading and may set out its entries differently. Opening pages (title, officials' statements, signatures) and closing pages (summary tables, tax calculations, signatures) belong to the register too.",
+    "",
+    "This structure is common but not fixed: which sections appear, their order, their wording and the layout of an entry vary with the community, the region and the year. The background above is here to help you read the page, never to tell you what should be on it. Do not add, complete or reorder anything to fit it: transcribe only what this image shows.",
+  ].join("\n");
+
+  function buildCatastoRoleContext() {
+    var language = pbVal("language") || "the source language";
+    var era = pbVal("era");
+    var locality = pbVal("locality");
+    var province = pbVal("province");
+    var volumeRange = pbVal("volumeRange");
+    var handDescriptor = pbVal("handDescriptor");
+    var pageLayout = pbVal("pageLayout");
+    var pageLayoutOther = pbVal("pageLayoutOther");
+    var langs = translationLanguages();
+    var parts = [];
+
+    parts.push(
+      "You are an expert paleographer and historian specializing in " + (era ? era + " " : "") +
+      "fiscal records of the Kingdom of Naples" + (locality ? ", reading the records of " + locality : "") +
+      (province ? ", " + province : "") + ". You read the source handwriting fluently and transcribe word for word."
+    );
+    var translationClause = langs.length ? " plus " + (langs.length === 1 ? "an " + langs[0] + " translation" : langs.join(" and ") + " translations") : "";
+    parts.push(
+      "Your task: read images of the pages of the Catasto Onciario" + (locality ? " of " + locality : "") +
+      (volumeRange ? " (" + volumeRange + ")" : "") + " and convert the full text of each image into a verbatim " +
+      language + " transcription" + translationClause + ", in the format defined in the output format section. Every page is transcribed in full, whatever it contains: households, headings, front matter, summary tables, calculations and signatures."
+    );
+    if (handDescriptor) parts.push("Handwriting note: " + handDescriptor);
+
+    parts.push(CATASTO_BACKGROUND_BLOCK);
+
+    var layoutLines = ["# PAGE LAYOUT", ""];
+    if (pageLayout === "two_facing") {
+      layoutLines.push("Each image shows two facing pages. Read the LEFT page top to bottom first, then the RIGHT page.");
+    } else if (pageLayout === "one_page") {
+      layoutLines.push("Each image shows one page of the register.");
+    } else if (pageLayout === "other" && pageLayoutOther) {
+      layoutLines.push(pageLayoutOther);
+    }
+    layoutLines.push(
+      "A household often runs from one image onto the next, so an image may begin or end in the middle of a household, or even of a sentence. Start with the first words visible and stop at the last: never invent a missing beginning or ending, and never add a note about the break -- the images are joined in order afterwards.",
+      "Faint writing that shows through from the other side of the leaf is not part of this page: ignore it."
+    );
+    var watermarkBox = document.querySelector('[name="ignoreWatermark"]');
+    if (watermarkBox && watermarkBox.checked) {
+      layoutLines.push(CATASTO_WATERMARK_RULE);
+    }
+    parts.push(layoutLines.join("\n"));
+
+    parts.push(
+      "Never add a person, a household, a property or a figure you cannot see on this page, and never complete one from the pattern of the entries around it. A fabricated line is worse than a gap: a gap can be noticed, a fabricated line will be trusted."
+    );
+
+    parts.push(fidelityRulesBlock(langs) + "\n" + CATASTO_LINE_STRUCTURE_RULE);
+    parts.push(UNCERTAINTY_PROTOCOL_BLOCK);
+    return parts.join("\n\n");
+  }
+
+  function buildCatastoOutputFormat() {
+    var parts = [];
+    var langs = translationLanguages();
+    var language = pbVal("language") || "Source";
+    var transcriptionLabel = language + " Transcription:";
+
+    parts.push(
+      "Your output is read by downstream tooling that builds a Word document and a household database from it. Labels and line breaks matter: a person merged into another line, or a heading run into the text, is lost to that tooling.\n\n" +
+      "Output plain text only. No JSON, no markdown (no **bold**, no # headings, no bullet lists, no | tables), no code fences, no preamble, no closing commentary, and no `--- START OF RECORD ---` line; the application adds that itself."
+    );
+
+    var blockLines = ["# BLOCK STRUCTURE", "", "For every image, emit these labeled blocks, in this order, separated by a blank line:", "", "    " + transcriptionLabel, "", "    <the whole page, in the line structure below>"];
+    langs.forEach(function (lang) {
+      blockLines.push("", "    " + lang + " Translation:", "", "    <the whole page translated, line for line>");
+    });
+    blockLines.push("", "Each image gets exactly one of each block, even when it holds only part of a household. Write nothing before the first label.");
+    parts.push(blockLines.join("\n"));
+
+    parts.push([
+      "# LINE STRUCTURE",
+      "",
+      "1. Each person goes on a line of their own, in the order written: the name first, then what the scribe wrote about them (relationship, occupation or condition), then the age exactly as written (for example `d'anni 60` or `anni 30`). Never put two people on one line, and never put a person on the same line as a sentence about property or money.",
+      "2. A number the scribe writes before the head of a household (the household's number in the register, for example `6o` or `N.o 12`) goes on a line of its own, exactly as written, directly above the head's line with no blank line between them. A person's line never starts with a number.",
+      "3. Start a new line for each new item the scribe begins: the number of heads (teste), each industria, the residence, each property, animal or credit, the word that opens the deductions (such as Pesi), each payment, and every total, net amount or amount carried forward (such as Sono in tutto, Restano, Riporto). A sentence that only wraps onto the next physical line of the page stays on one line.",
+      "4. Separate items with one blank line, with two exceptions, whose lines follow one another with no blank line between them: the people of one household, and a household's industrie (one line per industria, stacked one under another like the people).",
+      "5. A figure written in a column at the right of the page belongs to the line it stands beside: write it at the end of that line after \" — \", keeping the separators the scribe used (for example `sono oncie — 33: 10`). The ruled dashes or lines that lead the eye to the column are not text: write a single \" — \" for them.",
+      "6. A heading that stands on its own -- a section title, or a word set apart from the text -- goes on a line of its own with a blank line before and after it, exactly as written.",
+      "7. A table (columns of names and figures, such as the summary pages): one line per row, its cells in the order written, separated by \" — \". Column headings, if any, form the first line in the same way.",
+      "8. Signatures and marks: each signer on a line of their own; a cross drawn by someone who could not write is transcribed as `+` at the start of that line.",
+      "9. Do not transcribe the page or folio number written in a corner of the page.",
+    ].join("\n"));
+
+    if (langs.length) {
+      var translationLines = [
+        "# TRANSLATION",
+        "",
+        "The translation follows the transcription line for line: the same lines, the same blank lines, each heading translated in the same place, and every figure as written. Write each person's line as `<name>, <relationship or occupation>, age <N>` (for example `Rosolia Bruno, wife, age 26`), keeping the name exactly as in the transcription. Translate everything else literally; units may be translated (oncie = ounces).",
+      ];
+      var expandAbbrev = document.querySelector('[name="translateExpandAbbreviations"]');
+      if (expandAbbrev && expandAbbrev.checked) translationLines.push("", "Expand every abbreviation in the translation to its full form.");
+      var convertNames = document.querySelector('[name="translateConvertNames"]');
+      if (convertNames && convertNames.checked) {
+        translationLines.push("", "Convert personal names in the translation to their standard " + langs.join("/") + " equivalent rather than keeping the source form.");
+      }
+      parts.push(translationLines.join("\n"));
+    }
+
+    parts.push("# NOTES\n\nDo not write notes, comments or a Notes block. Mark a doubtful reading in the text itself, with the brackets of the UNCERTAINTY PROTOCOL.");
+
+    var examples = pbExampleEntries();
+    if (examples.length) {
+      var many = examples.length > 1;
+      var exampleBlocks = examples.map(function (example, index) {
+        return (many ? "Example " + (index + 1) + (example.label ? " -- " + example.label : "") + ":\n\n" : "") + example.text;
+      });
+      parts.push(
+        "# EXAMPLE " + (many ? "PAGES" : "PAGE") + " (REFERENCE ONLY)\n\n" +
+        "The following " + (many ? "are verified, 100% accurate transcriptions of real pages" : "is a verified, 100% accurate transcription of a real page") +
+        " from this register (the transcription block only), given as a reference for layout, line structure and spelling conventions. Match those conventions, but do not copy the content: " +
+        (many ? "none of them is" : "it is not") + " the page you are transcribing." + exampleAbbreviationCaveat() + "\n\n" +
+        exampleBlocks.join("\n\n---\n\n")
+      );
+    }
+
+    parts.push([
+      "# FINAL CHECK BEFORE YOU OUTPUT",
+      "",
+      "1. One `" + transcriptionLabel + "` block" + (langs.length ? " and one " + langs.map(function (l) { return "`" + l + " Translation:`"; }).join(" and ") + " block" : "") + " for this image, and nothing else.",
+      "2. Every person on a line of their own, with their age on that line, and any household number on its own line above the head. People of one household, and its industrie, stacked with no blank line between them.",
+      "3. Every figure at the end of the line it belongs to; no column of bare numbers left over.",
+      "4. Headings on lines of their own, with a blank line before and after.",
+      "5. Nothing added to complete a household that begins or ends beyond this image.",
+      "6. No markdown, no notes, no START OF RECORD line.",
+    ].join("\n"));
+    return parts.join("\n\n");
+  }
+
   // ---- Section 2: Reference Material ----
 
   function buildReferenceContext() {
     var parts = [];
 
+    // The Catasto has no entry formula, and its entry-vocabulary fields are
+    // hidden: never read them (a value left over from another type).
     var formulaLines = ["# THE STANDARD ENTRY FORMULA", ""];
     var hasMarginal = document.querySelector('[name="' + typeField("hasMarginalHeading") + '"]');
     if (hasMarginal && hasMarginal.checked) {
@@ -611,6 +788,7 @@
       var baptismFormula = pbVal(typeField("formula_baptism"));
       if (baptismFormula) formulaLines.push("Baptism Record formula (the separate baptism column):\n\n    " + baptismFormula, "");
     }
+    if (!isCatasto()) {
     var roleVocab = pbChecked(typeField("roleVocab")).concat(pbSimpleValues(selectedRecordType() + "-rolevocab-rows"));
     if (roleVocab.length) {
       formulaLines.push("Role-clause vocabulary: " + roleVocab.join(" · "), "");
@@ -627,12 +805,20 @@
       });
       formulaLines.push("");
     }
+    }
     if (formulaLines.length > 2) parts.push(formulaLines.join("\n").trim());
 
     var abbrevRows = [];
     pbChecked("commonAbbrev").forEach(function (encoded) {
       abbrevRows.push(encoded.split("|"));
     });
+    // The Catasto presets are only read for that record type, so a box
+    // left checked while another type is selected never leaks into it.
+    if (isCatasto()) {
+      pbChecked("catastoAbbrev").forEach(function (encoded) {
+        abbrevRows.push(encoded.split("|"));
+      });
+    }
     pbRows("pb-abbrev-rows", ["pb-abbrev-written", "pb-abbrev-expansion", "pb-abbrev-meaning"]).forEach(function (row) {
       abbrevRows.push([row[0], row[1], row[2]]);
     });
@@ -642,6 +828,24 @@
         abbrevLines.push("| `" + row[0] + "` | " + (row[1] || "") + " | " + (row[2] || "") + " |");
       });
       parts.push(abbrevLines.join("\n"));
+    }
+    if (isCatasto()) {
+      var nameAbbrevRows = pbRows("pb-name-abbrev-rows", ["pb-name-abbrev-written", "pb-name-abbrev-expansion"])
+        .filter(function (row) { return row[0]; });
+      if (nameAbbrevRows.length) {
+        var nameAbbrevLines = [
+          "# NAME AND PLACE ABBREVIATIONS",
+          "",
+          "Abbreviated names, places and saints' names found in this register. They follow the same rules as any other abbreviation (see the FIDELITY RULES); this list only tells you what each one stands for.",
+          "",
+          "| Written | Full form |",
+          "|---|---|",
+        ];
+        nameAbbrevRows.forEach(function (row) {
+          nameAbbrevLines.push("| `" + row[0] + "` | " + (row[1] || "") + " |");
+        });
+        parts.push(nameAbbrevLines.join("\n"));
+      }
     }
 
     var scribalQuirks = pbChecked("scribalQuirks").concat(pbSimpleValues("pb-scribal-rows"));
@@ -743,6 +947,7 @@
   }
 
   function buildOutputFormat() {
+    if (isCatasto()) return buildCatastoOutputFormat();
     var parts = [];
     var langs = translationLanguages();
     var language = pbVal("language") || "Source";
@@ -946,6 +1151,12 @@
       coreRules = coreRules.filter(function (r) { return abbr.preserve.indexOf(r) === -1; });
       coreRules.splice(4, 0, abbr.expanded);
     }
+    var lineStructure = window.PB_LINE_STRUCTURE;
+    if (lineStructure && role.indexOf(lineStructure.marker) !== -1) {
+      coreRules = coreRules
+        .map(function (r) { return r === lineStructure.collapseRule ? lineStructure.rule : r; })
+        .filter(function (r) { return r !== lineStructure.entryNumberRule; });
+    }
     var rules = coreRules.map(function (r) { return "- " + r; }).join("\n");
     var scaffold = "# ROLE AND LOCAL CONTEXT\n" + role + "\n\n# CORE TRANSCRIPTION RULES\n" + rules + "\n\n# OUTPUT FORMAT\n" + format;
     var sections = [scaffold];
@@ -1112,7 +1323,11 @@
     });
     var cornerRow = document.getElementById("pb-page-number-corner-row");
     var isCivil = type.indexOf("civil_") === 0;
-    if (cornerRow) cornerRow.hidden = isCivil || pbVal("pageNumberScheme") !== "two_per_image";
+    // The Catasto shares the civil types' single (English) translation and
+    // has no institution or page-number locator; its own hides are in
+    // updateOtherFieldVisibility().
+    var catasto = isCatasto();
+    if (cornerRow) cornerRow.hidden = isCivil || catasto || pbVal("pageNumberScheme") !== "two_per_image";
     // These Section 1 fields describe a physical register/institution the way
     // a church record does; civil acts don't have an "institution" in the same
     // sense, don't carry a scribe's individual hand the way a parish register
@@ -1121,22 +1336,26 @@
     // asking about "era" at all for civil records (see the civil-records
     // planning discussion: visual appearance, not historical period). Hidden
     // rather than removed from the page, since church types still use them.
-    ["pb-church-only-era", "pb-church-only-institution", "pb-church-only-handdescriptor", "pb-church-only-pagenumberscheme", "pb-church-only-translateitalian", "pb-church-only-translation-hint"].forEach(function (id) {
+    ["pb-church-only-era", "pb-church-only-handdescriptor"].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.hidden = isCivil;
+    });
+    ["pb-church-only-institution", "pb-church-only-pagenumberscheme", "pb-church-only-translateitalian", "pb-church-only-translation-hint"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.hidden = isCivil || catasto;
     });
     // Civil profiles only ever have one translation checkbox (English --
     // Italian was removed above, since the source is already Italian), so
     // the church version's "leave both unchecked" reads wrong once there's
     // only one box to leave unchecked.
     var civilTranslationHint = document.getElementById("pb-civil-only-translation-hint");
-    if (civilTranslationHint) civilTranslationHint.hidden = !isCivil;
+    if (civilTranslationHint) civilTranslationHint.hidden = !(isCivil || catasto);
     // The source material for a civil record is already Italian, so
     // translating it into Italian is meaningless -- unlike the plain-text
     // fields above, a checkbox left checked from a church-type profile would
     // otherwise silently survive the switch and still count as a requested
     // translation language.
-    if (isCivil) {
+    if (isCivil || catasto) {
       var translateItalian = document.querySelector('[name="translateItalian"]');
       if (translateItalian) translateItalian.checked = false;
     }
@@ -1164,6 +1383,25 @@
     // in profiles_store.py for how Transcribe uses it).
     var zoomRow = document.getElementById("pb-zoom-pages-row");
     if (zoomRow) zoomRow.hidden = pbVal("pageLayout") !== "two_facing";
+    // Fields about dated entries, entry formulas and Notes, which a Catasto
+    // Onciario profile never uses (its prompt doesn't read them either).
+    var catasto = isCatasto();
+    ["pb-hour-convention-field", "pb-relative-date-section", "pb-entry-vocab-section", "pb-omit-notes-row"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.hidden = catasto;
+    });
+    var watermarkRow = document.getElementById("pb-watermark-row");
+    if (watermarkRow) watermarkRow.hidden = !catasto;
+    var catastoAbbrevList = document.getElementById("pb-catasto-abbrev-checklist");
+    if (catastoAbbrevList) catastoAbbrevList.hidden = !catasto;
+    var nameAbbrevSection = document.getElementById("pb-name-abbrev-section");
+    if (nameAbbrevSection) nameAbbrevSection.hidden = !catasto;
+    if (catasto) {
+      ["pb-span-images-row", "pb-latin-declension-row", "pb-latin-month-field", "pb-month-convention-other-row"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.hidden = true;
+      });
+    }
   }
 
   // Church records default to Latin, civil records to Italian -- a starting
@@ -1174,7 +1412,7 @@
   function updateRecordTypeLanguageDefault() {
     var languageSelect = document.querySelector('[name="language"]');
     if (!languageSelect || languageSelect.dataset.touched) return;
-    var defaultLanguage = selectedRecordType().indexOf("civil_") === 0 ? "Italian" : "Latin";
+    var defaultLanguage = selectedRecordType().indexOf("civil_") === 0 || isCatasto() ? "Italian" : "Latin";
     if (languageSelect.value !== defaultLanguage) languageSelect.value = defaultLanguage;
   }
 
@@ -1243,7 +1481,9 @@
   function updateTranslationVisibility() {
     var langs = translationLanguages();
     var honorificsSection = document.getElementById("pb-honorifics-section");
-    if (honorificsSection) honorificsSection.hidden = langs.length === 0;
+    // Honorifics are about role clauses (godparent, witness), which a
+    // Catasto entry doesn't have.
+    if (honorificsSection) honorificsSection.hidden = langs.length === 0 || isCatasto();
     var translationOptionsSection = document.getElementById("pb-translation-options-section");
     if (translationOptionsSection) translationOptionsSection.hidden = langs.length === 0;
     pbRefresh();
@@ -1340,6 +1580,17 @@
     );
   }
 
+  // Catasto only: abbreviated given names, surnames, places and saints'
+  // names, kept apart from the general key because they belong to one
+  // register (see "pb-name-abbrev-section").
+  function addNameAbbrevRow() {
+    return addRow(
+      "pb-name-abbrev-rows",
+      '<input type="text" class="pb-name-abbrev-written" placeholder="Written, e.g. Ant.o">' +
+      '<input type="text" class="pb-name-abbrev-expansion" placeholder="Full form, e.g. Antonio">'
+    );
+  }
+
   function addSimpleRow(containerId, placeholder) {
     return addRow(containerId, '<input type="text" class="pb-simple-value" placeholder="' + placeholder + '">', "pb-row-simple");
   }
@@ -1358,7 +1609,7 @@
     var row = addRow(
       "pb-example-rows",
       '<input type="text" class="pb-example-label" placeholder="Label (optional), e.g. Image 193 Entry 1">' +
-      '<label class="pb-example-part"><span>Date line</span>' +
+      '<label class="pb-example-part pb-example-date-part"><span>Date line</span>' +
       '<input type="text" class="pb-example-date" placeholder="Date exactly as written, then the standard form in brackets -- e.g. due del mese di Gennaro milleottocentoventitre [2 January 1823]"></label>' +
       '<label class="pb-example-part"><span>Main entry</span>' +
       '<textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea></label>' +
@@ -1366,7 +1617,7 @@
       '<textarea class="pb-example-wedding" rows="3" placeholder="Paste the text of the right-hand church-wedding column, exactly as transcribed -- no labels or headers."></textarea></label>' +
       '<label class="pb-example-part pb-example-baptism-part" hidden><span>Baptism Record (if any)</span>' +
       '<textarea class="pb-example-baptism" rows="3" placeholder="Paste the text of the baptism column, exactly as transcribed -- no labels or headers."></textarea></label>' +
-      '<label class="pb-example-part"><span>Continuation (if any)</span>' +
+      '<label class="pb-example-part pb-example-continuation-part"><span>Continuation (if any)</span>' +
       '<textarea class="pb-example-continuation" rows="3" placeholder="If this entry runs onto the next image, paste the text that continues it at the top of that image, exactly as transcribed -- no labels or headers."></textarea></label>',
       "pb-example-row"
     );
@@ -1380,6 +1631,14 @@
     document.querySelectorAll(".pb-example-wedding-part").forEach(function (el) { el.hidden = !show; });
     var showBaptism = baptismColumnActive();
     document.querySelectorAll(".pb-example-baptism-part").forEach(function (el) { el.hidden = !showBaptism; });
+    // A Catasto example is one whole page: no Date line, and no Continuation
+    // part (a household that runs on is simply on the next page).
+    var pageOnly = isCatasto();
+    document.querySelectorAll(".pb-example-date-part, .pb-example-continuation-part").forEach(function (el) { el.hidden = pageOnly; });
+    var entryHint = document.getElementById("pb-example-hint-entry");
+    if (entryHint) entryHint.hidden = pageOnly;
+    var catastoHint = document.getElementById("pb-example-hint-catasto");
+    if (catastoHint) catastoHint.hidden = !pageOnly;
   }
 
   // ---- Load an existing profile back into the questionnaire ----
@@ -1399,6 +1658,7 @@
   var PB_ROW_CONTAINERS = {
     "pb-variant-rows": { classNames: ["pb-variant-name", "pb-variant-markers"], build: addVariantRow },
     "pb-abbrev-rows": { classNames: ["pb-abbrev-written", "pb-abbrev-expansion", "pb-abbrev-meaning"], build: addAbbrevRow },
+    "pb-name-abbrev-rows": { classNames: ["pb-name-abbrev-written", "pb-name-abbrev-expansion"], build: addNameAbbrevRow },
     "pb-example-rows": { classNames: ["pb-example-label", "pb-example-text", "pb-example-wedding", "pb-example-continuation", "pb-example-baptism", "pb-example-date"], build: addExampleRow },
     "pb-relativedate-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-relativedate-rows", "Add another term"); } },
     "pb-scribal-rows": { classNames: ["pb-simple-value"], build: function () { return addSimpleRow("pb-scribal-rows", "Add another quirk"); } },
@@ -2049,6 +2309,17 @@
     if (window.PB_RESTORE_ON_ERROR) {
       pbRestoreAnswers(window.PB_RESTORE_ON_ERROR);
       if (window.PB_RESTORE_EDIT_ID) pbSetEditing(window.PB_RESTORE_EDIT_ID, window.PB_RESTORE_EDIT_LABEL);
+    } else {
+      // After a successful save the page is /prompt-builder?saved=<id> or
+      // ?updated=<id> (Post/Redirect/Get): load that profile again, so the
+      // user carries on editing it without picking it from the list.
+      var params = new URLSearchParams(window.location.search);
+      var savedId = params.get("updated") || params.get("saved");
+      var savedEntry = savedId ? (window.PB_SAVED_PROFILES || {})[savedId] : null;
+      if (savedEntry) {
+        pbRestoreAnswers(savedEntry.answers);
+        pbSetEditing(savedId, savedEntry.label);
+      }
     }
   }
 
@@ -2148,6 +2419,8 @@
     if (addVariantButton) addVariantButton.addEventListener("click", addVariantRow);
     var addAbbrevButton = document.getElementById("pb-add-abbrev");
     if (addAbbrevButton) addAbbrevButton.addEventListener("click", addAbbrevRow);
+    var addNameAbbrevButton = document.getElementById("pb-add-name-abbrev");
+    if (addNameAbbrevButton) addNameAbbrevButton.addEventListener("click", addNameAbbrevRow);
     var addExampleButton = document.getElementById("pb-add-example");
     if (addExampleButton) addExampleButton.addEventListener("click", addExampleRow);
     var addRelativeDateButton = document.getElementById("pb-add-relativedate");

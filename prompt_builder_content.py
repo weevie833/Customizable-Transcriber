@@ -11,6 +11,8 @@ place."""
 
 from __future__ import annotations
 
+from customizable_transcriber.core import LINE_STRUCTURE_MARKER
+
 PROMPT_BUILDER_SECTION_HELP = {
     "role_context": (
         "Answer these questions to define who the AI is, what it's transcribing, and "
@@ -65,14 +67,32 @@ EXPANDED_ABBREVIATIONS_CORE_RULE = (
 )
 PRESERVE_ABBREVIATIONS_CORE_RULES = PROMPT_BUILDER_CORE_RULES[4:6]
 
+# A Catasto Onciario profile writes a FIDELITY RULES line starting with
+# LINE_STRUCTURE_MARKER into its role context. A household is read line by
+# line (one person per line, each item on its own line), so the core "use
+# continuous paragraphs" rule is swapped for LINE_STRUCTURE_CORE_RULE and the
+# marginal-heading "Entry N - " rule, which has no block to apply to, is
+# dropped. render_entry() (core.py) keeps the lines for the same marker.
+COLLAPSE_LINE_BREAKS_CORE_RULE = PROMPT_BUILDER_CORE_RULES[6]
+ENTRY_NUMBER_CORE_RULE = PROMPT_BUILDER_CORE_RULES[8]
+LINE_STRUCTURE_CORE_RULE = (
+    "Keep the line structure the OUTPUT FORMAT describes: start a new line where it says to, and join a "
+    "sentence that merely wraps onto the next physical line of the page into one line."
+)
+
 
 def core_rules_for(role_context: str) -> list[str]:
-    if EXPANDED_ABBREVIATIONS_MARKER not in role_context:
-        return list(PROMPT_BUILDER_CORE_RULES)
-    rules = [rule for rule in PROMPT_BUILDER_CORE_RULES if rule not in PRESERVE_ABBREVIATIONS_CORE_RULES]
-    rules.insert(4, EXPANDED_ABBREVIATIONS_CORE_RULE)
+    rules = list(PROMPT_BUILDER_CORE_RULES)
+    if EXPANDED_ABBREVIATIONS_MARKER in role_context:
+        rules = [rule for rule in rules if rule not in PRESERVE_ABBREVIATIONS_CORE_RULES]
+        rules.insert(4, EXPANDED_ABBREVIATIONS_CORE_RULE)
+    if LINE_STRUCTURE_MARKER in role_context:
+        rules = [LINE_STRUCTURE_CORE_RULE if rule == COLLAPSE_LINE_BREAKS_CORE_RULE else rule for rule in rules]
+        rules.remove(ENTRY_NUMBER_CORE_RULE)
     return rules
 
+
+CATASTO_RECORD_TYPE = "catasto_onciario"
 
 PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
     "battesimi": {
@@ -201,6 +221,20 @@ PROMPT_BUILDER_RECORD_TYPES: dict[str, dict] = {
         # longest sentence overflowed the panel instead of wrapping.
         "role_vocab_stacked": True,
     },
+    # The final register (onciario) of the 1740s-50s Catasto of the Kingdom
+    # of Naples. Not entry-based like the others: the output is one block
+    # per image, a household can run across images, and the Catasto
+    # Visualizer finds households from the line structure (one person per
+    # line). So no entry formula, role vocabulary or marginal heading; the
+    # questionnaire hides those (see updateRecordTypeVisibility()).
+    "catasto_onciario": {
+        "label": "Catasto Onciario",
+        "has_marginal_heading_default": False,
+        "has_marginal_heading_support": False,
+        "marginal_heading_placeholder": "",
+        "formula_fields": [],
+        "role_vocab": [],
+    },
 }
 
 # Rendered in a fixed 2-column grid (.pb-checklist-2col, 8 items -> 4 rows).
@@ -218,6 +252,46 @@ PROMPT_BUILDER_COMMON_ABBREVIATIONS = [
     ("jug.", "jugales", "married couple"),
     ("d.ti", "dicti", "of the said"),
     ("D.", "Don / Dominus", "courtesy title for clergy and gentry"),
+]
+
+# Catasto Onciario abbreviation presets (Italian, Kingdom of Naples, 1740s),
+# shown only for that record type and checked by default. Checked against
+# Lappano 1742 image 264. Kept to the register's general vocabulary: given
+# names (Ant.o, Gius.e) and places (Cons.a, S. M.a) are register-specific
+# and belong in the profile's own "Add an abbreviation" rows. Left out on
+# purpose: a bare "o" (oncie) or "d" (ducati), which the model would start
+# reading into stray letters, and "m.o", which elsewhere means mastro.
+PROMPT_BUILDER_CATASTO_ABBREVIATIONS = [
+    ("D.", "Don / Donna", "title for clergy and gentry"),
+    ("m.co / m.ca", "Magnifico / Magnifica", "title for gentry and distinguished persons"),
+    ("Cl.o Conjug.o", "Chierico Conjugato", "married cleric in minor orders"),
+    ("Rev.", "Reverendo", "reverend"),
+    ("S.r", "Signor", "Mister / Lord"),
+    ("fllo", "fratello", "brother"),
+    ("Verg.e", "vergine", "unmarried woman"),
+    ("d.o / d.a / d.i", "detto / detta / detti", "the said, called"),
+    ("sud.o", "suddetto", "aforesaid"),
+    ("q.o / q.a", "questo / questa", "this"),
+    ("q.li", "quali", "which"),
+    ("p.", "per", "for"),
+    ("an:", "anni / annua / annui", "years; annual"),
+    ("prop.a", "propria", "own"),
+    ("Civilm.e", "civilmente", "living off rents and investments, not manual labour"),
+    ("posses.ne", "possessione", "landholding"),
+    ("rend.a", "rendita", "income"),
+    ("app.o", "apprezzo", "official land appraisal"),
+    ("fol. / f.", "folio / foglio", "page, leaf"),
+    ("num.o / n.", "numero", "number"),
+    ("Cap.le", "Capitale", "principal sum"),
+    ("on / on:", "oncie", "ounces, the taxable unit"),
+    ("V.le", "Venerabile", "venerable (churches, convents)"),
+    ("Conv.o", "Convento", "convent"),
+    ("celebraz.e", "celebrazione", "celebration (of Masses)"),
+    ("ded.ne", "deduzione", "deduction"),
+    ("ded.e", "dedotte", "deducted (variant of ded.ne)"),
+    ("ren:", "rendita", "income (shorter variant of rend.a)"),
+    ("q.m", "quondam", "the late, deceased (Latin)"),
+    ("Bracc.le / brac.le", "Bracciale", "day laborer"),
 ]
 
 PROMPT_BUILDER_SCRIBAL_QUIRKS = [

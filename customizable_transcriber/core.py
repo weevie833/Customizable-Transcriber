@@ -1081,6 +1081,31 @@ def delete_gemini_prompt_cache(client: genai.Client, cache_name: str) -> None:
         pass
 
 
+# A system prompt containing this text asks for the register's own line
+# structure (Prompt Builder's Catasto Onciario type), so render_entry() keeps
+# the model's lines instead of joining them into paragraphs. The Catasto
+# Visualizer reads a household as one person per line. Also switches the core
+# rules (core_rules_for() in prompt_builder_content.py).
+LINE_STRUCTURE_MARKER = "Keep the register's line structure"
+
+
+def keeps_line_structure(system_prompt: str | None) -> bool:
+    return LINE_STRUCTURE_MARKER in (system_prompt or "")
+
+
+def tidy_line_structure(text: str) -> str:
+    """Keeps every line; trims line ends and allows at most one blank line in a row."""
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip() and (not lines or not lines[-1].strip()):
+            continue
+        lines.append(line)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
 def collapse_source_line_breaks(text: str) -> str:
     paragraphs: list[str] = []
     current: list[str] = []
@@ -1203,7 +1228,16 @@ def physical_neighbors(names: list[str], index: int, reverse_order: bool) -> tup
     return at(index + step), at(index - step)
 
 
-def render_entry(filename: str, text: str, next_name: str | None = None, previous_name: str | None = None) -> str:
+def render_entry(
+    filename: str,
+    text: str,
+    next_name: str | None = None,
+    previous_name: str | None = None,
+    keep_line_structure: bool = False,
+) -> str:
+    if keep_line_structure:
+        clean_text = tidy_line_structure(strip_model_record_headers(text))
+        return f"\n\n--- START OF RECORD: {filename} ---\n\n{clean_text}\n"
     clean_text = standardize_continuation_notes(strip_model_record_headers(text), next_name, previous_name)
     clean_text = collapse_source_line_breaks(clean_text)
     return f"\n\n--- START OF RECORD: {filename} ---\n\n{clean_text}\n"
@@ -1216,6 +1250,7 @@ def run_batch(
     cancel_requested: Callable[[], bool] | None = None,
 ) -> list[ImageResult]:
     prompt = config.system_prompt or config.prompt_file.read_text(encoding="utf-8")
+    keep_lines = keeps_line_structure(prompt)
     files = source_files(config.image_folder, config.source_extensions, config.reverse_order)
     config.output_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1289,7 +1324,7 @@ def run_batch(
                             use_prompt_cache=use_prompt_cache,
                             zoom_pages=zoom_pages,
                         )
-                    output.write(render_entry(name, text, next_name, previous_name))
+                    output.write(render_entry(name, text, next_name, previous_name, keep_lines))
                     output.flush()
                     results.append(ImageResult(name, True, text))
                     usage_ledger.event(
@@ -1305,7 +1340,7 @@ def run_batch(
                         error=str(exc)[:200],
                     )
                     error = f"ERROR: {humanize_provider_error(exc, config.model)}"
-                    output.write(render_entry(name, error, next_name, previous_name))
+                    output.write(render_entry(name, error, next_name, previous_name, keep_lines))
                     output.flush()
                     results.append(ImageResult(name, False, error))
                     log(f"Failed {name}: {humanize_provider_error(exc, config.model)}")

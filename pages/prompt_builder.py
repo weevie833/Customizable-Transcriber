@@ -11,6 +11,11 @@ from customizable_transcriber.core import DEFAULT_MODEL, MODELS
 from pages import FOOTER_HTML, file_picker_html, json_data_island_html
 from profiles_store import load_custom_profiles, profiles_with_display_labels, user_profile_path
 from prompt_builder_content import (
+    COLLAPSE_LINE_BREAKS_CORE_RULE,
+    ENTRY_NUMBER_CORE_RULE,
+    LINE_STRUCTURE_CORE_RULE,
+    LINE_STRUCTURE_MARKER,
+    PROMPT_BUILDER_CATASTO_ABBREVIATIONS,
     PROMPT_BUILDER_COMMON_ABBREVIATIONS,
     EXPANDED_ABBREVIATIONS_CORE_RULE,
     EXPANDED_ABBREVIATIONS_MARKER,
@@ -36,7 +41,8 @@ def pb_record_type_options_html() -> str:
 
     return (
         f'<optgroup label="Church Records">\n{options(church)}\n        </optgroup>\n'
-        f'        <optgroup label="Civil Records">\n{options(civil)}\n        </optgroup>'
+        f'        <optgroup label="Civil Records">\n{options(civil)}\n        </optgroup>\n'
+        f'        <optgroup label="Tax Records">\n{options(["catasto_onciario"])}\n        </optgroup>'
     )
 
 
@@ -64,12 +70,12 @@ def pb_checklist_html(name: str, values: list[str]) -> str:
     return "\n        ".join(items)
 
 
-def pb_common_abbrev_checklist_html() -> str:
+def pb_common_abbrev_checklist_html(name: str = "commonAbbrev", abbreviations=PROMPT_BUILDER_COMMON_ABBREVIATIONS) -> str:
     items = []
-    for written, expansion, meaning in PROMPT_BUILDER_COMMON_ABBREVIATIONS:
+    for written, expansion, meaning in abbreviations:
         value = html.escape(f"{written}|{expansion}|{meaning}")
         label_text = html.escape(f"{written} = {expansion} ({meaning})")
-        items.append(f'<label class="pb-checkbox"><input type="checkbox" name="commonAbbrev" value="{value}" checked>{label_text}</label>')
+        items.append(f'<label class="pb-checkbox"><input type="checkbox" name="{name}" value="{value}" checked>{label_text}</label>')
     return "\n        ".join(items)
 
 
@@ -261,6 +267,13 @@ def pb_civil_fields_html(type_key: str, config: dict) -> str:
 
 def pb_section2_type_group_html(type_key: str) -> str:
     config = PROMPT_BUILDER_RECORD_TYPES[type_key]
+    if type_key == "catasto_onciario":
+        # No entry formula to describe: the prompt explains the Catasto's
+        # general contents itself (buildCatastoRoleContext() in
+        # prompt-builder.js), deliberately without section-by-section detail.
+        return f"""    <div class="pb-type-group" data-record-type="{type_key}" hidden>
+      <p class="hint">A Catasto Onciario has no fixed entry formula to describe here. The prompt already tells the AI what the register is and what it usually records (households, residence, property, borders, credits, deductions and totals), and that its sections and layout vary by place and year. Use the abbreviation key, name lexicon and additional rules below for anything particular to your volume.</p>
+    </div>"""
     checked = " checked" if config["has_marginal_heading_default"] else ""
     formula_hidden = "" if config["has_marginal_heading_default"] else " hidden"
     marginal_placeholder = html.escape(config["marginal_heading_placeholder"])
@@ -387,6 +400,12 @@ def prompt_builder_page(
             "preserveAbbreviationRules": PRESERVE_ABBREVIATIONS_CORE_RULES,
             "expandedAbbreviationRule": EXPANDED_ABBREVIATIONS_CORE_RULE,
             "expandedAbbreviationMarker": EXPANDED_ABBREVIATIONS_MARKER,
+            "lineStructure": {
+                "marker": LINE_STRUCTURE_MARKER,
+                "rule": LINE_STRUCTURE_CORE_RULE,
+                "collapseRule": COLLAPSE_LINE_BREAKS_CORE_RULE,
+                "entryNumberRule": ENTRY_NUMBER_CORE_RULE,
+            },
             "savedProfiles": {
                 profile["id"]: {"label": profile["label"], "answers": profile["pb_answers"]}
                 for profile in loadable_profiles
@@ -413,6 +432,7 @@ def prompt_builder_page(
     relationship_checklist = pb_checklist_html("relationshipTerms", PROMPT_BUILDER_RELATIONSHIP_TERMS)
     scribal_checklist = pb_checklist_html("scribalQuirks", PROMPT_BUILDER_SCRIBAL_QUIRKS)
     common_abbrev_checklist = pb_common_abbrev_checklist_html()
+    catasto_abbrev_checklist = pb_common_abbrev_checklist_html("catastoAbbrev", PROMPT_BUILDER_CATASTO_ABBREVIATIONS)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -547,6 +567,7 @@ def prompt_builder_page(
           </select>
         </label>
 
+        <div id="pb-hour-convention-field">
         <label>Hour convention
           <select name="hourConvention">
             <option value="italian_hours" selected>Italian hours, counted from sunset</option>
@@ -554,6 +575,7 @@ def prompt_builder_page(
             <option value="not_applicable">Not applicable</option>
           </select>
         </label>
+        </div>
       </div>
 
       <div id="pb-page-layout-other-row" hidden>
@@ -563,6 +585,9 @@ def prompt_builder_page(
       </div>
       <div class="pb-inline-row" id="pb-span-images-row">
         <label class="pb-checkbox"><input type="checkbox" name="entriesSpanFacingImages"> Entries start on the right page of an image and continue on the left page of the next image</label>{pb_info_button_html("pb-info-span-images", PB_SPAN_IMAGES_INFO_TEXT)}
+      </div>
+      <div class="pb-inline-row" id="pb-watermark-row" hidden>
+        <label class="pb-checkbox"><input type="checkbox" name="ignoreWatermark" checked> The photos carry a watermark or archive stamp (e.g. a diagonal archive name across the page) &mdash; tell the AI to ignore it</label>
       </div>
       <div class="pb-inline-row" id="pb-zoom-pages-row">
         <label class="pb-checkbox"><input type="checkbox" name="zoomPages"> Turn on Page zoom when this profile is used (Gemini, high-resolution photos)</label>{pb_info_button_html("pb-info-zoom-pages", PB_ZOOM_PAGES_INFO_TEXT)}
@@ -605,7 +630,7 @@ def prompt_builder_page(
         <label class="pb-checkbox"><input type="checkbox" name="latinDeclension" checked> Include Latin grammatical case-declension guidance</label>{pb_info_button_html("pb-info-declension", 'Latin nouns and names change their ending depending on their grammatical role in the sentence -- this is called declension. The same person can appear in more than one form within a single entry: Franciscus (nominative, as the subject), Francisci (genitive, "of Francis"), Francisco (dative/ablative, "to/from Francis"). This is not a spelling error or an inconsistency to fix -- each form is correct for its context. Turning this on adds guidance so the AI recognizes these variants as the same name and transcribes each form exactly as written, instead of "normalizing" one to match another.')}
       </div>
 
-      <div>
+      <div id="pb-relative-date-section">
         <p class="hint">Relative-date vocabulary</p>
         <div class="pb-checklist pb-checklist-2col" id="pb-latin-relativedate-checklist">
           {relative_date_checklist}
@@ -624,6 +649,7 @@ def prompt_builder_page(
 
 {section2_type_groups}
 
+      <div id="pb-entry-vocab-section">
       <p class="hint">Entry variants (optional) — e.g. an emergency or conditional variant of the standard formula</p>
       <div id="pb-variant-rows"></div>
       <button type="button" id="pb-add-variant" class="button-tiny">Add a variant</button>
@@ -634,13 +660,22 @@ def prompt_builder_page(
       </div>
       <div id="pb-relationship-rows"></div>
       <button type="button" id="pb-add-relationship" class="button-tiny">Add another term</button>
+      </div>
 
       <p class="hint">Abbreviation key — common terms (toggle on what applies)</p>
       <div class="pb-checklist pb-checklist-2col" id="pb-latin-abbrev-checklist">
         {common_abbrev_checklist}
       </div>
+      <div class="pb-checklist pb-checklist-stacked" id="pb-catasto-abbrev-checklist" hidden>
+        {catasto_abbrev_checklist}
+      </div>
       <div id="pb-abbrev-rows"></div>
       <button type="button" id="pb-add-abbrev" class="button-tiny">Add an abbreviation</button>
+      <div id="pb-name-abbrev-section" hidden>
+        <p class="hint">Abbreviated names and places in this register &mdash; e.g. Ant.o = Antonio, Gius.e = Giuseppe, Cons.a = Cosenza, S. M.a = Santa Maria</p>
+        <div id="pb-name-abbrev-rows"></div>
+        <button type="button" id="pb-add-name-abbrev" class="button-tiny">Add a name or place</button>
+      </div>
       <label class="pb-checkbox"><input type="checkbox" name="expandAbbreviationsInTranscription"> Write abbreviations out in full in the transcription (expanded form) instead of as written</label>
 
       <p class="hint">Scribal / paleographic quirks{pb_info_button_html("pb-info-scribal", PB_SCRIBAL_INFO_TEXT)}</p>
@@ -667,7 +702,7 @@ def prompt_builder_page(
       <label><span>Additional editorial rules (optional){pb_info_button_html("pb-info-additional-rules", PB_ADDITIONAL_RULES_INFO_TEXT)}</span>
         <textarea name="additionalRules" rows="4" placeholder="e.g. Never copy a surname from one parent to the other, even when only one is stated."></textarea>
       </label>
-      <label class="pb-checkbox"><input type="checkbox" name="omitNotes"> Never add notes to entries</label>
+      <div id="pb-omit-notes-row"><label class="pb-checkbox"><input type="checkbox" name="omitNotes"> Never add notes to entries</label></div>
       <div id="pb-lint" class="pb-lint" role="status" aria-live="polite" hidden></div>
     </details>
 
@@ -680,11 +715,12 @@ def prompt_builder_page(
 
       <div class="pb-example-entries">
         <span>Example entries{pb_info_button_html("pb-info-example-entries", "Each example is a verified, 100% accurate transcription of one real entry from this register, shown to the AI purely as a formatting and style reference -- never as content to copy. More than one example, especially covering different situations (a straightforward entry, one with an illegible word, one where a heading and body disagree), calibrates the AI's judgment better than a single example can. An optional label just helps you tell examples apart later -- e.g. in Preflight Test, if you add more than one.")}</span>
-        <p class="hint">Paste in a completed 100% accurate entry in the native language of the sources for this project. This will be used as a critically important formatting reference for the AI to generate the proper output.</p>
+        <p class="hint" id="pb-example-hint-entry">Paste in a completed 100% accurate entry in the native language of the sources for this project. This will be used as a critically important formatting reference for the AI to generate the proper output.</p>
+        <p class="hint" id="pb-example-hint-catasto" hidden>Paste the complete, 100% accurate transcription of one image (one page) in the source language, laid out exactly as the output should be: one person per line, each item on its own line, figures at the end of their line. Leave out the "Italian Transcription:" label. This is the AI's most important formatting reference.</p>
         <div id="pb-example-rows">
           <div class="pb-row pb-example-row">
             <input type="text" class="pb-example-label" placeholder="Label (optional), e.g. Image 193 Entry 1">
-            <label class="pb-example-part"><span>Date line</span>
+            <label class="pb-example-part pb-example-date-part"><span>Date line</span>
               <input type="text" class="pb-example-date" placeholder="Date exactly as written, then the standard form in brackets -- e.g. due del mese di Gennaro milleottocentoventitre [2 January 1823]"></label>
             <label class="pb-example-part"><span>Main entry</span>
               <textarea class="pb-example-text" rows="5" placeholder="Paste a 100% accurate example entry text from your source material, exactly as it was transcribed -- no labels or headers."></textarea></label>
@@ -692,7 +728,7 @@ def prompt_builder_page(
               <textarea class="pb-example-wedding" rows="3" placeholder="Paste the text of the right-hand church-wedding column, exactly as transcribed -- no labels or headers."></textarea></label>
             <label class="pb-example-part pb-example-baptism-part" hidden><span>Baptism Record (if any)</span>
               <textarea class="pb-example-baptism" rows="3" placeholder="Paste the text of the baptism column, exactly as transcribed -- no labels or headers."></textarea></label>
-            <label class="pb-example-part"><span>Continuation (if any)</span>
+            <label class="pb-example-part pb-example-continuation-part"><span>Continuation (if any)</span>
               <textarea class="pb-example-continuation" rows="3" placeholder="If this entry runs onto the next image, paste the text that continues it at the top of that image, exactly as transcribed -- no labels or headers."></textarea></label>
             <button type="button" class="button-tiny pb-row-remove">Remove</button>
           </div>

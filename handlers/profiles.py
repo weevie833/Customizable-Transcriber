@@ -223,6 +223,9 @@ def critique_prompt_gap(
     return suggestions
 
 
+MAX_PROFILE_IMPORT_BYTES = 2_000_000
+
+
 class ProfilesHandlerMixin:
     def save_profile(self) -> None:
         try:
@@ -250,9 +253,17 @@ class ProfilesHandlerMixin:
                 )
                 message = f"Updated profile: {profile['label']}"
             with lock:
-                state["summary"] = message
-                state["log"] = [message]
-                state["download"] = ""
+                # GEMINI_REVIEW_9 M-2: a run in progress (e.g. Translate
+                # completed transcript, started without a page reload, or one
+                # started in another tab) owns summary/log/download -- add a
+                # line to its log instead of replacing them.
+                if state["running"]:
+                    state["log"].append(message)
+                    state["log"] = state["log"][-300:]
+                else:
+                    state["summary"] = message
+                    state["log"] = [message]
+                    state["download"] = ""
                 state["profile_id"] = profile["id"]
                 state["new_profile_name"] = ""
                 state["role_context"] = profile.get("role_context", "")
@@ -260,9 +271,13 @@ class ProfilesHandlerMixin:
                 state["output_format"] = profile.get("output_format", "")
         except Exception as exc:
             with lock:
-                state["summary"] = f"Fatal error: {exc}"
-                state["log"] = [f"Fatal error: {exc}"]
-                state["download"] = ""
+                if state["running"]:
+                    state["log"].append(f"Profile not saved: {exc}")
+                    state["log"] = state["log"][-300:]
+                else:
+                    state["summary"] = f"Fatal error: {exc}"
+                    state["log"] = [f"Fatal error: {exc}"]
+                    state["download"] = ""
         # POST/Redirect/GET -- see the comment on /run's final
         # self.redirect_transcribe() call for why this matters.
         self.redirect_transcribe()
@@ -435,7 +450,9 @@ class ProfilesHandlerMixin:
 
     def import_prompt_builder_profile(self) -> None:
         try:
-            files, _fields = parse_multipart_form(self)
+            # A profile is plain JSON; the largest real one is ~100 KB
+            # (GEMINI_REVIEW_9 L-6: not the 50 MB DOCX limit).
+            files, _fields = parse_multipart_form(self, max_bytes=MAX_PROFILE_IMPORT_BYTES)
             file_entry = files.get("file")
             if not file_entry or not file_entry[1]:
                 raise RuntimeError("Choose a profile file to import.")

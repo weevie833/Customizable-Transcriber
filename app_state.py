@@ -148,6 +148,22 @@ test_lock = threading.Lock()
 test_stop_event = threading.Event()
 
 
+def output_file(path_text: str) -> Path | None:
+    """The run-state download path as a file inside USER_OUTPUTS_DIR, or None.
+    Download endpoints serve only these (GEMINI_REVIEW_9 L-3): run state is
+    set by server code today, and this keeps a later mistake from serving an
+    arbitrary file. Reads this module's USER_OUTPUTS_DIR at call time."""
+    if not path_text:
+        return None
+    try:
+        path = Path(path_text).resolve()
+        if path.is_relative_to(USER_OUTPUTS_DIR.resolve()) and path.is_file():
+            return path
+    except OSError:
+        pass
+    return None
+
+
 def add_log(message: str) -> None:
     with lock:
         state["log"].append(message)

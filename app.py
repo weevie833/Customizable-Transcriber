@@ -57,8 +57,9 @@ from profiles_store import (
     # Do not remove as a "dead import" cleanup without patching that fixture.
     USER_PROFILES_DIR,  # noqa: F401 -- re-exported for test monkeypatching, see comment above
     ensure_profiles_dir,
-    load_profile,
+    load_profile_exact,
     migrate_saved_keys_file,
+    restrict_to_owner,
     save_custom_profile,  # noqa: F401 -- re-exported for tests
 )
 from run_support import (
@@ -104,6 +105,7 @@ def load_request_token(folder: Path) -> str:
     try:
         token = path.read_text(encoding="utf-8").strip()
         if re.fullmatch(r"[A-Za-z0-9_-]{32,}", token):
+            restrict_to_owner(path)
             return token
     except OSError:
         pass
@@ -113,6 +115,7 @@ def load_request_token(folder: Path) -> str:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(token)
+        restrict_to_owner(path)
     except OSError:
         pass
     return token
@@ -372,14 +375,19 @@ class Handler(
         # Re-sent on every response, not just the first -- idempotent (the
         # browser just keeps the same value) and means the check below never
         # has to special-case "this is the first load."
-        self.send_header(
-            "Set-Cookie",
-            f"{CSRF_COOKIE_NAME}={CSRF_TOKEN}; Path=/; SameSite=Strict; HttpOnly",
-        )
+        if not getattr(self, "_suppress_csrf_cookie", False):
+            self.send_header(
+                "Set-Cookie",
+                f"{CSRF_COOKIE_NAME}={CSRF_TOKEN}; Path=/; SameSite=Strict; HttpOnly",
+            )
         super().end_headers()
 
     def _send_security_error(self, status: int, message: str) -> None:
         data = message.encode("utf-8")
+        # GEMINI_REVIEW_9 M-3: a rejected request never gets the token
+        # (a bad Host may be a DNS-rebinding name). Reloading the page, a
+        # plain GET from the real host, sets it again.
+        self._suppress_csrf_cookie = True
         self.send_response(status)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
@@ -392,6 +400,8 @@ class Handler(
         state-changing requests, where a cross-site page could otherwise
         trigger a real side effect (stop a job, delete a profile, open the
         native folder picker) with no way to read the response back."""
+        # Reset per request: a keep-alive connection reuses this handler.
+        self._suppress_csrf_cookie = False
         if not _host_is_allowed(self.headers.get("Host")):
             self._send_security_error(400, "Bad Request: unrecognized Host header.")
             return False
@@ -399,7 +409,10 @@ class Handler(
             if not _origin_is_allowed(self.headers.get("Origin")):
                 self._send_security_error(403, "Forbidden: cross-origin request rejected.")
                 return False
-            if _cookie_token(self.headers.get("Cookie")) != CSRF_TOKEN:
+            # Constant-time compare (GEMINI_REVIEW_9 L-1).
+            # Bytes, because compare_digest refuses a non-ASCII str.
+            sent = (_cookie_token(self.headers.get("Cookie")) or "").encode("utf-8")
+            if not secrets.compare_digest(sent, CSRF_TOKEN.encode("utf-8")):
                 self._send_security_error(
                     403,
                     "Forbidden: missing or invalid request token. Reload the page and try again.",
@@ -485,7 +498,7 @@ class Handler(
             page_layout = ""
             if profile_id:
                 try:
-                    pb_answers = load_profile(profile_id).get("pb_answers") or {}
+                    pb_answers = load_profile_exact(profile_id).get("pb_answers") or {}
                     page_layout = str((pb_answers.get("fields") or {}).get("pageLayout", ""))
                 except Exception:
                     page_layout = ""
@@ -501,8 +514,8 @@ class Handler(
             # are small, validated enum values, not paths -- reused directly
             # against MODELS/FILE_TYPE_EXTENSIONS the same way selected_model()/
             # selected_file_type() already validate them for a real run.
-            # `profile_id` is resolved through load_profile() (server-side,
-            # same as run_off_peak() itself) purely to read pageLayout --
+            # `profile_id` is resolved through load_profile_exact() (an unknown id
+            # gives no layout, never another profile's; GEMINI_REVIEW_9 L-5) purely to read pageLayout --
             # never returned to the client, matching profiles_for_browser()'s
             # own rule that pb_answers never reaches the browser.
             query = urllib.parse.parse_qs(parsed.query)
@@ -531,7 +544,7 @@ class Handler(
             page_layout = ""
             if profile_id:
                 try:
-                    profile = load_profile(profile_id)
+                    profile = load_profile_exact(profile_id)
                     pb_answers = profile.get("pb_answers") or {}
                     page_layout = str((pb_answers.get("fields") or {}).get("pageLayout", ""))
                 except Exception:

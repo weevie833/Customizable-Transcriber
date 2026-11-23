@@ -16,6 +16,7 @@ from pathlib import Path
 from app_state import (
     USER_OUTPUTS_DIR,
     new_test_run_state,
+    output_file,
     reset_test_ui_state,
     test_lock,
     test_state,
@@ -274,11 +275,8 @@ class TestModeRunHandlerMixin:
     def test_download(self, run_id: str) -> None:
         with test_lock:
             download = str(test_state["runs"].get(run_id, {}).get("download", ""))
-        if not download:
-            self.send_error(404)
-            return
-        path = Path(download)
-        if not path.exists():
+        path = output_file(download)
+        if path is None:
             self.send_error(404)
             return
         data = path.read_bytes()

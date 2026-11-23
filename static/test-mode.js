@@ -39,7 +39,9 @@ the inline block used to sit. */
     function escapeHtml(value) {
       const div = document.createElement("div");
       div.textContent = value === null || value === undefined ? "" : String(value);
-      return div.innerHTML;
+      // innerHTML leaves quotes alone; escape them so the result is also
+      // safe inside a double-quoted attribute (GEMINI_REVIEW_9 L-4).
+      return div.innerHTML.replace(/"/g, "&quot;");
     }
 
     function renderRunRows(runs) {
@@ -476,7 +478,7 @@ the inline block used to sit. */
 
         recordTypeSelect.innerHTML =
           '<option value="">Select a record type\u2026</option>' +
-          recordTypes.map((rt) => '<option value="' + rt.value + '">' + escapeHtml(rt.label) + "</option>").join("");
+          recordTypes.map((rt) => '<option value="' + escapeHtml(rt.value) + '">' + escapeHtml(rt.label) + "</option>").join("");
         panel.appendChild(recordTypeSelect);
         panel.appendChild(fieldsContainer);
 
@@ -623,7 +625,7 @@ the inline block used to sit. */
         setIndexCompareReportButtonAvailable(true);
         if (status) status.textContent = "Report ready -- click Download to save it.";
       } catch (error) {
-        if (status) status.textContent = escapeHtml(error.message || "Comparison failed.");
+        if (status) status.textContent = error.message || "Comparison failed.";
       } finally {
         button.disabled = false;
       }

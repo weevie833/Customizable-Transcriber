@@ -144,7 +144,7 @@ class XlsConversionHandlerMixin:
                 raise RuntimeError("Select a model before converting.")
             api_key_value = str(payload.get("gemini_api_key", "") or "").strip()
             if not api_key_value:
-                raise RuntimeError("Paste a Gemini API key before converting.")
+                raise RuntimeError("Paste an API key before converting.")
             record_type = str(payload.get("record_type", "") or "")
             text = str(payload.get("text", "") or "")
             image_range = str(payload.get("image_range", "") or "")
@@ -204,7 +204,7 @@ class XlsConversionHandlerMixin:
                 raise RuntimeError("Select a model before running preflight.")
             api_key_value = str(payload.get("gemini_api_key", "") or "").strip()
             if not api_key_value:
-                raise RuntimeError("Paste a Gemini API key before running preflight.")
+                raise RuntimeError("Paste an API key before running preflight.")
             record_type = str(payload.get("record_type", "") or "")
             text = str(payload.get("text", "") or "")
             image_range = str(payload.get("image_range", "") or "")

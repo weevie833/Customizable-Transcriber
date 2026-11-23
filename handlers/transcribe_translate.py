@@ -9,9 +9,8 @@ the two can never run at once.
 
 from __future__ import annotations
 
-from pathlib import Path
 
-from app_state import lock, state, stop_event
+from app_state import lock, output_file, state, stop_event
 from customizable_transcriber.core import (
     MODELS,
     humanize_provider_error,
@@ -151,8 +150,8 @@ class TranscribeTranslateHandlerMixin:
     def download_translation_report(self) -> None:
         with lock:
             report = str(state.get("report_download", ""))
-        path = Path(report) if report else None
-        if path is None or not path.exists():
+        path = output_file(report)
+        if path is None:
             self.send_error(404)
             return
         data = path.read_bytes()

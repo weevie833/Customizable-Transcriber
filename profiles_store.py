@@ -220,6 +220,19 @@ def _saved_key_lines(text: str) -> dict[str, str]:
     return found
 
 
+def restrict_to_owner(path: Path) -> None:
+    """Owner read/write only (POSIX). os.open's mode applies only when a file
+    is created, so a file restored from a backup or copied by hand keeps its
+    old, looser mode unless set here (GEMINI_REVIEW_9 L-1). Best-effort; a
+    no-op on Windows, where files under the user profile are private already."""
+    if os.name != "posix":
+        return
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
 def migrate_saved_keys_file() -> None:
     """Carries an opted-in saved-keys .env from the app folder over to
     USER_DATA_DIR, owner-readable only, so replacing the app folder on update
@@ -233,6 +246,8 @@ def migrate_saved_keys_file() -> None:
     place, which is still read."""
     source = PROJECT_DIR / ".env"
     target = USER_DATA_DIR / ".env"
+    if target.is_file():
+        restrict_to_owner(target)
     if not source.is_file():
         return
     try:
@@ -346,6 +361,11 @@ def _read_profile_file(path: Path) -> dict[str, object] | None:
         raise ProfileFileError(f"{path.name} is not a profile")
     data = normalize_profile_sections(data)
     profile_id = str(data.get("id") or path.stem)
+    # The id reaches file paths, HTML and the export download's filename, so a
+    # hand-edited file with quotes or line breaks in "id" is not a profile
+    # (GEMINI_REVIEW_9 L-2). Every id the app writes passes this.
+    if not _VALID_PROFILE_ID.match(profile_id):
+        raise ProfileFileError(f"{path.name} has an invalid profile id")
     label = str(data.get("label") or profile_id)
     translation_languages = data.get("translation_languages")
     # pb_answers carries the Prompt Builder questionnaire's structured answers
@@ -621,7 +641,7 @@ def export_profile_payload(profile_id: str) -> tuple[str, bytes]:
         },
     }
     body = (json.dumps(envelope, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-    return f"{profile_id}.tbprofile.json", body
+    return f"{safe_filename(profile_id)}.tbprofile.json", body
 
 
 def import_custom_profile(file_text: str) -> dict[str, str]:

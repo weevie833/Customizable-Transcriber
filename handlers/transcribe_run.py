@@ -10,9 +10,9 @@ from __future__ import annotations
 import copy
 import json
 import threading
-from pathlib import Path
 
-from app_state import lock, reset_ui_state, state, status_payload, stop_event
+from app_state import lock, output_file, reset_ui_state, state, status_payload, stop_event
+from customizable_transcriber.core import ensure_key_matches_model
 from http_utils import parse_post_form, pasted_value
 from profiles_store import load_profile_exact, save_custom_profile, update_profile
 from run_support import (
@@ -55,7 +55,11 @@ class TranscribeRunHandlerMixin:
             model = selected_model(form)
             api_key_value = pasted_value(form, "gemini_api_key")
             if not api_key_value:
-                raise RuntimeError("Paste a Gemini API key before running transcription.")
+                raise RuntimeError("Paste an API key before running transcription.")
+            # Before the run slot is used: a key for the wrong provider is
+            # refused here, as Test Mode and Translate already do
+            # (GEMINI_REVIEW_9 I-2).
+            ensure_key_matches_model(model, api_key_value)
             selected_profile_id(form)
             preflight_source_file_type(bind_source_folder(form), selected_file_type(form))
         except Exception as exc:
@@ -206,11 +210,8 @@ class TranscribeRunHandlerMixin:
     def download(self) -> None:
         with lock:
             download = str(state["download"])
-        if not download:
-            self.send_error(404)
-            return
-        path = Path(download)
-        if not path.exists():
+        path = output_file(download)
+        if path is None:
             self.send_error(404)
             return
         data = path.read_bytes()

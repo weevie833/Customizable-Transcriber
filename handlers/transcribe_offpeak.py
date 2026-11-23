@@ -25,7 +25,7 @@ import threading
 
 from app_state import lock, state, stop_event
 from batch_transcription import run_off_peak_job
-from customizable_transcriber.core import provider_for_model
+from customizable_transcriber.core import ensure_key_matches_model, provider_for_model
 from http_utils import parse_post_form, pasted_value
 from profiles_store import PROJECT_DIR, load_profile_exact, save_custom_profile, update_profile
 from run_support import (
@@ -66,6 +66,10 @@ class TranscribeOffPeakHandlerMixin:
             api_key_value = pasted_value(form, "gemini_api_key")
             if not api_key_value:
                 raise RuntimeError("Paste an API key before running transcription.")
+            # Before the run slot is used: a key for the wrong provider is
+            # refused here, as Test Mode and Translate already do
+            # (GEMINI_REVIEW_9 I-2).
+            ensure_key_matches_model(model, api_key_value)
             selected_profile_id(form)
             preflight_source_file_type(bind_source_folder(form), selected_file_type(form))
         except Exception as exc:

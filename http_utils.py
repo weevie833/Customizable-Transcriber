@@ -97,7 +97,11 @@ def parse_post_form(handler: BaseHTTPRequestHandler) -> FormData:
     if content_length < 0 or content_length > MAX_FORM_BYTES:
         raise RuntimeError("Invalid form submission length.")
 
-    body = handler.rfile.read(content_length).decode("utf-8")
+    try:
+        body = handler.rfile.read(content_length).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # GEMINI_REVIEW_9 L-6: a clear message, as parse_json_body() gives.
+        raise RuntimeError("The form submission isn't valid UTF-8 text.") from exc
     return FormData(urllib.parse.parse_qs(body, keep_blank_values=True))
 
 
@@ -154,6 +158,7 @@ def uploaded_docx(handler: BaseHTTPRequestHandler) -> tuple[str, bytes]:
 
 def parse_multipart_form(
     handler: BaseHTTPRequestHandler,
+    max_bytes: int = MAX_DOCX_BYTES,
 ) -> tuple[dict[str, tuple[str, bytes]], dict[str, str]]:
     """Split one multipart/form-data POST into file parts and plain text fields.
 
@@ -171,8 +176,8 @@ def parse_multipart_form(
     except ValueError as exc:
         raise RuntimeError("Invalid upload length.") from exc
 
-    if content_length <= 0 or content_length > MAX_DOCX_BYTES:
-        raise RuntimeError("The upload must be smaller than 50 MB.")
+    if content_length <= 0 or content_length > max_bytes:
+        raise RuntimeError(f"The upload must be smaller than {max_bytes // 1_000_000} MB.")
 
     body = handler.rfile.read(content_length)
     message = BytesParser(policy=policy.default).parsebytes(

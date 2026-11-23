@@ -83,12 +83,16 @@ def test_dynamic_html_pages_are_not_cacheable(live_server):
     assert response.headers.get("Cache-Control") == "no-store"
 
 
-def test_download_endpoint_is_not_cacheable(live_server, tmp_path):
+def test_download_endpoint_is_not_cacheable(live_server, sandboxed_user_data):
     """Same L-1 finding as above, for the primary transcript download route
     specifically -- it contains generated archival text, not a stable
-    asset."""
+    asset. The file sits in the outputs folder, the only place downloads are
+    served from (GEMINI_REVIEW_9 L-3)."""
+    import app_state
+
     host, port = live_server
-    output_file = tmp_path / "transcription-test.docx"
+    app_state.USER_OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_file = app_state.USER_OUTPUTS_DIR / "transcription-test.docx"
     output_file.write_bytes(b"fake docx bytes")
     with ctapp.lock:
         previous = ctapp.state.get("download", "")

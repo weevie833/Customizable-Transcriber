@@ -1591,8 +1591,14 @@
     );
   }
 
+  // Escapes text for a double-quoted HTML attribute (GEMINI_REVIEW_9 L-4).
+  function pbAttr(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
   function addSimpleRow(containerId, placeholder) {
-    return addRow(containerId, '<input type="text" class="pb-simple-value" placeholder="' + placeholder + '">', "pb-row-simple");
+    return addRow(containerId, '<input type="text" class="pb-simple-value" placeholder="' + pbAttr(placeholder) + '">', "pb-row-simple");
   }
 
   // Example entries always offers at least one blank row: a profile saved with
@@ -1854,7 +1860,7 @@
       option.textContent = "Example " + (index + 1) + (example.label ? " -- " + example.label : "");
       select.appendChild(option);
     });
-    if (previousValue && select.querySelector('option[value="' + previousValue + '"]')) {
+    if (previousValue && select.querySelector('option[value="' + CSS.escape(previousValue) + '"]')) {
       select.value = previousValue;
     }
     row.hidden = examples.length < 2;
@@ -1912,7 +1918,7 @@
       })
       .then(function (result) {
         if (!result.ok) throw new Error(result.data.error || "Couldn't delete that profile.");
-        var option = select.querySelector('option[value="' + profileId + '"]');
+        var option = select.querySelector('option[value="' + CSS.escape(profileId) + '"]');
         if (option) option.remove();
         select.value = "";
         var message;
@@ -1924,7 +1930,7 @@
         } else {
           ["pb-load-select", "pb-export-select"].forEach(function (selectId) {
             var other = document.getElementById(selectId);
-            var stale = other && other.querySelector('option[value="' + profileId + '"]');
+            var stale = other && other.querySelector('option[value="' + CSS.escape(profileId) + '"]');
             if (stale) stale.remove();
           });
           if (window.PB_SAVED_PROFILES) delete window.PB_SAVED_PROFILES[profileId];
@@ -1974,7 +1980,7 @@
         var label = result.data.label;
 
         var exportSelect = document.getElementById("pb-export-select");
-        if (exportSelect && !exportSelect.querySelector('option[value="' + id + '"]')) {
+        if (exportSelect && !exportSelect.querySelector('option[value="' + CSS.escape(id) + '"]')) {
           var exportOption = document.createElement("option");
           exportOption.value = id;
           exportOption.textContent = label;
@@ -1992,7 +1998,7 @@
           window.PB_SAVED_PROFILES = window.PB_SAVED_PROFILES || {};
           window.PB_SAVED_PROFILES[id] = { label: label, answers: result.data.pb_answers };
           var loadSelect = document.getElementById("pb-load-select");
-          if (loadSelect && !loadSelect.querySelector('option[value="' + id + '"]')) {
+          if (loadSelect && !loadSelect.querySelector('option[value="' + CSS.escape(id) + '"]')) {
             var loadOption = document.createElement("option");
             loadOption.value = id;
             loadOption.textContent = label;
@@ -2043,7 +2049,7 @@
         window.PB_SAVED_PROFILES = window.PB_SAVED_PROFILES || {};
         window.PB_SAVED_PROFILES[result.data.id] = { label: result.data.label, answers: payload.pb_answers };
         var loadSelect = document.getElementById("pb-load-select");
-        if (loadSelect && !loadSelect.querySelector('option[value="' + result.data.id + '"]')) {
+        if (loadSelect && !loadSelect.querySelector('option[value="' + CSS.escape(result.data.id) + '"]')) {
           var option = document.createElement("option");
           option.value = result.data.id;
           option.textContent = result.data.label;

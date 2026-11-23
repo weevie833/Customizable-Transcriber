@@ -28,6 +28,15 @@ MAC_DMG_NAME = "Customizable-Transcriber-Mac.dmg"
 INSTALL_LINE = (
     f"curl -fsSL https://raw.githubusercontent.com/{REPO}/main/install-mac.sh | bash"
 )
+
+
+def install_line_for(tag: str) -> str:
+    """The Mac install line pinned to the release being offered, so the banner
+    runs that release's install-mac.sh, not whatever is on main at the time
+    (GEMINI_REVIEW_9 I-1). Falls back to INSTALL_LINE for any other tag form."""
+    if re.fullmatch(r"v?\d+\.\d+\.\d+", tag or ""):
+        return f"curl -fsSL https://raw.githubusercontent.com/{REPO}/{tag}/install-mac.sh | bash"
+    return INSTALL_LINE
 TIMEOUT_SECONDS = 5
 CHECK_INTERVAL_SECONDS = 12 * 60 * 60
 RETRY_AFTER_SECONDS = 60 * 60
@@ -73,7 +82,13 @@ def fetch_latest_tag() -> str | None:
             location = err.headers.get("Location", "")
     except Exception:
         return None
-    match = re.search(r"/releases/tag/([^/?#]+)$", location)
+    # Only a redirect within github.com (or a relative one) counts
+    # (GEMINI_REVIEW_9 I-1). The repo path isn't checked, so a future repo
+    # rename (which GitHub redirects) doesn't silently stop update notices.
+    parsed = urllib.parse.urlsplit(location)
+    if parsed.netloc not in ("", "github.com") or parsed.scheme not in ("", "https"):
+        return None
+    match = re.search(r"/releases/tag/([^/?#]+)$", parsed.path)
     tag = urllib.parse.unquote(match.group(1)) if match else None
     return tag if tag and parse_version(tag) else None
 
@@ -120,7 +135,7 @@ def update_status(current_version: str) -> dict[str, object]:
         "latest": ".".join(str(part) for part in latest),
         "release_url": f"https://github.com/{REPO}/releases/tag/{tag}",
         "platform": platform_kind(),
-        "install_line": INSTALL_LINE,
+        "install_line": install_line_for(tag or ""),
         "mac_download_url": f"https://github.com/{REPO}/releases/download/{tag}/{MAC_DMG_NAME}",
     })
     return result

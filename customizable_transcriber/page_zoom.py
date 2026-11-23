@@ -57,6 +57,11 @@ CROP_OVERLAP = 0.03
 SUGGEST_MIN_LONG_EDGE = 3000
 
 _PROFILE_WIDTH = 800
+# Analysis bounds (reviews/CODEX_REVIEW_8.md M-8): a photo narrower than the
+# profile is never enlarged, a very tall or very wide one is not treated as
+# a spread, and nothing over MAX_ANALYZE_PIXELS is decoded for the check.
+MAX_SPREAD_ASPECT = 3.0
+MAX_ANALYZE_PIXELS = 120_000_000
 
 
 @dataclass(frozen=True)
@@ -105,8 +110,16 @@ def _find_gutter(columns: list[float]) -> tuple[float, float]:
     return best_pos, best_score
 
 
+def _analysable(width: int, height: int) -> bool:
+    if width < _PROFILE_WIDTH or height < 1:
+        return False
+    return max(width / height, height / width) <= MAX_SPREAD_ASPECT
+
+
 def analyze_spread(image: Image.Image) -> SpreadInfo:
     width, height = image.size
+    if not _analysable(width, height):
+        return SpreadInfo(width, height, None)
     position, score = _find_gutter(_column_profile(image))
     gutter = round(position * width) if score >= GUTTER_MIN_SCORE else None
     return SpreadInfo(width, height, gutter)
@@ -117,7 +130,14 @@ def analyze_file(path: Path) -> SpreadInfo:
     so this doesn't decode the full photo."""
     with Image.open(path) as image:
         full_size = image.size
-        image.draft("L", (image.width // 4, image.height // 4))
+        # The header gives the size without decoding; refuse to decode a
+        # photo too large, or of a shape that can't be a spread.
+        if full_size[0] * full_size[1] > MAX_ANALYZE_PIXELS or not _analysable(*full_size):
+            return SpreadInfo(full_size[0], full_size[1], None)
+        # Draft decode to about a quarter size, but never below the profile
+        # width, so analyze_spread() never has to enlarge it.
+        target_width = max(_PROFILE_WIDTH, image.width // 4)
+        image.draft("L", (target_width, max(1, round(image.height * target_width / image.width))))
         info = analyze_spread(image)
     scale = full_size[0] / info.width
     gutter = round(info.gutter_x * scale) if info.gutter_x is not None else None

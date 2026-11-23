@@ -23,12 +23,14 @@ from __future__ import annotations
 
 import threading
 
-from app_state import load_source_folder, lock, state, stop_event
+from app_state import lock, state, stop_event
 from batch_transcription import run_off_peak_job
 from customizable_transcriber.core import provider_for_model
 from http_utils import parse_post_form, pasted_value
-from profiles_store import PROJECT_DIR, load_profile, save_custom_profile, update_profile
+from profiles_store import PROJECT_DIR, load_profile_exact, save_custom_profile, update_profile
 from run_support import (
+    bind_source_folder,
+    resolved_source_folder,
     build_system_prompt,
     destination_output_file,
     extensions_for_file_type,
@@ -53,6 +55,7 @@ class TranscribeOffPeakHandlerMixin:
             already_running = state["running"]
             if not already_running:
                 state["running"] = True
+                stop_event.clear()
         if already_running:
             self.redirect_transcribe()
             return
@@ -64,7 +67,7 @@ class TranscribeOffPeakHandlerMixin:
             if not api_key_value:
                 raise RuntimeError("Paste an API key before running transcription.")
             selected_profile_id(form)
-            preflight_source_file_type(load_source_folder(), selected_file_type(form))
+            preflight_source_file_type(bind_source_folder(form), selected_file_type(form))
         except Exception as exc:
             with lock:
                 state["running"] = False
@@ -95,7 +98,7 @@ class TranscribeOffPeakHandlerMixin:
             elif profile_action == "update":
                 profile = update_profile(profile_id, role_context, reference_context, output_format)
             else:
-                profile = load_profile(profile_id)
+                profile = load_profile_exact(profile_id)
         except Exception as exc:
             with lock:
                 state["running"] = False
@@ -110,11 +113,20 @@ class TranscribeOffPeakHandlerMixin:
             order = "oldest"
         docx_file = destination_output_file(profile_id)
         markdown_file = docx_file.with_suffix(".md")
-        image_folder = load_source_folder()
+        image_folder = resolved_source_folder(form)
         api_key_override = pasted_value(form, "gemini_api_key") or None
 
         with lock:
-            stop_event.clear()
+            # Stop pressed while this run was being set up: honour it instead
+            # of clearing it here (reviews/CODEX_REVIEW_8.md M-4).
+            stopped_during_setup = stop_event.is_set()
+            if stopped_during_setup:
+                state["running"] = False
+                state["summary"] = "Stopped before the off-peak batch was submitted."
+        if stopped_during_setup:
+            self.redirect_transcribe()
+            return
+        with lock:
             state["running"] = True
             state["off_peak"] = True
             state["batch_provider"] = ""

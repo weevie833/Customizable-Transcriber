@@ -17,6 +17,7 @@ from http.cookiejar import CookieJar
 
 import app as ctapp
 import handlers.transcribe_run as transcribe_handlers
+import run_support
 
 # Exceptions a spurious server-side connection reset can surface as, seen
 # during this file's own flaky-repro runs. RemoteDisconnected is already a
@@ -70,6 +71,10 @@ def _get(host, port, path, cookiejar, timeout=5, retries=0):
 
 def _post(host, port, cookiejar, path, form_fields, timeout=5, retries=0):
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookiejar))
+    # Mirrors the page's hidden source_folder field (reviews/CODEX_REVIEW_8.md H-2).
+    # Only run endpoints read it; other handlers don't read the body at all.
+    if path.rstrip("/").endswith(("/run", "/run-offpeak")):
+        form_fields = {"source_folder": str(run_support.load_source_folder() or ""), **form_fields}
     body = urllib.parse.urlencode(form_fields).encode("utf-8")
     req = urllib.request.Request(
         f"http://{host}:{port}{path}",
@@ -95,7 +100,7 @@ def test_two_concurrent_run_requests_only_start_one_job(live_server, sandboxed_u
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(transcribe_handlers, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source_folder)
 
     profile = ctapp.save_custom_profile("Race Test Profile", "role", "reference", "format")
 
@@ -106,7 +111,7 @@ def test_two_concurrent_run_requests_only_start_one_job(live_server, sandboxed_u
     run_job_calls = []
     run_job_started = threading.Event()
 
-    def fake_run_job(form, output_file):
+    def fake_run_job(form, output_file, *_):
         run_job_calls.append(output_file)
         run_job_started.set()
         time.sleep(0.4)

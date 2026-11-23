@@ -7,14 +7,16 @@ shared with handlers/test_mode_run.py -- see that module's own docstring.
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 from pathlib import Path
 
-from app_state import load_source_folder, lock, reset_ui_state, state, status_payload, stop_event
+from app_state import lock, reset_ui_state, state, status_payload, stop_event
 from http_utils import parse_post_form, pasted_value
-from profiles_store import load_profile, save_custom_profile, update_profile
+from profiles_store import load_profile_exact, save_custom_profile, update_profile
 from run_support import (
+    bind_source_folder,
     destination_output_file,
     preflight_source_file_type,
     run_job,
@@ -38,6 +40,7 @@ class TranscribeRunHandlerMixin:
             already_running = state["running"]
             if not already_running:
                 state["running"] = True
+                stop_event.clear()
         if already_running:
             # redirect_transcribe() (303 See Other) does not acquire `lock`,
             # so it's safe to call after releasing it above regardless --
@@ -54,7 +57,7 @@ class TranscribeRunHandlerMixin:
             if not api_key_value:
                 raise RuntimeError("Paste a Gemini API key before running transcription.")
             selected_profile_id(form)
-            preflight_source_file_type(load_source_folder(), selected_file_type(form))
+            preflight_source_file_type(bind_source_folder(form), selected_file_type(form))
         except Exception as exc:
             with lock:
                 state["running"] = False
@@ -93,7 +96,7 @@ class TranscribeRunHandlerMixin:
                     output_format,
                 )
             else:
-                profile = load_profile(profile_id)
+                profile = load_profile_exact(profile_id)
                 role_context = profile.get("role_context", "")
                 reference_context = profile.get("reference_context", "")
                 output_format = profile.get("output_format", "")
@@ -112,7 +115,17 @@ class TranscribeRunHandlerMixin:
         if order not in {"newest", "oldest"}:
             order = "oldest"
         with lock:
-            stop_event.clear()
+            # Stop pressed while this run was being set up: honour it instead
+            # of clearing it here (reviews/CODEX_REVIEW_8.md M-4). The flag is
+            # cleared when the slot is reserved, not at launch.
+            stopped_during_setup = stop_event.is_set()
+            if stopped_during_setup:
+                state["running"] = False
+                state["summary"] = "Stopped before the run started."
+        if stopped_during_setup:
+            self.redirect_transcribe()
+            return
+        with lock:
             state["running"] = True
             state["log"] = []
             state["output"] = str(output_file)
@@ -129,7 +142,7 @@ class TranscribeRunHandlerMixin:
             state["reference_context"] = reference_context
             state["output_format"] = output_format
 
-        thread = threading.Thread(target=run_job, args=(form, output_file), daemon=True)
+        thread = threading.Thread(target=run_job, args=(form, output_file, copy.deepcopy(profile)), daemon=True)
         thread.start()
         # POST/Redirect/GET: the job is now started and its state committed
         # above, so redirect (303 See Other) to a plain GET of the same page
@@ -158,7 +171,13 @@ class TranscribeRunHandlerMixin:
                     # POLL_INTERVAL_SECONDS away) and calls the provider's
                     # cancel-batch endpoint itself, the same cooperative-
                     # cancellation shape run_batch() already uses between images.
-                    state["summary"] = "Cancelling off-peak batch..."
+                    if state.get("batch_submitting"):
+                        # The batch was already being sent when Stop arrived
+                        # (CODEX_REVIEW_2.md M-4): it is cancelled once the
+                        # provider returns its job id, through the poll loop.
+                        state["summary"] = "Stop received while the batch was being sent -- it will be cancelled once the provider confirms it."
+                    else:
+                        state["summary"] = "Cancelling off-peak batch..."
                     state["log"].append("Off-peak cancellation requested.")
                 else:
                     state["summary"] = "Stopping after the current image finishes..."
@@ -169,11 +188,9 @@ class TranscribeRunHandlerMixin:
         self.redirect_transcribe()
 
     def reset(self) -> None:
-        with lock:
-            if state["running"]:
-                self.redirect_transcribe()
-                return
-        stop_event.clear()
+        # The idle check and the reset happen under one lock acquisition
+        # inside reset_ui_state(), so a run reserved in between can't be
+        # erased (reviews/CODEX_REVIEW_8.md M-4).
         reset_ui_state()
         self.redirect_transcribe()
 

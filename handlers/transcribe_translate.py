@@ -15,8 +15,8 @@ from app_state import lock, state, stop_event
 from customizable_transcriber.core import (
     MODELS,
     humanize_provider_error,
-    key_looks_like_claude,
-    provider_for_model,
+    ensure_key_matches_model,
+    key_provider_mismatch,
     validate_api_key_with_retry,
 )
 from http_utils import PREFLIGHT_TIMEOUT_SECONDS, parse_multipart_form
@@ -67,11 +67,9 @@ def api_key_problem(model: str, api_key: str) -> str:
     request the other preflights use (validate_api_key())."""
     if not api_key:
         return "Paste your API key in the API key field above."
-    is_claude_model = provider_for_model(model) == "claude"
-    if is_claude_model and not key_looks_like_claude(api_key):
-        return "The API key doesn't look like a Claude key, but the selected model is a Claude model."
-    if not is_claude_model and key_looks_like_claude(api_key):
-        return "The API key looks like a Claude key, but the selected model is a Gemini model."
+    mismatch = key_provider_mismatch(model, api_key)
+    if mismatch:
+        return mismatch
     try:
         validate_api_key_with_retry(PROJECT_DIR, model, api_key, timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS)
     except Exception as exc:
@@ -108,6 +106,7 @@ class TranscribeTranslateHandlerMixin:
             already_running = state["running"]
             if not already_running:
                 state["running"] = True
+                stop_event.clear()
         if already_running:
             self.respond_json({"ok": False, "errors": ["A transcription or translation is already running."]}, status=409)
             return
@@ -115,6 +114,9 @@ class TranscribeTranslateHandlerMixin:
             text, filename, profile_id, languages, model, api_key, options = _translation_request(self)
             if not api_key:
                 raise RuntimeError("Paste your API key in the API key field above.")
+            # The run endpoint repeats preflight's local shape check, so a
+            # request that skipped preflight can't send a wrong-provider key.
+            ensure_key_matches_model(model, api_key)
             plan = build_plan(text, profile_id, languages, options)
             if plan.errors:
                 raise RuntimeError(" ".join(plan.errors))
@@ -125,7 +127,16 @@ class TranscribeTranslateHandlerMixin:
             return
 
         with lock:
-            stop_event.clear()
+            # Stop pressed while this run was being set up: honour it instead
+            # of clearing it here (reviews/CODEX_REVIEW_8.md M-4).
+            stopped_during_setup = stop_event.is_set()
+            if stopped_during_setup:
+                state["running"] = False
+                state["summary"] = "Stopped before the translation started."
+        if stopped_during_setup:
+            self.respond_json({"ok": False, "errors": ["Stopped before the translation started."]}, status=409)
+            return
+        with lock:
             state["log"] = []
             state["output"] = ""
             state["download"] = ""

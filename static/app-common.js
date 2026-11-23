@@ -132,6 +132,8 @@ function applySourceFolder(path) {
   if (!display) return;
   display.textContent = path;
   display.dataset.selected = "true";
+  const value = document.getElementById("source-folder-value");
+  if (value) value.value = path;
   resetPreflight();
 }
 

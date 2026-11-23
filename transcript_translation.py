@@ -27,8 +27,10 @@ name lexicon); when it cannot be found, the translation runs without it.
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import pairwise
@@ -43,6 +45,7 @@ from customizable_transcriber.core import (
     MODELS,
     create_gemini_prompt_cache,
     delete_gemini_prompt_cache,
+    ensure_key_matches_model,
     humanize_provider_error,
     provider_for_model,
     validate_api_key_with_retry,
@@ -160,6 +163,7 @@ class Entry:
     record: str
     position: int  # 1-based within its record
     blocks: list[Block] = field(default_factory=list)
+    record_index: int = 0  # 1-based position of its record in the document
 
     def first(self, kind: str) -> Block | None:
         return next((block for block in self.blocks if block.kind == kind), None)
@@ -190,7 +194,10 @@ class Entry:
 
     @property
     def entry_id(self) -> str:
-        return f"{self.record}#{self.position}"
+        # The record's position in the document is part of the identity, so
+        # two records with the same displayed filename (a combined or hand-
+        # corrected DOCX) can never share a key (reviews/CODEX_REVIEW_8.md H-4).
+        return f"{self.record_index}/{self.record}#{self.position}"
 
 
 @dataclass
@@ -324,6 +331,7 @@ def parse_transcript(text: str) -> ParsedTranscript:
         record.entries = [e for e in record.entries if e.transcription is not None]
         for number, kept in enumerate(record.entries, start=1):
             kept.position = number
+            kept.record_index = position + 1
         records.append(record)
 
     return ParsedTranscript(lines, body_start, header, records, native_language)
@@ -764,7 +772,7 @@ def _chunks(entries: list[Entry], plan: Plan) -> list[list[Entry]]:
     size = 0
     for entry in entries:
         entry_size = _payload_size(entry, plan)
-        if current and (current[0].record != entry.record or size + entry_size > budget):
+        if current and (current[0].record_index != entry.record_index or size + entry_size > budget):
             chunks.append(current)
             current, size = [], 0
         current.append(entry)
@@ -803,16 +811,29 @@ def _translate_chunk(
             first = _translate_chunk(chunk[:middle], plan, api_key, model, system_prompt, cached_content, use_prompt_cache)
             second = _translate_chunk(chunk[middle:], plan, api_key, model, system_prompt, cached_content, use_prompt_cache)
             return ({**first[0], **second[0]}, {**first[1], **second[1]}, {**first[2], **second[2]})
-        reason = humanize_provider_error(exc, model)
+        # Saved in the translation report, so no raw exception text (M-2).
+        reason = humanize_provider_error(exc, model, include_original=False)
         return {}, {}, {entry.entry_id: reason for entry in chunk}
 
     clean = _keep_lines if plan.line_structure else _one_line
     items = response.get("entries") if isinstance(response, dict) else response
-    by_id = {str(item.get("id")): item for item in items or [] if isinstance(item, dict)}
+    by_id: dict[str, dict] = {}
+    duplicated: set[str] = set()
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id"))
+        if item_id in by_id:
+            duplicated.add(item_id)
+        by_id[item_id] = item
     translations: dict[str, dict[str, str]] = {}
     cwr_translations: dict[str, dict[str, str]] = {}
     failures: dict[str, str] = {}
     for entry in chunk:
+        if entry.entry_id in duplicated:
+            # Two answers for one entry: neither can be trusted to be the right one.
+            failures[entry.entry_id] = "The AI response contained this entry more than once."
+            continue
         item = by_id.get(entry.entry_id)
         if item is None:
             failures[entry.entry_id] = "The AI response left this entry out."
@@ -1037,11 +1058,124 @@ def build_report_docx(
 # --- Background job --------------------------------------------------------
 
 
-def output_paths(source_name: str) -> tuple[Path, Path, Path]:
+# Output names (CODEX_REVIEW_2.md N-1/N-2). The three outputs share one
+# timestamped base; the longest is "<stem>-translation-report-<stamp>-999.docx".
+# The stem is cut so that name fits the folder's filename limit, and on Windows
+# the whole path fits the classic 260-character limit. Names are planned before
+# any paid request, so a source name the folder can't hold fails up front.
+_LONGEST_SUFFIX = "-translation-report-" + "20000101-000000-000000" + "-999" + ".docx"
+_MIN_STEM = 8
+
+
+def _name_limit(directory: Path) -> int:
+    limit = 255
+    try:
+        limit = min(limit, os.pathconf(directory, "PC_NAME_MAX"))
+    except (AttributeError, OSError, ValueError):
+        pass
+    if os.name == "nt":
+        limit = min(limit, 259 - len(str(directory)) - 1)
+    return limit
+
+
+@dataclass(frozen=True)
+class OutputNames:
+    directory: Path
+    stem: str
+    stamp: str
+
+    def for_attempt(self, attempt: int) -> tuple[Path, Path, Path]:
+        suffix = "" if attempt == 1 else f"-{attempt}"
+        base = f"{self.stem}-translated-{self.stamp}{suffix}"
+        report = f"{self.stem}-translation-report-{self.stamp}{suffix}"
+        return (
+            self.directory / f"{base}.docx",
+            self.directory / f"{base}.md",
+            self.directory / f"{report}.docx",
+        )
+
+
+def plan_output_names(source_name: str, directory: Path | None = None) -> OutputNames:
+    """The extension is appended to the whole stem, never applied with
+    Path.with_suffix(), which once made "Register.1750.docx" and
+    "Register.1751.docx" share "Register.docx" (reviews/CODEX_REVIEW_8.md H-3)."""
+    directory = directory or USER_OUTPUTS_DIR
+    directory.mkdir(parents=True, exist_ok=True)
     stem = safe_filename(Path(source_name).stem) or "transcript"
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    base = USER_OUTPUTS_DIR / f"{stem}-translated-{stamp}"
-    return base.with_suffix(".docx"), base.with_suffix(".md"), USER_OUTPUTS_DIR / f"{stem}-translation-report-{stamp}.docx"
+    budget = _name_limit(directory) - len(_LONGEST_SUFFIX)
+    if budget < _MIN_STEM:
+        raise RuntimeError(
+            f"The outputs folder's path is too long to save translation files in: {directory}"
+        )
+    stem = stem[:budget].rstrip(".-") or "transcript"
+    return OutputNames(directory, stem, datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
+
+
+def _claim(temp: Path, final: Path) -> None:
+    """Give a fully written temp file its final name without ever replacing
+    an existing file. A hard link fails if the name exists; where links aren't
+    supported, an exclusive placeholder is created and then replaced."""
+    try:
+        os.link(temp, final)
+        return
+    except FileExistsError:
+        raise
+    except (OSError, NotImplementedError, AttributeError):
+        pass
+    with open(final, "x", encoding="utf-8"):
+        pass
+    try:
+        os.replace(temp, final)
+    except BaseException:
+        _remove([final])
+        raise
+
+
+def publish_outputs(names: OutputNames, build) -> tuple[Path, Path, Path]:
+    """Write every output under a short temp name in the outputs folder, then
+    publish all of them, or none. build(paths) returns [(final_path, write)]
+    where write(temp) writes the file. A name already taken moves the whole
+    set to the next -N suffix; any other failure removes every file this call
+    created (temps and published finals) and re-raises. Short temp names keep
+    a near-limit final name from failing at the staging step."""
+    for attempt in range(1, 1000):
+        paths = names.for_attempt(attempt)
+        if any(path.exists() for path in paths):
+            continue
+        temps: list[Path] = []
+        claimed: list[Path] = []
+        claiming = False
+        try:
+            staged = []
+            for final, write in build(paths):
+                temp = names.directory / f".ct-{uuid.uuid4().hex[:12]}.tmp"
+                temps.append(temp)
+                write(temp)
+                staged.append((temp, final))
+            claiming = True
+            for temp, final in staged:
+                _claim(temp, final)
+                claimed.append(final)
+            return paths
+        except FileExistsError:
+            _remove(claimed)
+            if not claiming:
+                raise
+            continue
+        except BaseException:
+            _remove(claimed)
+            raise
+        finally:
+            _remove(temps)
+    raise RuntimeError(f"Could not find free output filenames for {names.stem}.")
+
+
+def _remove(paths: list[Path]) -> None:
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def run_translation_job(
@@ -1065,6 +1199,8 @@ def run_translation_job(
         plan = build_plan(text, profile_id, languages, options)
         if plan.errors:
             raise RuntimeError(" ".join(plan.errors))
+        # Before any paid request: a name the outputs folder can't hold fails here.
+        names = plan_output_names(source_name)
         system_prompt = build_translation_prompt(
             plan.profile, plan.native_language, plan.languages, plan.options, line_structure=plan.line_structure
         )
@@ -1096,6 +1232,7 @@ def run_translation_job(
         token = usage_ledger.activate(ledger_run)
         try:
             if provider == "gemini" and len(chunks) > 1:
+                ensure_key_matches_model(model, api_key)
                 cache_client = genai.Client(
                     api_key=api_key, http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_SECONDS * 1000)
                 )
@@ -1115,8 +1252,9 @@ def run_translation_job(
                 translations.update(done)
                 cwr_translations.update(cwr_done)
                 failures.update(failed)
+                labels = {entry.entry_id: entry_label(entry) for entry in chunk}
                 for entry_id, reason in failed.items():
-                    add_log(f"Problem with {entry_id.replace('#', ', entry ')}: {reason}")
+                    add_log(f"Problem with {labels.get(entry_id, entry_id)}: {reason}")
         finally:
             if cached_content and cache_client is not None:
                 delete_gemini_prompt_cache(cache_client, cached_content)
@@ -1125,24 +1263,33 @@ def run_translation_job(
             usage_ledger.deactivate(token)
             usage_ledger.end_run(ledger_run, translated=len(translations), failures=len(failures), stopped=stopped)
 
-        docx_path, md_path, report_path = output_paths(source_name)
         body = assemble(plan, translations, cwr_translations)
-        md_path.parent.mkdir(parents=True, exist_ok=True)
-        md_path.write_text(body, encoding="utf-8")
-        write_docx(
-            docx_path,
-            body,
-            native_language=plan.native_language,
-            translation_languages=plan.final_languages(translations),
-            record_type=record_type_for(plan.parsed, plan.profile),
-            model=plan.parsed.header.get("AI model", ""),
-            profile_label=str(profile.get("label", "") or plan.parsed.header.get("Prompt profile", "")),
-        )
-        report = build_report_docx(
-            plan, source_name, docx_path.name, model, translations, cwr_translations, failures,
-            stopped, ledger_tokens, started, datetime.now(),
-        )
-        report_path.write_bytes(report)
+        finished = datetime.now()
+
+        def build(paths):
+            docx_path, md_path, report_path = paths
+            report = build_report_docx(
+                plan, source_name, docx_path.name, model, translations, cwr_translations, failures,
+                stopped, ledger_tokens, started, finished,
+            )
+            return [
+                (md_path, lambda temp: temp.write_text(body, encoding="utf-8")),
+                (
+                    docx_path,
+                    lambda temp: write_docx(
+                        temp,
+                        body,
+                        native_language=plan.native_language,
+                        translation_languages=plan.final_languages(translations),
+                        record_type=record_type_for(plan.parsed, plan.profile),
+                        model=plan.parsed.header.get("AI model", ""),
+                        profile_label=str(profile.get("label", "") or plan.parsed.header.get("Prompt profile", "")),
+                    ),
+                ),
+                (report_path, lambda temp: temp.write_bytes(report)),
+            ]
+
+        docx_path, _md_path, report_path = publish_outputs(names, build)
         add_log(f"Done. Output: {docx_path}")
         add_log(f"Report: {report_path}")
         summary = (

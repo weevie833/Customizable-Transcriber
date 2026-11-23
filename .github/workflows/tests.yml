@@ -62,7 +62,10 @@ jobs:
       - name: Run pytest suite (tests/)
         run: python -m pytest tests/ -v
 
-      - name: Run offline parser regression suite (xls_conversion/tests/)
+      # Legacy-fixture check only: exercises the retired baptism-parser.js regex
+      # parser and core.py's text helpers, NOT the live XLS Conversion path
+      # (xls_conversion/ai_parser.py, covered by tests/).
+      - name: Legacy regex-parser fixture check (xls_conversion/tests/, not live extraction)
         run: python xls_conversion/tests/run_parser_test.py
 
   # Weekly / manual / version-tag only (see the top-level comment): Windows and
@@ -98,7 +101,10 @@ jobs:
       - name: Run pytest suite (tests/)
         run: python -m pytest tests/ -v
 
-      - name: Run offline parser regression suite (xls_conversion/tests/)
+      # Legacy-fixture check only: exercises the retired baptism-parser.js regex
+      # parser and core.py's text helpers, NOT the live XLS Conversion path
+      # (xls_conversion/ai_parser.py, covered by tests/).
+      - name: Legacy regex-parser fixture check (xls_conversion/tests/, not live extraction)
         run: python xls_conversion/tests/run_parser_test.py
 
   # The only place the Windows double-click installer really runs. Same
@@ -134,6 +140,72 @@ jobs:
           if ($version -ne "3.12.16") { throw "Installed Python is $version" }
           if (Test-Path "$rt\python-old") { throw "The previous runtime wasn't removed" }
           if ((Get-Content "$rt\python-build.txt") -eq "old") { throw "The build marker wasn't updated" }
+
+      # A package-only update that fails must leave the working environment in place
+      # (reviews/CODEX_REVIEW_8.md M-11). An unknown package makes pip fail.
+      - name: A failed package-only update keeps the working environment
+        shell: cmd
+        run: |
+          copy /y requirements.lock "%RUNNER_TEMP%\good.lock"
+          echo no-such-package-ct-xyz==9.9.9>> requirements.lock
+          call "Start Customizable Transcriber (Windows).bat"
+          if not errorlevel 1 (echo The broken update should have failed & exit /b 1)
+          copy /y "%RUNNER_TEMP%\good.lock" requirements.lock
+
+      - name: The previous environment was restored
+        shell: pwsh
+        run: |
+          $rt = "$env:LOCALAPPDATA\Customizable Transcriber\Runtime"
+          & "$rt\venv\Scripts\python.exe" -c "import google.genai, anthropic, PIL"
+          if ($LASTEXITCODE) { throw "The previous environment wasn't restored" }
+          if (Test-Path "$rt\venv-old") { throw "The backup was left behind" }
+          if ((Get-FileHash requirements.lock).Hash -ne (Get-FileHash "$rt\venv\installed-requirements.txt").Hash) {
+            throw "The installed-packages marker changed after a failed update"
+          }
+
+      # An update interrupted with a partial venv and a good backup must be recovered before
+      # any backup is rotated, then retried (CODEX_REVIEW_2.md M-11): first a retry that
+      # fails, which must leave the good environment in place, then one that succeeds.
+      - name: Simulate an interrupted package-only update
+        shell: pwsh
+        run: |
+          $rt = "$env:LOCALAPPDATA\Customizable Transcriber\Runtime"
+          Move-Item "$rt\venv" "$rt\venv-old"
+          New-Item -ItemType Directory "$rt\venv" | Out-Null
+          Set-Content "$rt\venv\partial.txt" "half-installed"
+          Set-Content "$rt\update-pending.txt" "venv"
+
+      - name: A failed retry after the interruption keeps the last working environment
+        shell: cmd
+        run: |
+          copy /y requirements.lock "%RUNNER_TEMP%\good.lock"
+          echo no-such-package-ct-xyz==9.9.9>> requirements.lock
+          call "Start Customizable Transcriber (Windows).bat"
+          if not errorlevel 1 (echo The broken update should have failed & exit /b 1)
+          copy /y "%RUNNER_TEMP%\good.lock" requirements.lock
+
+      - name: The interrupted update was recovered
+        shell: pwsh
+        run: |
+          $rt = "$env:LOCALAPPDATA\Customizable Transcriber\Runtime"
+          & "$rt\venv\Scripts\python.exe" -c "import google.genai, anthropic, PIL"
+          if ($LASTEXITCODE) { throw "The last working environment was lost" }
+          if (Test-Path "$rt\venv\partial.txt") { throw "The partial environment was kept" }
+          if (Test-Path "$rt\update-pending.txt") { throw "The pending-update marker was left behind" }
+          if (Test-Path "$rt\venv-old") { throw "The backup was left behind" }
+
+      - name: A successful retry after an interruption
+        shell: pwsh
+        run: |
+          $rt = "$env:LOCALAPPDATA\Customizable Transcriber\Runtime"
+          Move-Item "$rt\venv" "$rt\venv-old"
+          New-Item -ItemType Directory "$rt\venv" | Out-Null
+          Set-Content "$rt\update-pending.txt" "venv"
+          cmd /c call "Start Customizable Transcriber (Windows).bat"
+          if ($LASTEXITCODE) { throw "The retry failed" }
+          & "$rt\venv\Scripts\python.exe" -c "import google.genai, anthropic, PIL"
+          if ($LASTEXITCODE) { throw "The environment doesn't work" }
+          if (Test-Path "$rt\update-pending.txt") { throw "The pending-update marker was left behind" }
 
       - name: Start the app with the installed runtime
         shell: pwsh
@@ -182,6 +254,41 @@ jobs:
           test "$("$rt/venv/bin/python" -c 'import platform; print(platform.python_version())')" = 3.12.16
           test ! -e "$rt/python-old"
           test "$(cat "$rt/python-build.txt")" != old
+
+      # A package-only update that fails must leave the working environment in place
+      # (reviews/CODEX_REVIEW_8.md M-11). An unknown package makes pip fail.
+      - name: A failed package-only update keeps the working environment
+        run: |
+          rt="$HOME/Library/Application Support/Customizable Transcriber/Runtime"
+          cp requirements.lock "$RUNNER_TEMP/good.lock"
+          echo "no-such-package-ct-xyz==9.9.9" >> requirements.lock
+          if ./"Start Customizable Transcriber (Mac).command"; then echo "The broken update should have failed"; exit 1; fi
+          cp "$RUNNER_TEMP/good.lock" requirements.lock
+          "$rt/venv/bin/python" -c "import google.genai, anthropic, PIL"
+          test ! -e "$rt/venv-old"
+          cmp requirements.lock "$rt/venv/installed-requirements.txt"
+
+      # An update interrupted with a partial venv and a good backup must be recovered before
+      # any backup is rotated, then retried (CODEX_REVIEW_2.md M-11).
+      - name: A failed retry after an interrupted update keeps the last working environment
+        run: |
+          rt="$HOME/Library/Application Support/Customizable Transcriber/Runtime"
+          mv "$rt/venv" "$rt/venv-old" && mkdir "$rt/venv" && echo half > "$rt/venv/partial.txt"
+          echo venv > "$rt/update-pending.txt"
+          cp requirements.lock "$RUNNER_TEMP/good.lock"
+          echo "no-such-package-ct-xyz==9.9.9" >> requirements.lock
+          if ./"Start Customizable Transcriber (Mac).command"; then echo "The broken update should have failed"; exit 1; fi
+          cp "$RUNNER_TEMP/good.lock" requirements.lock
+          "$rt/venv/bin/python" -c "import google.genai, anthropic, PIL"
+          test ! -e "$rt/venv/partial.txt" && test ! -e "$rt/update-pending.txt" && test ! -e "$rt/venv-old"
+
+      - name: A successful retry after an interrupted update
+        run: |
+          rt="$HOME/Library/Application Support/Customizable Transcriber/Runtime"
+          mv "$rt/venv" "$rt/venv-old" && mkdir "$rt/venv" && echo venv > "$rt/update-pending.txt"
+          ./"Start Customizable Transcriber (Mac).command"
+          "$rt/venv/bin/python" -c "import google.genai, anthropic, PIL"
+          test ! -e "$rt/update-pending.txt"
 
       - name: Start the app with the installed runtime
         run: |

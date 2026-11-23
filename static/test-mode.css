@@ -259,3 +259,18 @@ longer doubled since this isn't inside an f-string anymore). */
   gap: 8px;
   font-weight: 500;
 }
+
+    .ic-summary-table {
+      border-collapse: collapse;
+      margin: 8px 0 4px;
+      font-size: 0.9rem;
+    }
+    .ic-summary-table th,
+    .ic-summary-table td {
+      border: 1px solid #d8d2c4;
+      padding: 4px 8px;
+      text-align: left;
+    }
+    .ic-summary-table td:not(:first-child) {
+      text-align: right;
+    }

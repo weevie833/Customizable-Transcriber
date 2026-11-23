@@ -26,6 +26,7 @@ from customizable_transcriber.core import (
 from http_utils import PREFLIGHT_TIMEOUT_SECONDS, extract_docx_text, parse_json_body, uploaded_docx
 from profiles_store import PROJECT_DIR
 from xls_conversion.ai_parser import (
+    canonical_target_role,
     combine_language_xlsx,
     detect_languages,
     parse_records_with_ai,
@@ -47,6 +48,7 @@ def save_xls_preflight(
     model: str,
     target_language: str,
     process_all: bool,
+    target_role: str = "",
 ) -> str:
     token = secrets.token_urlsafe(24)
     with xls_preflight_lock:
@@ -59,6 +61,9 @@ def save_xls_preflight(
             "model": model,
             "target_language": target_language.strip().lower(),
             "process_all": process_all,
+            # The language role changes the extraction prompt, so it is part
+            # of what the approval covers (reviews/CODEX_REVIEW_8.md L-5).
+            "target_role": canonical_target_role(target_role),
             "ok": result.get("ok") is True,
         }
     return token
@@ -73,6 +78,7 @@ def validate_xls_preflight(
     target_language: str,
     process_all: bool,
     ignore_failure: bool,
+    target_role: str = "",
 ) -> None:
     with xls_preflight_lock:
         preflight = xls_preflight_cache.get(token)
@@ -85,6 +91,7 @@ def validate_xls_preflight(
         or preflight["model"] != model
         or preflight["target_language"] != target_language.strip().lower()
         or preflight["process_all"] != process_all
+        or preflight["target_role"] != canonical_target_role(target_role)
     ):
         raise RuntimeError("The source or settings changed. Run preflight again before converting.")
     if preflight["ok"] is not True and not ignore_failure:
@@ -142,9 +149,19 @@ class XlsConversionHandlerMixin:
             text = str(payload.get("text", "") or "")
             image_range = str(payload.get("image_range", "") or "")
             target_language = str(payload.get("target_language", "") or "")
-            target_role = str(payload.get("target_role", "") or "")
+            # One canonical role from here on: approval, preflight and
+            # extraction all see the same value (CODEX_REVIEW_2.md L-5).
+            target_role = canonical_target_role(payload.get("target_role"))
             process_all = payload.get("process_all") is True
+            image_overrides = str(payload.get("image_overrides", "") or "")
+            if image_overrides.strip():
+                # Preflight never sees marker overrides, so a conversion using
+                # them would extract blocks preflight didn't check. The page
+                # never sends any; refuse rather than convert unchecked
+                # blocks (reviews/CODEX_REVIEW_8.md L-5).
+                raise RuntimeError("Image marker overrides aren't supported for conversion.")
             validate_xls_preflight(
+                target_role=target_role,
                 token=str(payload.get("preflight_token", "") or ""),
                 record_type=record_type,
                 text=text,
@@ -159,7 +176,7 @@ class XlsConversionHandlerMixin:
                 record_type=record_type,
                 text=text,
                 image_range=image_range,
-                image_overrides=str(payload.get("image_overrides", "") or ""),
+                image_overrides=image_overrides,
                 api_key=api_key_value,
                 model=model,
                 target_language=target_language,
@@ -192,7 +209,7 @@ class XlsConversionHandlerMixin:
             text = str(payload.get("text", "") or "")
             image_range = str(payload.get("image_range", "") or "")
             target_language = str(payload.get("target_language", "") or "")
-            target_role = str(payload.get("target_role", "") or "")
+            target_role = canonical_target_role(payload.get("target_role"))
             process_all = payload.get("process_all") is True
             filename = str(payload.get("filename", "") or "")
             validate_api_key_with_retry(PROJECT_DIR, model, api_key_value, timeout_seconds=PREFLIGHT_TIMEOUT_SECONDS)
@@ -207,7 +224,9 @@ class XlsConversionHandlerMixin:
                 process_all=process_all,
                 filename=filename,
             )
-            token = save_xls_preflight(result, record_type, text, image_range, model, target_language, process_all)
+            token = save_xls_preflight(
+                result, record_type, text, image_range, model, target_language, process_all, target_role
+            )
             result["preflight_token"] = token
             result["source_hash"] = source_hash(text)
             response, status = result, 200

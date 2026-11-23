@@ -24,6 +24,7 @@ from __future__ import annotations
 import io
 import json
 import re
+from xml.parsers import expat
 import urllib.parse
 import zipfile
 from collections.abc import Mapping
@@ -211,6 +212,31 @@ def uploaded_docx_field(
     return payload
 
 
+class _ForbiddenXmlDeclaration(Exception):
+    pass
+
+
+def _reject_xml_declarations(document_xml: bytes) -> None:
+    """Parse once with expat, refusing any DOCTYPE, entity or notation
+    declaration. Expat detects the document's encoding itself, so this holds
+    for every encoding ElementTree would accept."""
+
+    def forbid(*_args: object) -> None:
+        raise _ForbiddenXmlDeclaration
+
+    parser = expat.ParserCreate()
+    parser.StartDoctypeDeclHandler = forbid
+    parser.EntityDeclHandler = forbid
+    parser.UnparsedEntityDeclHandler = forbid
+    parser.NotationDeclHandler = forbid
+    try:
+        parser.Parse(document_xml, True)
+    except _ForbiddenXmlDeclaration as exc:
+        raise RuntimeError("The uploaded file is not a readable DOCX document.") from exc
+    except expat.ExpatError as exc:
+        raise RuntimeError("The DOCX document text could not be read.") from exc
+
+
 def extract_docx_text(payload: bytes) -> str:
     # Two ingestion-safety checks, verified against real crafted input before
     # this was added: (1) ZipInfo.file_size is the archive's own *declared*
@@ -243,6 +269,10 @@ def extract_docx_text(payload: bytes) -> str:
     # circumstances, so a plain substring search has no false positives.
     if re.search(rb"<!\s*(DOCTYPE|ENTITY)\b", document_xml, re.IGNORECASE):
         raise RuntimeError("The uploaded file is not a readable DOCX document.")
+    # The byte search above only sees ASCII-compatible encodings; the XML
+    # parser also accepts UTF-16 and others. Enforce the same no-DTD rule at
+    # the parser itself, whatever the encoding (reviews/CODEX_REVIEW_8.md M-9).
+    _reject_xml_declarations(document_xml)
 
     try:
         root = ElementTree.fromstring(document_xml)

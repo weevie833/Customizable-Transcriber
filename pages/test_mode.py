@@ -63,6 +63,10 @@ def test_mode_page() -> str:
     source_folder = load_source_folder()
     source_folder_display = html.escape(str(source_folder)) if source_folder else "No folder selected"
     source_folder_selected = "true" if source_folder else "false"
+    # The folder this page shows, sent back with Run so the server can refuse
+    # a run if the shared setting changed since (another tab):
+    # reviews/CODEX_REVIEW_8.md H-2.
+    source_folder_value = html.escape(str(source_folder), quote=True) if source_folder else ""
     disabled = "disabled" if running else ""
     stop_disabled = "" if running else "disabled"
     escaped_log = html.escape(log)
@@ -165,6 +169,7 @@ def test_mode_page() -> str:
       <div class="path-control-row">
         <button id="browse-source-button" type="button" class="button-tiny">Browse&hellip;</button>
         <div class="path-display" id="source-folder-display" data-selected="{source_folder_selected}">{source_folder_display}</div>
+        <input type="hidden" name="source_folder" id="source-folder-value" value="{source_folder_value}">
         <button id="reset-button" type="submit" formaction="/test-mode/reset" formmethod="post" {disabled}>Reset All</button>
       </div>
     </div>
@@ -319,6 +324,13 @@ def test_mode_page() -> str:
       <button id="ic-run-button" class="button-secondary" type="button">Run Comparison</button>
     </div>
     <div id="ic-mapping-area" hidden></div>
+    <div id="ic-summary" hidden>
+      <table class="ic-summary-table">
+        <thead><tr><th>Candidate</th><th>Matched</th><th>Matched by order only (part of Matched)</th><th>Missing from candidate</th><th>Extra in candidate</th></tr></thead>
+        <tbody id="ic-summary-rows"></tbody>
+      </table>
+      <p class="hint">Order-only matches are already counted in Matched -- don't add them again.</p>
+    </div>
     <div class="actions" id="ic-report-actions" hidden>
       <button id="ic-download-report-button" class="button-secondary" type="button" disabled>Download Comparison Report</button>
     </div>

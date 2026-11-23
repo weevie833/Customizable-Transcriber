@@ -22,7 +22,9 @@ data (that's profiles_store.py's job):
 from __future__ import annotations
 
 import json
+from datetime import datetime
 import threading
+import uuid
 from pathlib import Path
 
 from customizable_transcriber.core import DEFAULT_MODEL
@@ -158,6 +160,21 @@ def add_test_log(message: str) -> None:
         test_state["log"] = test_state["log"][-300:]
 
 
+def _read_settings() -> dict[str, object] | None:
+    """The settings file as a dict; {} when it is missing; None when it exists
+    but is unreadable, not valid UTF-8/JSON, or valid JSON of the wrong shape
+    (an array, null, ...). One reader for load/save/clear, so a wrong-shaped
+    file can't break the pages or their recovery actions
+    (reviews/CODEX_REVIEW_8.md L-2)."""
+    if not APP_SETTINGS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def load_source_folder() -> Path | None:
     """The active source folder, picked via the native folder dialog (or typed
     manually as a fallback) and persisted to APP_SETTINGS_FILE (gitignored —
@@ -166,24 +183,16 @@ def load_source_folder() -> Path | None:
     different machines, so there is deliberately no hardcoded personal-path
     default to fall back to. Callers must treat None as "no folder selected"
     and refuse to run rather than silently picking a path."""
-    if APP_SETTINGS_FILE.exists():
-        try:
-            data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
-            raw = str(data.get("source_folder", "")).strip()
-            if raw:
-                return Path(raw)
-        except (OSError, json.JSONDecodeError):
-            pass
+    data = _read_settings() or {}
+    raw = data.get("source_folder")
+    if isinstance(raw, str) and raw.strip():
+        return Path(raw.strip())
     return None
 
 
 def save_source_folder(path: Path) -> None:
-    data: dict[str, object] = {}
-    if APP_SETTINGS_FILE.exists():
-        try:
-            data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            data = {}
+    # A corrupt or wrong-shaped file is replaced rather than blocking a save.
+    data = _read_settings() or {}
     data["source_folder"] = str(path)
     atomic_write_text(APP_SETTINGS_FILE, json.dumps(data, indent=2) + "\n")
 
@@ -194,9 +203,8 @@ def clear_source_folder() -> None:
     everywhere, matching "Reset All" rather than just this page's view."""
     if not APP_SETTINGS_FILE.exists():
         return
-    try:
-        data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    data = _read_settings()
+    if data is None:
         APP_SETTINGS_FILE.unlink(missing_ok=True)
         return
     data.pop("source_folder", None)
@@ -206,17 +214,85 @@ def clear_source_folder() -> None:
         APP_SETTINGS_FILE.unlink(missing_ok=True)
 
 
-def write_off_peak_job_state(**fields: object) -> bool:
+_off_peak_job_file_lock = threading.Lock()
+OFF_PEAK_JOBS_FORMAT = "off-peak-jobs-v2"
+DEFAULT_OFF_PEAK_RECORD_KEY = "default"
+
+
+def _read_off_peak_raw() -> dict[str, object] | None:
+    """Every Transcribe off-peak entry exactly as stored, malformed ones
+    included, keyed by the job's own record key (reviews/CODEX_REVIEW_8.md
+    M-3: one key per job, so a second job never erases an unresolved first
+    one). {} when there is no file, None when the file itself can't be read.
+    Writers work on this raw map, so an entry this version can't interpret is
+    carried over unchanged rather than dropped (CODEX_REVIEW_2.md M-3). A
+    file in the old single-record format (one flat dict) reads as one entry;
+    the next write converts it."""
+    if not OFF_PEAK_JOB_FILE.exists():
+        return {}
+    try:
+        data = json.loads(OFF_PEAK_JOB_FILE.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("format") == OFF_PEAK_JOBS_FORMAT:
+        jobs = data.get("jobs")
+        if not isinstance(jobs, dict):
+            return None
+        return {str(k): v for k, v in jobs.items()}
+    return {"legacy": data} if data else {}
+
+
+def _read_off_peak_records() -> dict[str, dict[str, object]] | None:
+    """The readable entries only (for display and lookup)."""
+    raw = _read_off_peak_raw()
+    if raw is None:
+        return None
+    return {key: value for key, value in raw.items() if isinstance(value, dict)}
+
+
+def _set_aside_unreadable_file(path, log) -> None:
+    """Keep an unreadable record file for manual recovery instead of
+    overwriting it (M-3), under a name that can't collide with an earlier
+    one, and say where it went."""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = path.with_name(f"{path.stem}.unreadable-{stamp}-{uuid.uuid4().hex[:8]}{path.suffix}")
+    path.replace(target)
+    log(
+        f"An unreadable off-peak job record was kept at {target}. It may describe a batch still "
+        "running on the provider's servers -- open the file or check the provider's console."
+    )
+
+
+def _write_off_peak_records(jobs: dict[str, object]) -> None:
+    if jobs:
+        atomic_write_text(
+            OFF_PEAK_JOB_FILE,
+            json.dumps({"format": OFF_PEAK_JOBS_FORMAT, "jobs": jobs}, indent=2) + "\n",
+        )
+    else:
+        OFF_PEAK_JOB_FILE.unlink(missing_ok=True)
+
+
+def write_off_peak_job_state(*, record_key: str = DEFAULT_OFF_PEAK_RECORD_KEY, **fields: object) -> bool:
     """Best-effort persistence of non-secret off-peak batch job metadata --
-    see OFF_PEAK_JOB_FILE's own comment above. Never fatal to the run itself
-    if the write fails (a full disk, a permissions problem): losing this
-    file only means a crash won't be recoverable, not that the in-flight
-    job breaks, matching delete_gemini_prompt_cache()'s own best-effort
-    philosophy (core.py). Returns whether the write succeeded, so a caller
+    see OFF_PEAK_JOB_FILE's own comment above. Adds or replaces only this
+    job's entry (record_key); other jobs' entries are kept. Never fatal to
+    the run itself if the write fails (a full disk, a permissions problem):
+    losing this file only means a crash won't be recoverable, not that the
+    in-flight job breaks. Returns whether the write succeeded, so a caller
     never tells the user a job id "is saved" when it isn't (reviews/CODEX_REVIEW.md
     L-1); a failure is also written to the run log."""
     try:
-        atomic_write_text(OFF_PEAK_JOB_FILE, json.dumps(fields, indent=2) + "\n")
+        with _off_peak_job_file_lock:
+            jobs = _read_off_peak_raw()
+            if jobs is None:
+                _set_aside_unreadable_file(OFF_PEAK_JOB_FILE, add_log)
+                jobs = {}
+            jobs.pop(record_key, None)
+            jobs[record_key] = dict(fields)  # most recent last
+            _write_off_peak_records(jobs)
     except OSError as exc:
         add_log(
             f"Warning: could not save the off-peak job record to disk ({exc}). "
@@ -226,21 +302,33 @@ def write_off_peak_job_state(**fields: object) -> bool:
     return True
 
 
-def clear_off_peak_job_state() -> None:
+def clear_off_peak_job_state(record_key: str | None = None) -> None:
+    """Remove one job's entry once it is resolved, or every entry when
+    record_key is None (Reset All, the explicit dismissal). An unreadable
+    file is left in place for a single-job clear."""
     try:
-        OFF_PEAK_JOB_FILE.unlink(missing_ok=True)
+        with _off_peak_job_file_lock:
+            if record_key is None:
+                OFF_PEAK_JOB_FILE.unlink(missing_ok=True)
+                return
+            jobs = _read_off_peak_raw()
+            if jobs is None or record_key not in jobs:
+                return
+            jobs.pop(record_key)
+            _write_off_peak_records(jobs)
     except OSError:
         pass
 
 
+def read_off_peak_job_records() -> dict[str, dict[str, object]]:
+    """Every readable Transcribe off-peak record (oldest first)."""
+    return _read_off_peak_records() or {}
+
+
 def read_off_peak_job_state() -> dict[str, object] | None:
-    if not OFF_PEAK_JOB_FILE.exists():
-        return None
-    try:
-        data = json.loads(OFF_PEAK_JOB_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return data if isinstance(data, dict) else None
+    """The most recently written record, or None."""
+    jobs = read_off_peak_job_records()
+    return list(jobs.values())[-1] if jobs else None
 
 
 def surface_stale_off_peak_job() -> None:
@@ -255,9 +343,19 @@ def surface_stale_off_peak_job() -> None:
     summary is enough to make sure it's never silently forgotten. Dismissed
     the same way any other leftover run state is, via Reset All -- see
     reset_ui_state()'s own call to clear_off_peak_job_state() below."""
-    job = read_off_peak_job_state()
-    if not job:
-        if OFF_PEAK_JOB_FILE.exists():
+    raw = _read_off_peak_raw()
+    jobs = None if raw is None else {key: value for key, value in raw.items() if isinstance(value, dict)}
+    unreadable = 0 if raw is None else len(raw) - len(jobs)
+    if unreadable:
+        with lock:
+            state["log"].append(
+                f"{unreadable} off-peak job record(s) in {OFF_PEAK_JOB_FILE} could not be read and were "
+                "kept as they are. They may describe batches still running on the provider's servers -- "
+                "open the file or check the provider's own console/dashboard."
+            )
+            state["log"] = state["log"][-300:]
+    if not jobs:
+        if jobs is None:
             # A record is on disk but unreadable (corrupt/permissions) -- say so
             # rather than silently forgetting a possibly-still-billing job.
             with lock:
@@ -268,29 +366,41 @@ def surface_stale_off_peak_job() -> None:
                 )
                 state["log"] = state["log"][-300:]
         return
-    message = (
+    messages = [
         "An off-peak batch job from a previous session may still be unresolved: "
         f"provider {job.get('provider', 'unknown')}, model {job.get('model', 'unknown')}, "
         f"job id {job.get('job_id', 'unknown')}, submitted {job.get('submitted_at', 'an unknown time')}, "
         f"last known status \"{job.get('status', 'unknown')}\". This app cannot resume watching it "
         "automatically after a restart -- check the provider's own console/dashboard for its actual "
         "status. Once resolved there, click Reset All to dismiss this notice."
-    )
+        for job in jobs.values()
+    ]
     with lock:
-        state["log"].append(message)
+        state["log"].extend(messages)
         state["log"] = state["log"][-300:]
         if not state["summary"]:
-            state["summary"] = message
+            state["summary"] = messages[0] if len(messages) == 1 else (
+                f"{len(messages)} off-peak batch jobs from a previous session may still be "
+                "unresolved -- see the Progress Console."
+            )
 
 
-def read_test_off_peak_jobs() -> dict[str, dict[str, object]]:
+def _read_test_off_peak_raw() -> dict[str, object] | None:
+    """Test Mode's entries exactly as stored ({} with no file, None when the
+    file can't be read). Writers keep entries they can't interpret
+    (CODEX_REVIEW_2.md M-3)."""
     if not TEST_OFF_PEAK_JOBS_FILE.exists():
         return {}
     try:
         data = json.loads(TEST_OFF_PEAK_JOBS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return {str(k): v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return {str(k): v for k, v in data.items()} if isinstance(data, dict) else None
+
+
+def read_test_off_peak_jobs() -> dict[str, dict[str, object]]:
+    raw = _read_test_off_peak_raw() or {}
+    return {key: value for key, value in raw.items() if isinstance(value, dict)}
 
 
 def write_test_off_peak_job_state(run_id: str, **fields: object) -> bool:
@@ -299,7 +409,10 @@ def write_test_off_peak_job_state(run_id: str, **fields: object) -> bool:
     the Test Mode log and reported by the return value."""
     try:
         with _test_off_peak_jobs_file_lock:
-            jobs = read_test_off_peak_jobs()
+            jobs = _read_test_off_peak_raw()
+            if jobs is None:
+                _set_aside_unreadable_file(TEST_OFF_PEAK_JOBS_FILE, add_test_log)
+                jobs = {}
             jobs[run_id] = fields
             atomic_write_text(TEST_OFF_PEAK_JOBS_FILE, json.dumps(jobs, indent=2) + "\n")
     except OSError as exc:
@@ -318,8 +431,10 @@ def clear_test_off_peak_job_state(run_id: str | None = None) -> None:
             if run_id is None:
                 TEST_OFF_PEAK_JOBS_FILE.unlink(missing_ok=True)
                 return
-            jobs = read_test_off_peak_jobs()
-            jobs.pop(run_id, None)
+            jobs = _read_test_off_peak_raw()
+            if jobs is None or run_id not in jobs:
+                return  # keep an unreadable file for recovery
+            jobs.pop(run_id)
             if jobs:
                 atomic_write_text(TEST_OFF_PEAK_JOBS_FILE, json.dumps(jobs, indent=2) + "\n")
             else:
@@ -332,9 +447,16 @@ def surface_stale_test_off_peak_jobs() -> None:
     """surface_stale_off_peak_job()'s Test Mode counterpart, called once at
     startup: lists any Test Mode off-peak job left unresolved by a restart in
     the Test Mode log. Dismissed with Test Mode's Reset All."""
+    raw = _read_test_off_peak_raw()
     jobs = read_test_off_peak_jobs()
+    if raw and len(raw) > len(jobs):
+        add_test_log(
+            f"{len(raw) - len(jobs)} Test Mode off-peak job record(s) in {TEST_OFF_PEAK_JOBS_FILE} could "
+            "not be read and were kept as they are. They may describe batches still running on the "
+            "provider's servers -- open the file or check the provider's own console/dashboard."
+        )
     if not jobs:
-        if TEST_OFF_PEAK_JOBS_FILE.exists():
+        if raw is None:
             add_test_log(
                 f"A Test Mode off-peak job record exists at {TEST_OFF_PEAK_JOBS_FILE} but could not be "
                 "read. It may describe batches still running on the provider's servers -- open the file "
@@ -358,8 +480,15 @@ def surface_stale_test_off_peak_jobs() -> None:
             )
 
 
-def reset_ui_state() -> None:
+def reset_ui_state() -> bool:
+    """Reset the Transcribe page, unless a run holds the slot. The idle check,
+    the reset and the persistent cleanup all happen under one lock
+    acquisition, so a run reserved in between can't be erased
+    (reviews/CODEX_REVIEW_8.md M-4). Returns whether it reset."""
     with lock:
+        if state["running"]:
+            return False
+        stop_event.clear()
         state["running"] = False
         state["log"] = []
         state["output"] = ""
@@ -379,12 +508,17 @@ def reset_ui_state() -> None:
         state["batch_provider"] = ""
         state["batch_job_id"] = ""
         state["batch_counts"] = {}
-    clear_source_folder()
-    clear_off_peak_job_state()
+        clear_source_folder()
+        clear_off_peak_job_state()
+    return True
 
 
-def reset_test_ui_state() -> None:
+def reset_test_ui_state() -> bool:
+    """Test Mode's counterpart to reset_ui_state(), same single-lock rule."""
     with test_lock:
+        if test_state["running"]:
+            return False
+        test_stop_event.clear()
         test_state["running"] = False
         test_state["current_run_id"] = ""
         test_state["log"] = []
@@ -399,8 +533,9 @@ def reset_test_ui_state() -> None:
         test_state["profile_id"] = ""
         test_state["queue"] = []
         test_state["runs"] = {}
-    clear_source_folder()
-    clear_test_off_peak_job_state()
+        clear_source_folder()
+        clear_test_off_peak_job_state()
+    return True
 
 
 def status_payload() -> dict[str, object]:

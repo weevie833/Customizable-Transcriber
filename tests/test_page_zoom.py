@@ -247,3 +247,40 @@ def test_profile_zoom_default_comes_from_prompt_builder_answers():
     assert profile_zoom_pages(profile("one_page", ["on"])) is False
     assert profile_zoom_pages({"pb_answers": None}) is False
     assert profile_zoom_pages({}) is False
+
+
+# reviews/CODEX_REVIEW_8.md M-8: the preview never enlarges, skips odd shapes
+# and oversized photos without decoding them, and applies the batch's
+# admission checks first.
+from PIL import Image as _Image
+
+from customizable_transcriber import page_zoom as _pz
+
+
+def test_narrow_or_extreme_aspect_images_are_not_analysed():
+    assert _pz.analyze_spread(_Image.new("L", (400, 300))).gutter_x is None  # narrower than profile
+    assert _pz.analyze_spread(_Image.new("L", (900, 9000))).gutter_x is None  # 10:1
+
+
+def test_oversized_photo_is_not_decoded(tmp_path, monkeypatch):
+    path = tmp_path / "big.png"
+    _Image.new("L", (1000, 800)).save(path)
+    monkeypatch.setattr(_pz, "MAX_ANALYZE_PIXELS", 1000)
+    monkeypatch.setattr(_pz, "analyze_spread", lambda image: (_ for _ in ()).throw(AssertionError("decoded")))
+    info = _pz.analyze_file(path)
+    assert (info.width, info.height, info.gutter_x) == (1000, 800, None)
+
+
+def test_preview_skips_files_failing_admission_checks(tmp_path, monkeypatch):
+    import run_support
+
+    (tmp_path / "a.jpg").write_bytes(b"x")
+    analysed = []
+    monkeypatch.setattr(run_support.page_zoom, "analyze_file", lambda path: analysed.append(path))
+
+    def reject(path, root):
+        raise RuntimeError("too big")
+
+    monkeypatch.setattr(run_support, "validate_batch_source_file", reject)
+    assert run_support.page_zoom_advice(tmp_path, "jpeg", "gemini-3.1-pro-preview", True) == ""
+    assert analysed == []

@@ -25,6 +25,7 @@ from customizable_transcriber.core import (
     create_gemini_prompt_cache,
     gemini_sampling_kwargs,
     delete_gemini_prompt_cache,
+    ensure_key_matches_model,
     provider_for_model,
 )
 from xls_conversion.spreadsheet_export import SheetSpec, rows_to_csv, rows_to_xlsx, rows_to_xlsx_multi
@@ -51,6 +52,20 @@ def _timeout_error(elapsed: float) -> RuntimeError:
 TARGET_RULE_TOKEN = "__TARGET_RULE__"
 TARGET_SOURCE_TOKEN = "__TARGET_SOURCE__"
 TARGET_LANGUAGE_TOKEN = "__TARGET_LANGUAGE__"
+
+
+TARGET_ROLES = ("transcription", "translation")
+
+
+def canonical_target_role(value: object) -> str:
+    """The one spelling of a language role used everywhere after the request
+    boundary -- approval cache, preflight and extraction (CODEX_REVIEW_2.md
+    L-5). "Transcription" and " transcription " both become "transcription";
+    anything else is refused rather than quietly read as a translation."""
+    role = str(value or "").strip().lower()
+    if role not in TARGET_ROLES:
+        raise RuntimeError('The language role must be "transcription" or "translation". Detect languages again.')
+    return role
 
 
 def target_source_description(language: str, role: str) -> str:
@@ -937,32 +952,39 @@ def parse_image_overrides(value: str) -> list[dict[str, object]]:
 
 
 def collect_image_markers(text: str, image_overrides: str = "") -> list[dict[str, object]]:
-    # The digit run captured here is whichever number sits immediately before
-    # the file extension -- an optional closing paren is allowed between them
-    # (Antenati-style "...Page (24).jpg" filenames), and there is no longer a
-    # required leading "_" (the original assumption, matching only
-    # "..._194.jpg"-style names). A source filename with more than one
-    # embedded number -- e.g. "...Book 18 Page (24).jpg" -- still resolves to
-    # the LAST one, since \s*.*? is non-greedy and only stops once digits sit
-    # directly against the extension: "18" fails that test ("18 Page..."
-    # isn't immediately followed by an extension) so the match advances past
-    # it to "24", which is. Verified against a real transcription that used
-    # to produce zero image markers under the old underscore-only pattern.
-    marker_pattern = re.compile(
-        r"(?:^|\n)\s*(?:---\s*)?START OF RECORD:\s*.*?(\d+)\)?\.[A-Za-z0-9]+(?:\s*---)?[^\n]*",
+    # Every START OF RECORD heading is a boundary, numbered or not
+    # (CODEX_REVIEW_2.md H-1): blocks are cut on all of them first, and only
+    # then is each block judged eligible on its own. The image number is the
+    # digit run directly before the file extension (an optional closing paren
+    # may sit between, for Antenati-style "...Page (24).jpg"); a heading with
+    # more than one number ("...Book 18 Page (24).jpg") resolves to the last.
+    # A heading with no such number ("Appendix.jpg") is unnumbered: it ends
+    # the record before it but is never selected itself, in any mode. A user
+    # who wants it converted maps its text to a number with a marker override.
+    heading_pattern = re.compile(
+        r"(?:^|\n)\s*(?:---\s*)?START OF RECORD:[^\n]*",
         re.IGNORECASE | re.MULTILINE,
     )
+    number_pattern = re.compile(r"(?<!\d)(\d+)\)?\.[A-Za-z0-9]+")
     markers: list[dict[str, object]] = []
-    for match in marker_pattern.finditer(text):
-        if re.search(r"\bindex\b", match.group(0), re.IGNORECASE):
-            continue
+    for match in heading_pattern.finditer(text):
         start = match.start() + (1 if match.group(0).startswith("\n") else 0)
-        markers.append(
-            {
-                "image_number": normalize_image_number(match.group(1)),
-                "start": start,
-            }
-        )
+        heading = match.group(0).strip()
+        number = number_pattern.search(heading)
+        marker: dict[str, object] = {
+            "image_number": normalize_image_number(number.group(1)) if number else "",
+            "start": start,
+        }
+        if not number:
+            marker["excluded"] = True
+            marker["unnumbered"] = True
+        # An "Index" page's record is never extracted, but its heading still
+        # ends the record before it -- otherwise the index page's text would
+        # be appended to the preceding selected block and sent to the
+        # provider (reviews/CODEX_REVIEW_8.md H-1).
+        if re.search(r"\bindex\b", heading, re.IGNORECASE):
+            marker["excluded"] = True
+        markers.append(marker)
 
     for override in parse_image_overrides(image_overrides):
         marker_text = str(override["marker_text"])
@@ -992,7 +1014,11 @@ def all_image_numbers(text: str) -> list[str]:
     """Every image number actually present in the document, in document
     order -- what "Process all" processes instead of a typed range."""
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    numbers = [str(marker["image_number"]) for marker in collect_image_markers(normalized)]
+    numbers = [
+        str(marker["image_number"])
+        for marker in collect_image_markers(normalized)
+        if not marker.get("excluded")
+    ]
     return list(dict.fromkeys(numbers))
 
 
@@ -1021,11 +1047,20 @@ def split_image_blocks(
 ) -> list[dict[str, str]]:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     expected = set() if process_all else set(parse_image_range(image_range))
+    # A restricted request with no images selected is an error, never "all"
+    # (CODEX_REVIEW_2.md H-1).
+    if not process_all and not expected:
+        raise RuntimeError("Select an image range, or check Process all to convert the whole document.")
     markers = collect_image_markers(normalized, image_overrides)
     blocks: list[dict[str, str]] = []
+    # Boundaries come from every marker (excluded "Index" headings included)
+    # before any filtering, so a selected block never runs on into the text
+    # of an unselected or excluded record.
     for index, marker in enumerate(markers):
+        if marker.get("excluded"):
+            continue
         image_number = str(marker["image_number"])
-        if expected and image_number not in expected:
+        if not process_all and image_number not in expected:
             continue
         end = int(markers[index + 1]["start"]) if index + 1 < len(markers) else len(normalized)
         blocks.append(
@@ -1036,7 +1071,25 @@ def split_image_blocks(
         )
     if blocks:
         return blocks
-    return [{"image_number": "", "text": normalized.strip()}]
+    # Nothing selected. The whole document is only a valid fallback when the
+    # user chose "Process all" and the document has no image markers at all
+    # (a transcription not produced by this app). A typed range that matches
+    # nothing must never widen to the whole document (reviews/CODEX_REVIEW_8.md
+    # H-1), because that would send excluded records to the provider.
+    if process_all and not markers:
+        return [{"image_number": "", "text": normalized.strip()}]
+    if process_all:
+        raise RuntimeError("No image records were found in this transcription to process.")
+    if not markers:
+        raise RuntimeError(
+            "This transcription has no START OF RECORD image markers, so an image range "
+            "can't be matched. Check Process all to convert the whole document, or add "
+            "marker overrides."
+        )
+    raise RuntimeError(
+        "None of the selected images were found in this transcription. Check the image "
+        "range against the START OF RECORD lines in the document."
+    )
 
 
 class TruncatedResponseError(RuntimeError):
@@ -1069,6 +1122,7 @@ def call_gemini_json(
     user_message: str,
     cached_content: str | None = None,
 ) -> object:
+    ensure_key_matches_model(model, api_key)
     client = genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_SECONDS * 1000),
@@ -1153,6 +1207,7 @@ def call_claude_json(
     user_message: str,
     use_prompt_cache: bool = False,
 ) -> object:
+    ensure_key_matches_model(model, api_key)
     client = anthropic.Anthropic(api_key=api_key, timeout=float(AI_REQUEST_TIMEOUT_SECONDS))
     # Cache breakpoint on the system prompt -- see core.claude_system_param().
     # Only requested by callers looping over the same system_prompt across
@@ -1299,7 +1354,7 @@ def requested_image_blocks(text: str, expected_images: Iterable[str]) -> dict[st
     blocks: dict[str, list[str]] = {image: [] for image in expected}
     for index, marker in enumerate(markers):
         image_number = str(marker["image_number"])
-        if image_number not in expected:
+        if marker.get("excluded") or image_number not in expected:
             continue
         end = int(markers[index + 1]["start"]) if index + 1 < len(markers) else len(normalized)
         blocks[image_number].append(normalized[int(marker["start"]):end].strip())
@@ -1372,6 +1427,7 @@ def preflight_generic(
     gemini_cache_name: str | None = None
     use_prompt_cache = provider_for_model(model) == "claude" and len(expected_images) > 1
     if provider_for_model(model) != "claude" and len(expected_images) > 1:
+        ensure_key_matches_model(model, api_key)
         cache_client = genai.Client(
             api_key=api_key, http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_SECONDS * 1000)
         )
@@ -2095,6 +2151,7 @@ def parse_generic(
     gemini_cache_name: str | None = None
     use_prompt_cache = provider_for_model(model) == "claude" and len(blocks) > 1
     if provider_for_model(model) != "claude" and len(blocks) > 1:
+        ensure_key_matches_model(model, api_key)
         cache_client = genai.Client(
             api_key=api_key, http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_SECONDS * 1000)
         )
@@ -2388,7 +2445,7 @@ def parse_records_with_ai(
     ):
         return parse_generic(
             config, text, image_range, image_overrides, api_key.strip(), model,
-            target_language.strip(), target_role.strip(), process_all=process_all,
+            target_language.strip(), canonical_target_role(target_role), process_all=process_all,
         )
 
 
@@ -2418,7 +2475,7 @@ def preflight_records_with_ai(
     ):
         return preflight_generic(
             text, image_range, api_key.strip(), model,
-            target_language.strip(), target_role.strip(),
+            target_language.strip(), canonical_target_role(target_role),
             process_all=process_all, filename=filename, record_type=record_type,
         )
 

@@ -75,3 +75,22 @@ def test_combine_language_xlsx_with_slash_in_language_is_openpyxl_readable():
     assert len(workbook.sheetnames) == 2
     for name in workbook.sheetnames:
         assert "/" not in name
+
+
+# reviews/CODEX_REVIEW_8.md M-12: a quote, ampersand or non-ASCII label in a
+# sheet name must still produce a readable workbook.
+import io as _io
+
+import openpyxl as _openpyxl
+import pytest as _pytest
+
+from xls_conversion.spreadsheet_export import SheetSpec as _SheetSpec
+from xls_conversion.spreadsheet_export import rows_to_xlsx_multi as _rows_to_xlsx_multi
+
+
+@_pytest.mark.parametrize("title", ['Latin "A"', "Latin & Italian", "Latino 'B' \"C\"", "Italiano àèì"])
+def test_quoted_and_special_sheet_titles_round_trip(title):
+    spec = _SheetSpec(group_headers=["G"], column_headers=["C"], fields=["c"], rows=[{"c": "v"}],
+                      sheet_name=title, numeric_columns=frozenset(), padded_column=None, column_widths=[10])
+    workbook = _openpyxl.load_workbook(_io.BytesIO(_rows_to_xlsx_multi([spec])))
+    assert workbook.sheetnames[0].replace("'", "") == title.replace("'", "").strip()

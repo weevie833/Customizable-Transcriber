@@ -159,3 +159,17 @@ def test_control_characters_in_a_candidate_label_do_not_crash_report_generation(
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         document_xml = archive.read("word/document.xml")
     assert b"\x00" not in document_xml
+
+
+def test_rows_table_shows_order_only_pairs_and_explains_them():
+    # reviews/CODEX_REVIEW_8.md M-15 / HD-1.
+    truth = [_row(page_number="34", groom_given_name="Giuseppe"), _row(groom_given_name="Paolo", groom_last_name="Rossi")]
+    candidate = [_row(page_number="34", groom_given_name="Zzyzx"), _row(groom_given_name="Anne", groom_last_name="Smith")]
+    result = compare_indexes(MATRIMONI, ("ORIG", truth), [("Gemini", candidate)])
+    data = build_index_compare_report(result, "ORIG")
+    table = _table_after(data, "Rows matched")
+    assert table[0] == ["Candidate", "Matched", "Matched by order only (part of Matched)", "Missing from candidate", "Extra in candidate"]
+    assert table[1] == ["Gemini", "1", "1", "1", "1"]
+    text = _all_text(data)
+    assert "is part of \"Matched\", not added to it" in text
+    assert "a shared given name alone is not enough" in text

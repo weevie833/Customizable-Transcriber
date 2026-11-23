@@ -23,7 +23,23 @@ import app as ctapp
 import app_state
 import batch_transcription as bt
 import handlers.transcribe_offpeak as offpeak_handlers
+import run_support
 from tests.test_run_concurrency import _get, _post
+
+
+def _stop_right_after_submission(monkeypatch) -> None:
+    """Press Stop just after the provider accepted the batch, so the run goes
+    through the cancel-and-confirm path. (A Stop pressed before sending now
+    prevents submission entirely -- CODEX_REVIEW_2.md M-4.)"""
+    for name in ("submit_gemini_batch", "submit_claude_batch"):
+        real = getattr(bt, name)
+
+        def submit_then_stop(*args, _real=real, **kwargs):
+            job_id = _real(*args, **kwargs)
+            app_state.stop_event.set()
+            return job_id
+
+        monkeypatch.setattr(bt, name, submit_then_stop)
 
 
 def _write_jpeg(path: Path) -> None:
@@ -256,6 +272,11 @@ def test_run_off_peak_job_success_writes_output_and_resets_state(tmp_path, monke
     assert docx_file.exists()
     text = markdown_file.read_text(encoding="utf-8")
     assert "Entry A" in text and "Entry B" in text
+    # reviews/CODEX_REVIEW_8.md L-3 / HD-2: folder name only in the transcript;
+    # the full path goes to the Progress Console.
+    assert f"Source folder: {source_folder.name}\n" in text
+    assert str(source_folder) not in text
+    assert any(line.endswith(f"Source folder: {source_folder}") for line in log)
 
     # reviews/CODEX_REVIEW.md finding H-1: a fully-resolved job leaves nothing
     # behind to (falsely) recover after a restart.
@@ -540,7 +561,7 @@ def test_run_off_peak_job_cancellation_tolerates_a_transient_poll_failure_then_c
 
     monkeypatch.setattr(bt, "poll_gemini_batch", fake_poll)
 
-    app_state.stop_event.set()
+    _stop_right_after_submission(monkeypatch)
     try:
         with app_state.lock:
             app_state.state["running"] = True
@@ -590,7 +611,7 @@ def test_run_off_peak_job_cancellation_that_never_confirms_is_not_reported_as_su
 
     monkeypatch.setattr(bt, "poll_gemini_batch", always_fails)
 
-    app_state.stop_event.set()
+    _stop_right_after_submission(monkeypatch)
     try:
         with app_state.lock:
             app_state.state["running"] = True
@@ -663,7 +684,7 @@ def test_run_off_peak_job_reports_unconfirmed_when_cancellation_never_reaches_a_
         ),
     )
 
-    app_state.stop_event.set()
+    _stop_right_after_submission(monkeypatch)
     try:
         with app_state.lock:
             app_state.state["running"] = True
@@ -708,7 +729,7 @@ def test_run_off_peak_job_cancellation_calls_provider_cancel(tmp_path, monkeypat
     monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: fake_client)
     monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
 
-    app_state.stop_event.set()
+    _stop_right_after_submission(monkeypatch)
     try:
         monkeypatch.setattr(
             bt,
@@ -773,7 +794,7 @@ def test_run_off_peak_job_reports_honestly_when_it_finishes_before_cancellation_
         ),
     )
 
-    app_state.stop_event.set()
+    _stop_right_after_submission(monkeypatch)
     try:
         with app_state.lock:
             app_state.state["running"] = True
@@ -1037,7 +1058,7 @@ def test_run_off_peak_job_collect_results_timeout_produces_a_clear_error(tmp_pat
         model="claude-sonnet-5",
         provider="claude",
         system_prompt="system prompt",
-        api_key_override="fake-key",
+        api_key_override="sk-ant-fake-key",
         markdown_file=tmp_path / "output.md",
         docx_file=tmp_path / "output.docx",
         profile={"label": "Test Profile"},
@@ -1111,7 +1132,7 @@ def test_run_offpeak_spawns_a_job_and_reserves_the_shared_run_slot(live_server, 
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     _write_jpeg(source_folder / "a.jpg")
-    monkeypatch.setattr(offpeak_handlers, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source_folder)
 
     profile = ctapp.save_custom_profile("Off-Peak Test Profile", "role", "reference", "format")
 
@@ -1168,7 +1189,7 @@ def test_run_offpeak_forwards_newest_first_order_to_the_job(live_server, sandbox
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     _write_jpeg(source_folder / "a.jpg")
-    monkeypatch.setattr(offpeak_handlers, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source_folder)
 
     profile = ctapp.save_custom_profile("Off-Peak Order Test Profile", "role", "reference", "format")
 

@@ -593,6 +593,7 @@ the inline block used to sit. */
       if (status) status.textContent = "Comparing...";
       lastIndexCompareReportBlob = null;
       setIndexCompareReportButtonAvailable(false);
+      renderIndexCompareSummary(null);
       try {
         const response = await fetch("/api/index-compare/analyze", { method: "POST", body: body });
         const data = await response.json();
@@ -606,11 +607,11 @@ the inline block used to sit. */
           mappingArea.hidden = true;
           mappingArea.innerHTML = "";
         }
-        // The comparison itself isn't shown on screen -- Run Comparison
-        // goes straight to a downloadable report instead of an on-page
-        // results view (a deliberate choice: see the "Compare Indexes"
-        // section this replaced its inline results table for).
+        // Field-level results stay in the downloadable report. The row
+        // counts are also shown here, with order-only pairs labelled as part
+        // of Matched (CODEX_REVIEW_2.md M-15 / HD-1).
         lastIndexCompareResult = data.result;
+        renderIndexCompareSummary(lastIndexCompareResult);
         lastIndexCompareGroundTruthLabel = data.ground_truth_label || "";
         lastIndexCompareRecordType = data.record_type || "";
         if (status) status.textContent = "Building report...";
@@ -626,6 +627,31 @@ the inline block used to sit. */
       } finally {
         button.disabled = false;
       }
+    }
+
+    function renderIndexCompareSummary(result) {
+      const wrapper = document.getElementById("ic-summary");
+      const body = document.getElementById("ic-summary-rows");
+      if (!wrapper || !body) return;
+      body.textContent = "";
+      const candidates = (result && Array.isArray(result.candidates)) ? result.candidates : [];
+      candidates.forEach((entry) => {
+        const row = document.createElement("tr");
+        [
+          entry.label,
+          entry.matched_count,
+          entry.position_only_pairs || 0,
+          entry.missing_from_candidate,
+          entry.extra_in_candidate,
+        ].forEach((value) => {
+          const cell = document.createElement("td");
+          cell.textContent = String(value == null ? "" : value);
+          row.appendChild(cell);
+        });
+        body.appendChild(row);
+      });
+      wrapper.hidden = candidates.length === 0;
+      if (window.tbRefreshLanguage) window.tbRefreshLanguage();
     }
 
     async function downloadIndexCompareReport() {

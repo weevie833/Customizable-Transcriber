@@ -6,7 +6,7 @@ import re
 import zipfile
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape, quoteattr
 
 from docx_package import strip_xml_illegal_chars
 
@@ -179,7 +179,9 @@ def rows_to_xlsx_multi(sheets: Sequence[SheetSpec]) -> bytes:
         for index, _name, _xml in sheet_entries
     )
     sheet_list_xml = "".join(
-        f'<sheet name="{escape(name)}" sheetId="{index}" r:id="rId{index}"/>'
+        # quoteattr(), not escape(): a sheet name is an attribute value, and
+        # escape() leaves a double quote in place (reviews/CODEX_REVIEW_8.md M-12).
+        f'<sheet name={quoteattr(name)} sheetId="{index}" r:id="rId{index}"/>'
         for index, name, _xml in sheet_entries
     )
     styles_rid = len(sheet_entries) + 1

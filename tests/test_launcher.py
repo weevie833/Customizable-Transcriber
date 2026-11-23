@@ -80,7 +80,7 @@ def test_lock_file_pins_every_direct_dependency_at_the_same_version():
 
 def test_running_server_only_opens_the_browser(monkeypatch):
     opened = []
-    monkeypatch.setattr(launch, "server_is_up", lambda: True)
+    monkeypatch.setattr(launch, "probe_server", lambda: "ours")
     monkeypatch.setattr(launch.webbrowser, "open", opened.append)
     monkeypatch.setattr(launch.app, "main", lambda: pytest.fail("should not start a second server"))
     monkeypatch.setattr(launch.sys, "argv", ["launch.py"])
@@ -90,7 +90,7 @@ def test_running_server_only_opens_the_browser(monkeypatch):
 
 def test_server_is_the_apps_own_local_only_server(monkeypatch):
     started = []
-    monkeypatch.setattr(launch, "server_is_up", lambda: False)
+    monkeypatch.setattr(launch, "probe_server", lambda: "none")
     monkeypatch.setattr(launch.app, "main", lambda: started.append(1))
     monkeypatch.setattr(launch.sys, "argv", ["launch.py", "--no-browser"])
     launch.main()
@@ -102,7 +102,7 @@ def test_server_is_the_apps_own_local_only_server(monkeypatch):
 def test_ctrl_c_is_a_normal_stop(monkeypatch):
     def interrupted():
         raise KeyboardInterrupt
-    monkeypatch.setattr(launch, "server_is_up", lambda: False)
+    monkeypatch.setattr(launch, "probe_server", lambda: "none")
     monkeypatch.setattr(launch.app, "main", interrupted)
     monkeypatch.setattr(launch.sys, "argv", ["launch.py", "--no-browser"])
     launch.main()
@@ -362,3 +362,114 @@ def test_signed_app_installs_only_a_newer_copy(tmp_path):
     (app_dir / "VERSION").write_text("0.5.9\n")
     assert run()[1] == "0.6.0"
     assert sorted(p.name for p in app_dir.parent.iterdir()) == ["App", "Runtime"]    # no -new or -old left
+
+
+# reviews/CODEX_REVIEW_8.md L-1: only this app's health answer counts as
+# "already running"; an unrelated 200, a redirect or a 404 is a port conflict.
+import http.server as _http_server
+import threading as _threading
+
+
+def _serve(handler_body):
+    class Handler(_http_server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            handler_body(self)
+
+        def log_message(self, *args):
+            pass
+
+    server = _http_server.HTTPServer(("127.0.0.1", 0), Handler)
+    _threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _reply(status, body=b"", headers=None):
+    def handler(request):
+        request.send_response(status)
+        for key, value in (headers or {}).items():
+            request.send_header(key, value)
+        request.send_header("Content-Length", str(len(body)))
+        request.end_headers()
+        request.wfile.write(body)
+    return handler
+
+
+@pytest.mark.parametrize("handler, expected", [
+    (_reply(200, b'{"app": "customizable-transcriber", "version": "1"}'), "ours"),
+    (_reply(200, b"<html>some other app</html>"), "other"),
+    (_reply(302, headers={"Location": "http://example.invalid/"}), "other"),
+    (_reply(404), "other"),
+])
+def test_probe_distinguishes_this_app_from_other_services(monkeypatch, handler, expected):
+    server = _serve(handler)
+    try:
+        monkeypatch.setattr(launch.app, "PORT", server.server_address[1])
+        assert launch.probe_server() == expected
+    finally:
+        server.shutdown()
+
+
+def test_probe_reports_nothing_listening(monkeypatch):
+    monkeypatch.setattr(launch.app, "PORT", 1)
+    assert launch.probe_server() == "none"
+
+
+def test_port_conflict_does_not_open_browser_or_start(monkeypatch):
+    monkeypatch.setattr(launch, "probe_server", lambda: "other")
+    monkeypatch.setattr(launch.webbrowser, "open", lambda url: pytest.fail("opened the wrong app"))
+    monkeypatch.setattr(launch.app, "main", lambda: pytest.fail("started over another service"))
+    monkeypatch.setattr(launch.sys, "argv", ["launch.py"])
+    with pytest.raises(SystemExit):
+        launch.main()
+
+
+def test_setup_instructions_install_the_tested_lock():
+    """CODEX_REVIEW_2.md M-14: the manual setup installs requirements.lock,
+    the same set the installers install, and CI's dev install pulls in that
+    same lock, so the instructions and their tested inputs stay aligned."""
+    import re
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    installs = {name.rstrip("`)") for name in re.findall(r"pip install -r\s+(\S+)", readme)}
+    # requirements-dev.txt (developer tooling) itself pulls in the lock, below.
+    assert installs - {"requirements-dev.txt"} == {"requirements.lock"}
+    dev = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
+    assert "-r requirements.lock" in dev and "-r requirements.txt" not in dev
+
+
+# CODEX_REVIEW_2.md L-1: the signed app's shell launcher applies the same
+# rule as launch.py -- HTTP 200 and a JSON object whose top-level "app" is
+# this app's id. Runs the real launcher.sh against a local stub server.
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="launcher.sh uses macOS tools")
+@pytest.mark.parametrize("handler, expected", [
+    (_reply(200, b'{"app": "customizable-transcriber", "version": "1"}'), "ours"),
+    (_reply(200, b'{\n  "app"\t:\n "customizable-transcriber"\n}'), "ours"),  # valid JSON whitespace
+    (_reply(200, b'{"note": "\\"app\\": \\"customizable-transcriber\\""}'), "conflict"),  # substring only
+    (_reply(200, b'{"nested": {"app": "customizable-transcriber"}}'), "conflict"),
+    (_reply(200, b'["app", "customizable-transcriber"]'), "conflict"),
+    (_reply(200, b'{"app": "customizable-transcriber"'), "conflict"),  # malformed
+    (_reply(200, b"<html>some other app</html>"), "conflict"),
+    (_reply(302, b'{"app": "customizable-transcriber"}', {"Location": "http://example.invalid/"}), "conflict"),
+    (_reply(404, b'{"app": "customizable-transcriber"}'), "conflict"),
+    (_reply(200, b'{"app": "customizable-transcriber", "pad": "' + b"x" * 5000 + b'"}'), "conflict"),  # oversized
+])
+def test_signed_app_launcher_identity_check(tmp_path, handler, expected):
+    server = _serve(handler)
+    try:
+        resources = tmp_path / "Customizable Transcriber.app" / "Contents" / "Resources"
+        resources.mkdir(parents=True)
+        (resources / "launcher.sh").write_bytes(APP_LAUNCHER.read_bytes())
+        url = f"http://127.0.0.1:{server.server_address[1]}/"
+        env = dict(os.environ, CT_SERVER_URL=url, CT_LAUNCH_DRY_RUN="1",
+                   CT_APP_DIR=str(tmp_path / "App"), CT_RUNTIME_DIR=str(tmp_path / "Runtime"))
+        result = subprocess.run(["bash", str(resources / "launcher.sh")], env=env,
+                                capture_output=True, text=True, timeout=30)
+    finally:
+        server.shutdown()
+    if expected == "ours":
+        assert result.returncode == 0 and result.stdout.strip() == f"open {url}"
+    else:
+        assert result.returncode == 1
+        assert "Another program is already using port 8765" in result.stdout
+        assert not (tmp_path / "App").exists()

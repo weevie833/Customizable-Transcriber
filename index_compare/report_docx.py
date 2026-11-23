@@ -191,16 +191,31 @@ def build_index_compare_report(result: dict, ground_truth_label: str = "", confi
     )
     elements.append(
         report_table(
-            [["Candidate", "Matched", "Missing from candidate", "Extra in candidate"]]
+            [["Candidate", "Matched", "Matched by order only (part of Matched)", "Missing from candidate", "Extra in candidate"]]
             + [
                 [
                     entry["label"],
                     str(entry["matched_count"]),
+                    str(entry.get("position_only_pairs", 0)),
                     str(entry["missing_from_candidate"]),
                     str(entry["extra_in_candidate"]),
                 ]
                 for entry in candidates
             ]
+        )
+    )
+    # reviews/CODEX_REVIEW_8.md M-15 / HD-1: say how unlocated rows and
+    # order-only pairs were handled, so a reader knows which matches rest on
+    # names and which on position.
+    elements.append(
+        report_paragraph(
+            "\"Matched by order only\" is part of \"Matched\", not added to it: rows on the same page "
+            "or act whose names didn't match anyone, paired by their order on that page; field errors "
+            "on those rows may belong to a different entry. Rows with no page or act number are paired "
+            "by name only, and only when both rows give a surname or both give a year -- a shared "
+            "given name alone is not enough. Any left over count as missing or extra.",
+            size_half_points=20,
+            space_after_twips=120,
         )
     )
 

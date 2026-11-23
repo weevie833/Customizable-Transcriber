@@ -19,6 +19,10 @@ TITLE="Customizable Transcriber"
 
 say() {
     # A dialog, since an app opened from Finder has no window to print to.
+    if [ -n "$CT_LAUNCH_DRY_RUN" ]; then
+        echo "dialog: $1"
+        return
+    fi
     /usr/bin/osascript -e 'on run argv' \
         -e 'display dialog (item 1 of argv) buttons {"OK"} default button 1 with title (item 2 of argv) with icon caution' \
         -e 'end run' "$1" "$TITLE" >/dev/null 2>&1
@@ -52,6 +56,56 @@ older_than() {
     return 1
 }
 
+# An opted-in saved-keys .env in the installed copy is carried over to the user-data folder
+# (owner-readable only) before that copy is replaced, so an update can't delete a saved key
+# the app still uses (reviews/CODEX_REVIEW_8.md L-4, CODEX_REVIEW_2.md L-4). The app reads
+# the user-data file first and the app folder's second, per key; so a key the user-data
+# file doesn't set yet is appended from the old file, line as written. Nothing already in
+# the user-data file is changed. Returns 1 on any write error, and the caller then keeps
+# the installed copy instead of replacing it. Never prints a key.
+saved_key_line() {
+    # The first line in $1 that sets key $2, as the app reads it ("KEY=value", # = comment).
+    awk -v k="$2" '{ l = $0; sub(/^[ \t]+/, "", l) }
+        l !~ /^#/ && index(l, "=") { n = substr(l, 1, index(l, "=") - 1); gsub(/[ \t]+$/, "", n)
+        if (n == k) { print $0; exit } }' "$1" 2>/dev/null
+}
+
+keep_saved_keys() {
+    local data_dir="${CT_DATA_DIR:-$HOME/Library/Application Support/Customizable Transcriber}"
+    local source="$1/.env" target key line
+    target="$data_dir/.env"
+    [ -f "$source" ] || return 0
+    mkdir -p "$data_dir" || return 1
+    if [ ! -e "$target" ]; then
+        (umask 077 && cp "$source" "$target") || return 1
+        return 0
+    fi
+    for key in GEMINI_API_KEY ANTHROPIC_API_KEY; do
+        line="$(saved_key_line "$source" "$key")"
+        [ -n "$line" ] || continue
+        [ -n "$(saved_key_line "$target" "$key")" ] && continue
+        {
+            [ -z "$(tail -c 1 "$target")" ] || echo
+            printf '%s\n' "$line"
+        } >> "$target" || return 1
+    done
+}
+
+# 0 only when $1 answers HTTP 200 with a JSON object whose top-level "app" is this app's
+# id -- the same rule as launch.py's probe_server() (CODEX_REVIEW_2.md L-1). The body is
+# capped at 4 KB and parsed as JSON (plutil), not searched for a substring; redirects are
+# not followed and don't count.
+health_is_ours() {
+    local response status body
+    response="$(curl --silent --max-time 2 --max-redirs 0 --max-filesize 4096 \
+        --write-out $'\n%{http_code}' "$1" 2>/dev/null)" || return 1
+    status="${response##*$'\n'}"
+    body="${response%$'\n'*}"
+    [ "$status" = "200" ] || return 1
+    [[ "$body" =~ ^[[:space:]]*\{ ]] || return 1
+    [ "$(printf '%s' "$body" | /usr/bin/plutil -extract app raw -o - - 2>/dev/null)" = "customizable-transcriber" ]
+}
+
 main() {
     local resources bundle bundled app_dir runtime url
     resources="$(cd "$(dirname "$0")" && pwd -P)" || exit 1
@@ -75,9 +129,15 @@ main() {
             ;;
     esac
 
-    if curl --silent --output /dev/null --max-time 2 "$url"; then
+    # Only this app's own health answer counts as "already running"; any other
+    # listener on the port is a conflict, not something to open
+    # (reviews/CODEX_REVIEW_8.md L-1).
+    if health_is_ours "${url}api/health"; then
         open_target "$url"
         exit 0
+    fi
+    if curl --silent --output /dev/null --max-time 2 "$url"; then
+        fail "Another program is already using port 8765 on this Mac, so Customizable Transcriber can't start. Quit that program (or restart the Mac) and try again."
     fi
 
     [ -f "$bundled/VERSION" ] && [ -f "$bundled/$START_FILE" ] \
@@ -97,6 +157,7 @@ main() {
         /usr/bin/xattr -dr com.apple.quarantine "$new" 2>/dev/null
         chmod +x "$new/$START_FILE"
         if [ -d "$app_dir" ]; then
+            keep_saved_keys "$app_dir" || { rm -rf "$new"; fail "Your saved API keys (.env) couldn't be copied to the Application Support folder, so the installed copy was left as it is. Check that your disk isn't full, then try again."; }
             mv "$app_dir" "$old" || { rm -rf "$new"; fail "The installed copy couldn't be replaced."; }
         fi
         mv "$new" "$app_dir" || { [ -d "$old" ] && mv "$old" "$app_dir"; fail "Customizable Transcriber couldn't be installed."; }

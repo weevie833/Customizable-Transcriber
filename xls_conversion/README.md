@@ -34,6 +34,12 @@ other file references either of the other two) -- `matrimony-parser.js`
 and `morti-parser.js` are unmaintained reference code with no test
 coverage and no execution path anywhere in this app.
 
+The `xls_conversion/tests/` suite (CI step "Legacy regex-parser fixture check")
+is a legacy-fixture check of that retired parser, not coverage of live
+extraction. Regressions in how the live path reads provider output belong in
+the Python suite under `tests/` (e.g. `test_image_block_selection.py`,
+`test_continuation_fragment_split.py`).
+
 ## Entries that span two images
 
 The transcription marks a split entry with two preset Notes lines. The model

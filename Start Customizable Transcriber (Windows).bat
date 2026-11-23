@@ -18,11 +18,22 @@ set "INSTALLED_LOCK=%RUNTIME%\venv\installed-requirements.txt"
 rem Which Python build is installed (its archive SHA-256). When a newer app version pins a
 rem different build, the next start replaces Python instead of keeping the old one forever.
 set "BUILD_MARKER=%RUNTIME%\python-build.txt"
+rem Written before an update moves anything aside and removed only after every marker is
+rem written: if it is still there at the next start, that update failed or was interrupted,
+rem and the last working runtime is put back first (CODEX_REVIEW_2.md M-11).
+rem Holds "python" (Python and packages being replaced) or "venv" (packages only).
+set "PENDING=%RUNTIME%\update-pending.txt"
 set "INSTALLED_BUILD="
-set "UPGRADING="
-if exist "%BUILD_MARKER%" set /p INSTALLED_BUILD=<"%BUILD_MARKER%"
 
 if not exist "app.py" goto not_extracted
+
+if not exist "%PENDING%" goto no_pending
+echo.
+echo The last update didn't finish. Putting the previous working setup back first...
+call :restore_previous
+if errorlevel 1 goto restore_failed
+:no_pending
+if exist "%BUILD_MARKER%" set /p INSTALLED_BUILD=<"%BUILD_MARKER%"
 
 rem Already installed with this Python and these exact package versions: just start.
 if not exist "%APP_PYTHON%" goto install
@@ -38,7 +49,7 @@ echo Please leave this window open, and stay connected to the internet.
 echo.
 if not exist "%RUNTIME%" mkdir "%RUNTIME%"
 if not exist "%BASE_PYTHON%" goto get_python
-if /i "%INSTALLED_BUILD%"=="%PYTHON_SHA256%" goto make_venv
+if /i "%INSTALLED_BUILD%"=="%PYTHON_SHA256%" goto backup_venv
 
 :get_python
 
@@ -56,24 +67,33 @@ if exist "%RUNTIME%\python-new" rmdir /s /q "%RUNTIME%\python-new"
 mkdir "%RUNTIME%\python-new"
 tar.exe -xf "%RUNTIME%\python-download.tar.gz" -C "%RUNTIME%\python-new"
 if errorlevel 1 goto unpack_failed
-rem Keep the current runtime until the new one is fully set up, so a failed update can go back to it.
-if exist "%RUNTIME%\python-old" rmdir /s /q "%RUNTIME%\python-old"
-if exist "%RUNTIME%\venv-old" rmdir /s /q "%RUNTIME%\venv-old"
+rem Keep the current runtime until the new one is fully set up, so a failed or interrupted
+rem update can go back to it.
+call :begin_update python
+if errorlevel 1 goto in_use
 if not exist "%RUNTIME%\python" goto old_python_moved
 move "%RUNTIME%\python" "%RUNTIME%\python-old" >nul
-if errorlevel 1 goto in_use
+if errorlevel 1 goto in_use_restore
 :old_python_moved
 if not exist "%RUNTIME%\venv" goto old_venv_moved
 move "%RUNTIME%\venv" "%RUNTIME%\venv-old" >nul
-if not errorlevel 1 goto old_venv_moved
-if exist "%RUNTIME%\python-old" move "%RUNTIME%\python-old" "%RUNTIME%\python" >nul
-goto in_use
+if errorlevel 1 goto in_use_restore
 :old_venv_moved
-set "UPGRADING=1"
 move "%RUNTIME%\python-new\python" "%RUNTIME%\python" >nul
 if errorlevel 1 goto unpack_failed
 rmdir /s /q "%RUNTIME%\python-new"
 del "%RUNTIME%\python-download.tar.gz"
+
+goto make_venv
+
+rem Same Python, new package list: keep the working environment until the new one is
+rem installed and imports cleanly (reviews/CODEX_REVIEW_8.md M-11).
+:backup_venv
+if not exist "%RUNTIME%\venv" goto make_venv
+call :begin_update venv
+if errorlevel 1 goto in_use
+move "%RUNTIME%\venv" "%RUNTIME%\venv-old" >nul
+if errorlevel 1 goto in_use_restore
 
 :make_venv
 echo Step 2 of 2: installing the app's components...
@@ -81,10 +101,17 @@ echo Step 2 of 2: installing the app's components...
 if errorlevel 1 goto packages_failed
 "%APP_PYTHON%" -m pip install --quiet --disable-pip-version-check --no-input --only-binary=:all: -r requirements.lock
 if errorlevel 1 goto packages_failed
+"%APP_PYTHON%" -c "import google.genai, anthropic, openpyxl, rapidfuzz, PIL, cryptography, certifi"
+if errorlevel 1 goto packages_failed
+rem The previous runtime is discarded only after both markers are written.
 copy /y "requirements.lock" "%INSTALLED_LOCK%" >nul
+if errorlevel 1 goto marker_failed
 (echo %PYTHON_SHA256%)>"%BUILD_MARKER%"
+if errorlevel 1 goto marker_failed
+del "%PENDING%" >nul 2>&1
 if exist "%RUNTIME%\python-old" rmdir /s /q "%RUNTIME%\python-old"
 if exist "%RUNTIME%\venv-old" rmdir /s /q "%RUNTIME%\venv-old"
+if exist "%BUILD_MARKER%.old" del "%BUILD_MARKER%.old"
 echo Setup is complete.
 echo.
 
@@ -120,8 +147,20 @@ echo Python couldn't be unpacked. Try again. If it keeps failing, security softw
 echo Send this message to whoever gave you the app.
 goto failed
 
+:in_use_restore
+call :restore_previous
 :in_use
 echo Python couldn't be updated because it's in use. Close every Customizable Transcriber window, then try again.
+goto failed
+
+:restore_failed
+echo The previous setup couldn't be put back. Close every Customizable Transcriber window, then try again.
+echo If it keeps failing, send this window's text to whoever gave you the app.
+goto failed
+
+:marker_failed
+call :restore_previous
+echo Setup couldn't finish writing its files. Check that your disk isn't full, then try again.
 goto failed
 
 :packages_failed
@@ -146,13 +185,53 @@ exit /b 1
 popd
 exit /b 0
 
-rem A Python update failed: put the previous runtime back so the next start can try again
-rem from a working state.
+rem An update failed or was interrupted: put the last working runtime back. The backup
+rem returns to the exact path it came from, so the paths inside the virtual environment stay
+rem valid. Safe to run at any point of an update, and again after being interrupted.
 :restore_previous
-if not defined UPGRADING goto :eof
-if not exist "%RUNTIME%\python-old" goto :eof
+set "PENDING_KIND="
+if exist "%PENDING%" set /p PENDING_KIND=<"%PENDING%"
+if /i "%PENDING_KIND%"=="python" goto restore_python
+if /i "%PENDING_KIND%"=="venv" goto restore_venv
+goto restore_done
+:restore_python
+if not exist "%RUNTIME%\python-old" goto restore_python_venv
 if exist "%RUNTIME%\python" rmdir /s /q "%RUNTIME%\python"
-if exist "%RUNTIME%\venv" rmdir /s /q "%RUNTIME%\venv"
 move "%RUNTIME%\python-old" "%RUNTIME%\python" >nul
-if exist "%RUNTIME%\venv-old" move "%RUNTIME%\venv-old" "%RUNTIME%\venv" >nul
-goto :eof
+if errorlevel 1 exit /b 1
+:restore_python_venv
+if not exist "%RUNTIME%\venv-old" goto restore_python_marker
+if exist "%RUNTIME%\venv" rmdir /s /q "%RUNTIME%\venv"
+move "%RUNTIME%\venv-old" "%RUNTIME%\venv" >nul
+if errorlevel 1 exit /b 1
+:restore_python_marker
+if exist "%BUILD_MARKER%.old" goto restore_old_marker
+if exist "%BUILD_MARKER%" del "%BUILD_MARKER%"
+goto restore_done
+:restore_old_marker
+move /y "%BUILD_MARKER%.old" "%BUILD_MARKER%" >nul
+if errorlevel 1 exit /b 1
+goto restore_done
+:restore_venv
+if not exist "%RUNTIME%\venv-old" goto restore_done
+if exist "%RUNTIME%\venv" rmdir /s /q "%RUNTIME%\venv"
+move "%RUNTIME%\venv-old" "%RUNTIME%\venv" >nul
+if errorlevel 1 exit /b 1
+:restore_done
+if exist "%PENDING%" del "%PENDING%"
+exit /b 0
+
+rem Starts an update of the given kind. Only now may an older backup be discarded, because
+rem no update is outstanding (restore_previous ran first if one was).
+:begin_update
+if exist "%RUNTIME%\python-old" rmdir /s /q "%RUNTIME%\python-old"
+if exist "%RUNTIME%\venv-old" rmdir /s /q "%RUNTIME%\venv-old"
+if exist "%BUILD_MARKER%.old" del "%BUILD_MARKER%.old"
+if not "%~1"=="python" goto begin_write
+if not exist "%BUILD_MARKER%" goto begin_write
+copy /y "%BUILD_MARKER%" "%BUILD_MARKER%.old" >nul
+if errorlevel 1 exit /b 1
+:begin_write
+(echo %~1)>"%PENDING%"
+if errorlevel 1 exit /b 1
+exit /b 0

@@ -11,6 +11,8 @@ import subprocess
 import sys
 import threading
 import time
+import json
+import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -42,20 +44,40 @@ _SHORTCUT_SCRIPT = (
     "$link.Save()"
 )
 
-# Never through a system proxy: this is a request to this computer.
-_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        return None
+
+
+# Never through a system proxy: this is a request to this computer. Redirects
+# are not followed, so another service can't pass for this app by redirecting.
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
 def app_url() -> str:
     return f"http://{app.HOST}:{app.PORT}/"
 
 
-def server_is_up() -> bool:
+def probe_server() -> str:
+    """"ours" when this app answers its health endpoint, "other" when
+    something else is listening on the port, "none" when nothing answers
+    (reviews/CODEX_REVIEW_8.md L-1)."""
     try:
-        with _opener.open(app_url(), timeout=1) as response:
-            return response.status == 200
+        with _opener.open(app_url() + "api/health", timeout=1) as response:
+            if response.status != 200:
+                return "other"
+            data = json.loads(response.read(4096).decode("utf-8"))
+            return "ours" if isinstance(data, dict) and data.get("app") == app.HEALTH_APP_ID else "other"
+    except urllib.error.HTTPError:
+        return "other"  # answered, but not as this app (404, redirect, ...)
+    except (ValueError, UnicodeDecodeError):
+        return "other"
     except OSError:
-        return False
+        return "none"
+
+
+def server_is_up() -> bool:
+    return probe_server() == "ours"
 
 
 def open_browser_when_ready() -> None:
@@ -242,11 +264,18 @@ def main() -> None:
         ensure_desktop_shortcut(Path(sys.prefix).parent)
     if "--mac-app" in sys.argv[1:] and sys.platform == "darwin":
         ensure_mac_app(Path(sys.prefix).parent)
-    if server_is_up():
+    probe = probe_server()
+    if probe == "ours":
         print(f"Customizable Transcriber is already running at {app_url()}")
         if use_browser:
             webbrowser.open(app_url())
         return
+    if probe == "other":
+        print(
+            f"Another program is already using port {app.PORT} on this computer, so Customizable "
+            "Transcriber can't start. Close that program (or restart the computer) and try again."
+        )
+        sys.exit(1)
 
     keep_console_from_freezing()
     print("Keep this window open while you use the app. Closing it stops the app.\n")

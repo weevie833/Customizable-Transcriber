@@ -36,7 +36,10 @@ class _FakeGeminiClient:
         class _Models:
             def generate_content(self, model, contents, config):
                 outer.captured_mime_type = contents[0].inline_data.mime_type
-                return types.SimpleNamespace(text="fake transcription", candidates=[])
+                return types.SimpleNamespace(
+                    text="fake transcription",
+                    candidates=[types.SimpleNamespace(finish_reason="STOP")],
+                )
 
         return _Models()
 

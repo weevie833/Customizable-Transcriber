@@ -146,8 +146,27 @@ USER_DATA_DIR = _user_data_dir()
 USER_PROFILES_DIR = USER_DATA_DIR / "profiles"
 
 
+# File stems a profile may never take: settings.json was the retired
+# last-selected-profile file and is still skipped as legacy data on load, so a
+# profile saved under that id would vanish from every list
+# (reviews/CODEX_REVIEW_8.md M-13).
+RESERVED_PROFILE_IDS = frozenset({"settings"})
+
+
 def profile_id_from_name(name: str) -> str:
-    return safe_filename(name).lower() or "custom-profile"
+    profile_id = safe_filename(name).lower() or "custom-profile"
+    return f"{profile_id}-profile" if profile_id in RESERVED_PROFILE_IDS else profile_id
+
+
+def _is_legacy_settings_file(path: Path, data: object) -> bool:
+    """The retired settings.json held only {"selected_profile_id": ...}. A
+    settings.json that carries profile fields is a real profile saved before
+    the id was reserved, and is listed so it can be recovered."""
+    if path.name != "settings.json":
+        return False
+    if not isinstance(data, dict):
+        return True
+    return not any(key in data for key in ("role_context", "reference_context", "output_format", "label"))
 
 
 def shipped_profile_path(profile_id: str) -> Path:
@@ -182,6 +201,61 @@ def find_profile_path(profile_id: str) -> Path | None:
     if shipped_path.exists():
         return shipped_path
     return None
+
+
+_SAVED_KEY_NAMES = ("GEMINI_API_KEY", "ANTHROPIC_API_KEY")
+
+
+def _saved_key_lines(text: str) -> dict[str, str]:
+    """The first line setting each saved key, read the way load_env_file()
+    reads it (first occurrence wins, # starts a comment)."""
+    found: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key = line.split("=", 1)[0].strip()
+        if key in _SAVED_KEY_NAMES and key not in found:
+            found[key] = raw_line
+    return found
+
+
+def migrate_saved_keys_file() -> None:
+    """Carries an opted-in saved-keys .env from the app folder over to
+    USER_DATA_DIR, owner-readable only, so replacing the app folder on update
+    can't take a saved key the app still uses (reviews/CODEX_REVIEW_8.md L-4).
+    With no file in USER_DATA_DIR yet the whole file is copied; otherwise a key
+    the USER_DATA_DIR file doesn't set is appended from the app-folder file
+    (CODEX_REVIEW_2.md L-4: the app reads both files per key, so a split --
+    Gemini in one, Claude in the other -- must survive the app folder going).
+    Never changes a line already in USER_DATA_DIR, never deletes the original,
+    and never logs the contents. Best-effort: a failure leaves the original in
+    place, which is still read."""
+    source = PROJECT_DIR / ".env"
+    target = USER_DATA_DIR / ".env"
+    if not source.is_file():
+        return
+    try:
+        data = source.read_bytes()
+        USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+            return
+        existing = target.read_text(encoding="utf-8")
+        have = _saved_key_lines(existing)
+        missing = [
+            line for key, line in _saved_key_lines(data.decode("utf-8")).items() if key not in have
+        ]
+        if not missing:
+            return
+        prefix = "" if not existing or existing.endswith("\n") else "\n"
+        fd = os.open(target, os.O_WRONLY | os.O_APPEND)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(prefix + "\n".join(missing) + "\n")
+    except (OSError, UnicodeDecodeError):
+        return
 
 
 def ensure_profiles_dir() -> None:
@@ -249,6 +323,51 @@ def write_profile(profile: dict[str, str]) -> None:
     atomic_write_text(user_profile_path(profile["id"]), json.dumps(profile, indent=2) + "\n")
 
 
+class ProfileFileError(ValueError):
+    """A profile file exists but isn't a readable profile."""
+
+
+def _read_profile_file(path: Path) -> dict[str, object] | None:
+    """One profile file as a normalized profile dict. None for a retired
+    settings.json; ProfileFileError when the file can't be read, isn't UTF-8
+    or JSON, or isn't a profile object (CODEX_REVIEW_2.md M-13)."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProfileFileError(f"{path.name} can't be read ({type(exc).__name__})") from exc
+    # Defensive: an old settings.json from before this file was retired (it
+    # used to track the last-selected profile id) could still be sitting on an
+    # existing install's disk -- skip it by name.
+    if _is_legacy_settings_file(path, data):
+        return None
+    # Valid JSON that isn't an object (`[]`, `null`, `"x"`) isn't a profile;
+    # passing it on would raise in normalize_profile_sections()'s `.get()`.
+    if not isinstance(data, dict):
+        raise ProfileFileError(f"{path.name} is not a profile")
+    data = normalize_profile_sections(data)
+    profile_id = str(data.get("id") or path.stem)
+    label = str(data.get("label") or profile_id)
+    translation_languages = data.get("translation_languages")
+    # pb_answers carries the Prompt Builder questionnaire's structured answers
+    # (record type, checkboxes, repeatable rows) for profiles saved from that
+    # page -- it's what lets Prompt Builder load a profile back in for editing.
+    # A profile saved elsewhere has no such structure, so this is simply
+    # absent for them; profiles_for_browser() never includes it.
+    pb_answers = data.get("pb_answers")
+    return {
+        "id": profile_id,
+        "label": label,
+        "kind": str(data.get("kind", "custom")),
+        "role_context": str(data.get("role_context", "")),
+        "reference_context": str(data.get("reference_context", "")),
+        "output_format": str(data.get("output_format", "")),
+        "native_language": str(data.get("native_language", "")),
+        "translation_languages": list(translation_languages) if isinstance(translation_languages, list) else [],
+        "record_type": str(data.get("record_type", "")),
+        "pb_answers": pb_answers if isinstance(pb_answers, dict) else None,
+    }
+
+
 def load_custom_profiles() -> list[dict[str, str]]:
     """Loads every profile from both PROFILES_DIR (shipped examples, tracked
     in git) and USER_PROFILES_DIR (this user's own saves, outside the app
@@ -256,55 +375,25 @@ def load_custom_profiles() -> list[dict[str, str]]:
     user has edited a shipped profile, which write_profile() always saves to
     USER_PROFILES_DIR rather than overwriting the tracked original -- the
     user's copy wins, so their edit takes effect without ever touching the
-    shipped file on disk."""
+    shipped file on disk.
+
+    A damaged file is skipped without taking the list down with it, and a
+    damaged user copy still hides the shipped profile of the same id: the
+    list never offers the shipped instructions under an id the user has
+    overridden (CODEX_REVIEW_2.md M-13). load_profile_exact() reports it."""
     ensure_profiles_dir()
     by_id: dict[str, dict[str, str]] = {}
     for directory in (PROFILES_DIR, USER_PROFILES_DIR):
         for path in sorted(directory.glob("*.json")):
-            # Defensive: an old settings.json from before this file was
-            # retired (it used to track the last-selected profile id) could
-            # still be sitting on an existing install's disk -- skip it by
-            # name rather than trying to parse it as a profile.
-            if path.name == "settings.json":
-                continue
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+                profile = _read_profile_file(path)
+            except ProfileFileError:
+                if directory == USER_PROFILES_DIR:
+                    by_id.pop(path.stem, None)
                 continue
-            # A file can be syntactically valid JSON (`[]`, `null`, `"x"`, a
-            # bare number) without being a profile object at all -- e.g. a
-            # partially-migrated or externally-synced file. Skip it the same
-            # way an unparseable file above is skipped, rather than passing a
-            # non-dict into normalize_profile_sections()'s dict-only `.get()`
-            # calls, which would raise AttributeError and take down every
-            # profile-dependent page for the sake of one bad file.
-            if not isinstance(data, dict):
+            if profile is None:
                 continue
-            data = normalize_profile_sections(data)
-            profile_id = str(data.get("id") or path.stem)
-            label = str(data.get("label") or profile_id)
-            translation_languages = data.get("translation_languages")
-            # pb_answers carries the Prompt Builder questionnaire's structured answers
-            # (record type, checkboxes, repeatable rows) for profiles saved from that
-            # page -- it's what lets Prompt Builder load a profile back in for editing
-            # instead of only ever creating new ones. A profile saved elsewhere (the
-            # Transcribe page's free-text editor, or hand-authored JSON like most
-            # profiles predating this feature) has no such structure to recover, so
-            # this is simply absent for them -- profiles_for_browser() never includes
-            # it, so it can't leak into the Transcribe/Test Mode page snapshots.
-            pb_answers = data.get("pb_answers")
-            by_id[profile_id] = {
-                "id": profile_id,
-                "label": label,
-                "kind": str(data.get("kind", "custom")),
-                "role_context": str(data.get("role_context", "")),
-                "reference_context": str(data.get("reference_context", "")),
-                "output_format": str(data.get("output_format", "")),
-                "native_language": str(data.get("native_language", "")),
-                "translation_languages": list(translation_languages) if isinstance(translation_languages, list) else [],
-                "record_type": str(data.get("record_type", "")),
-                "pb_answers": pb_answers if isinstance(pb_answers, dict) else None,
-            }
+            by_id[profile["id"]] = profile
     return [by_id[profile_id] for profile_id in sorted(by_id)]
 
 
@@ -329,6 +418,39 @@ def profiles_with_display_labels() -> list[dict[str, str]]:
         else:
             profile["display_label"] = profile["label"]
     return profiles
+
+
+def load_profile_exact(profile_id: str) -> dict[str, str]:
+    """The profile with exactly this id, or an error -- never a fallback to
+    another profile. For running and editing, where silently using a
+    different profile's instructions would be wrong (M-13). Reads the
+    highest-priority file for the id (the user's copy, else the shipped one)
+    and validates that file itself, so a damaged user copy is reported
+    instead of falling through to the shipped profile (CODEX_REVIEW_2.md
+    M-13)."""
+    ensure_profiles_dir()
+    path = find_profile_path(profile_id)
+    if path is not None:
+        try:
+            profile = _read_profile_file(path)
+        except ProfileFileError as exc:
+            where = "your saved copy" if path.parent == USER_PROFILES_DIR else "the shipped file"
+            raise RuntimeError(
+                f'The prompt profile "{profile_id}" can\'t be used: {where} is damaged ({exc}). '
+                f"Fix or remove {path}, or select another profile."
+            ) from exc
+        if profile is not None and profile["id"] == profile_id:
+            profile["kind"] = "custom"
+            return profile
+    # A profile whose file name differs from its id is found by scanning.
+    for profile in load_custom_profiles():
+        if profile["id"] == profile_id:
+            profile["kind"] = "custom"
+            return profile
+    raise RuntimeError(
+        f'The prompt profile "{profile_id}" could not be loaded (missing or unreadable). '
+        "Select another profile, or reload the page."
+    )
 
 
 def load_profile(profile_id: str) -> dict[str, str]:

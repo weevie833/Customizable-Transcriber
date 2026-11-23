@@ -8,13 +8,13 @@ handlers/transcribe_run.py -- see that module's own docstring.
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 from pathlib import Path
 
 from app_state import (
     USER_OUTPUTS_DIR,
-    load_source_folder,
     new_test_run_state,
     reset_test_ui_state,
     test_lock,
@@ -33,6 +33,7 @@ from http_utils import (
     uploaded_docx_field,
 )
 from run_support import (
+    bind_source_folder,
     new_batch_id,
     output_stem,
     preflight_source_file_type,
@@ -49,24 +50,23 @@ from test_mode.comparison import score_transcription
 from test_mode.report_docx import build_compare_report_docx
 
 
+class _QueueBusy(Exception):
+    """A queue edit arrived while a run holds the slot; it is ignored."""
+
+
 class TestModeRunHandlerMixin:
     def add_to_queue(self) -> None:
-        with test_lock:
-            already_running = test_state["running"]
-        if already_running:
-            # redirect_test_mode() doesn't acquire test_lock, so it's safe
-            # to call after releasing it above regardless -- see the
-            # POST/Redirect/GET comment on /run's final redirect_transcribe()
-            # call for why every POST handler in this file redirects instead
-            # of rendering page()/test_mode_page() directly.
-            self.redirect_test_mode()
-            return
+        # The idle check and the queue edit share one lock acquisition, so an
+        # edit can't land after a run has already taken its queue snapshot
+        # (reviews/CODEX_REVIEW_8.md M-4).
         try:
             form = parse_post_form(self)
             model_a, model_b = selected_model_pair(form)
             zoom_a, zoom_b = selected_zoom_pair(form)
             label = pasted_value(form, "batch_label")
             with test_lock:
+                if test_state["running"]:
+                    raise _QueueBusy
                 ordinal = len(test_state["queue"]) + 1
                 test_state["queue"].append(
                     {
@@ -82,29 +82,25 @@ class TestModeRunHandlerMixin:
                 test_state["model_b"] = model_b
                 test_state["zoom_a"] = zoom_a
                 test_state["zoom_b"] = zoom_b
+        except _QueueBusy:
+            pass
         except Exception as exc:
             with test_lock:
                 test_state["summary"] = f"Fatal error: {exc}"
         self.redirect_test_mode()
 
     def remove_from_queue(self) -> None:
-        with test_lock:
-            already_running = test_state["running"]
-        if already_running:
-            # redirect_test_mode() doesn't acquire test_lock, so it's safe
-            # to call after releasing it above regardless -- see the
-            # POST/Redirect/GET comment on /run's final redirect_transcribe()
-            # call for why every POST handler in this file redirects instead
-            # of rendering page()/test_mode_page() directly.
-            self.redirect_test_mode()
-            return
         try:
             form = parse_post_form(self)
             batch_id = form.getfirst("batch_id", "") or ""
             with test_lock:
+                if test_state["running"]:
+                    raise _QueueBusy
                 test_state["queue"] = [
                     batch for batch in test_state["queue"] if batch["batch_id"] != batch_id
                 ]
+        except _QueueBusy:
+            pass
         except Exception as exc:
             with test_lock:
                 test_state["summary"] = f"Fatal error: {exc}"
@@ -126,6 +122,7 @@ class TestModeRunHandlerMixin:
             already_running = test_state["running"]
             if not already_running:
                 test_state["running"] = True
+                test_stop_event.clear()
         if already_running:
             # redirect_test_mode() doesn't acquire test_lock, so it's safe
             # to call after releasing it above regardless -- see the
@@ -140,7 +137,7 @@ class TestModeRunHandlerMixin:
             api_key_gemini = pasted_value(form, "api_key_gemini")
             api_key_claude = pasted_value(form, "api_key_claude")
             file_type = selected_file_type(form)
-            preflight_source_file_type(load_source_folder(), file_type)
+            preflight_source_file_type(bind_source_folder(form), file_type)
             batches = resolve_run_batches(form)
             # Keys are entered per provider, not per A/B slot -- see
             # required_providers()'s own comment. Only the provider(s) at
@@ -203,7 +200,16 @@ class TestModeRunHandlerMixin:
                 runs_init[run_id] = run_state
 
         with test_lock:
-            test_stop_event.clear()
+            # Stop pressed while this run was being set up: honour it instead
+            # of clearing it here (reviews/CODEX_REVIEW_8.md M-4).
+            stopped_during_setup = test_stop_event.is_set()
+            if stopped_during_setup:
+                test_state["running"] = False
+                test_state["summary"] = "Stopped before the test runs started."
+        if stopped_during_setup:
+            self.redirect_test_mode()
+            return
+        with test_lock:
             test_state["running"] = True
             test_state["current_run_id"] = ""
             test_state["log"] = []
@@ -220,7 +226,7 @@ class TestModeRunHandlerMixin:
             test_state["runs"] = runs_init
 
         job = run_test_off_peak_job if off_peak else run_test_job
-        thread = threading.Thread(target=job, args=(form, run_specs), daemon=True)
+        thread = threading.Thread(target=job, args=(form, run_specs, copy.deepcopy(profile)), daemon=True)
         thread.start()
         # POST/Redirect/GET -- see the comment on handlers/transcribe_run.py's
         # run_transcription()'s final self.redirect_transcribe() call for why
@@ -238,7 +244,10 @@ class TestModeRunHandlerMixin:
             if test_state["running"]:
                 test_stop_event.set()
                 if test_state["off_peak"]:
-                    test_state["summary"] = "Cancelling off-peak batches..."
+                    if test_state.get("batch_submitting"):
+                        test_state["summary"] = "Stop received while a batch was being sent -- it will be cancelled once the provider confirms it."
+                    else:
+                        test_state["summary"] = "Cancelling off-peak batches..."
                     test_state["log"].append("Off-peak cancellation requested.")
                 else:
                     test_state["summary"] = "Stopping after the current image finishes..."
@@ -249,11 +258,7 @@ class TestModeRunHandlerMixin:
         self.redirect_test_mode()
 
     def reset_test(self) -> None:
-        with test_lock:
-            if test_state["running"]:
-                self.redirect_test_mode()
-                return
-        test_stop_event.clear()
+        # Idle check and reset share one lock acquisition (M-4).
         reset_test_ui_state()
         self.redirect_test_mode()
 

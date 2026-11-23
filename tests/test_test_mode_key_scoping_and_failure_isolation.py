@@ -46,6 +46,10 @@ def _get_csrf_cookie(host: str, port: int) -> CookieJar:
 
 
 def _post_no_redirect(host: str, port: int, jar: CookieJar, path: str, fields: dict[str, str]):
+    # Mirrors the page's hidden source_folder field (reviews/CODEX_REVIEW_8.md H-2).
+    # Only run endpoints read it; other handlers don't read the body at all.
+    if path.rstrip("/").endswith(("/run", "/run-offpeak")):
+        fields = {"source_folder": str(run_support.load_source_folder() or ""), **fields}
     body = urllib.parse.urlencode(fields).encode("utf-8")
     conn = http.client.HTTPConnection(host, port, timeout=5)
     conn.request(
@@ -85,12 +89,12 @@ def test_mixed_provider_queue_requires_only_the_providers_in_use(
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(test_mode_handlers, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source_folder)
 
     captured_specs = []
     done_event = threading.Event()
 
-    def fake_run_test_job(form, run_specs):
+    def fake_run_test_job(form, run_specs, *_):
         captured_specs.append(run_specs)
         done_event.set()
 

@@ -180,6 +180,7 @@ def score_candidate(truth_rows: list[Row], candidate_rows: list[Row], config: Re
         "matched_count": matched_count,
         "missing_from_candidate": len(alignment.missing_from_candidate),
         "extra_in_candidate": len(alignment.extra_in_candidate),
+        "position_only_pairs": alignment.position_only_pairs,
         "overall_error_rate": rate_or_none(overall_edits, overall_ref_chars),
         "overall_edits": overall_edits,
         "overall_ref_chars": overall_ref_chars,

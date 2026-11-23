@@ -31,6 +31,41 @@ _LABEL_TRANSLATION = re.compile(
 )
 
 
+# Lines the app itself writes ahead of the first record: the DOCX header box
+# (run_support.header_box_element()) and the Markdown preamble. They are
+# provenance, not register text, and only the DOCX side carries the header
+# box -- scoring them made a run compared with its own DOCX score ~85% CER
+# (reviews/CODEX_REVIEW_8.md M-6).
+_HEADER_BOX_SENTENCES = (
+    "DO NOT EDIT OR DELETE THIS BLOCK",
+    "NON MODIFICARE O ELIMINARE QUESTO BLOCCO",
+    "Native language, record type, and translations (if present) are read by the",
+    "La lingua nativa, il tipo di registro e le traduzioni (se presenti) vengono lette",
+)
+_PREAMBLE_LINE = re.compile(
+    r"^\s*(?:#\s*Transcription Output|Source folder:.*|"
+    r"(?:Record type|Native-language transcription|Translations produced|AI model|Modello IA|"
+    r"Prompt profile|Profilo prompt):.*)\s*$",
+    re.IGNORECASE,
+)
+_RECORD_START = re.compile(r"^\s*(?:---\s*)?START OF RECORD:", re.IGNORECASE | re.MULTILINE)
+
+
+def strip_app_metadata(text: str) -> str:
+    """Remove the app's own header box and Markdown preamble lines from the
+    part of the document before the first START OF RECORD line, so a DOCX and
+    the Markdown it was written from score identically."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    first = _RECORD_START.search(text)
+    preamble, body = (text[: first.start()], text[first.start():]) if first else (text, "")
+    kept = [
+        line
+        for line in preamble.split("\n")
+        if not _PREAMBLE_LINE.match(line) and not line.strip().startswith(_HEADER_BOX_SENTENCES)
+    ]
+    return "\n".join(kept).strip("\n") + ("\n\n" + body if body else "")
+
+
 def strip_non_transcription_blocks(text: str) -> str:
     """Drop every translation (any language, including a Church Wedding
     Record's translation line), every Notes line, and the synthetic
@@ -52,7 +87,7 @@ def strip_non_transcription_blocks(text: str) -> str:
     Heading block instead), so both an older profile's "Page 34 - Entry 1:"
     and a current one's "Page 34:" still get stripped.
     """
-    blocks = _BLOCK_SPLIT.split(text)
+    blocks = _BLOCK_SPLIT.split(strip_app_metadata(text))
     kept: list[str] = []
     skip_next = False
     for block in blocks:

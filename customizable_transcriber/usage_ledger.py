@@ -30,6 +30,8 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
 
+from customizable_transcriber import stop_reasons
+
 SCHEMA_VERSION = 1
 
 _ledger_dir: Path | None = None
@@ -283,6 +285,9 @@ def record_call(
         "usage_reported": normalized is not None,
         **(normalized or {key: None for key in _TOKEN_KEYS}),
         "finish_reason": _finish_reason_text(finish_reason),
+        # complete / truncated / incomplete / blocked, classified exactly as
+        # the document and run summary classify the page (CODEX_REVIEW_2.md H-5).
+        "outcome": stop_reasons.classify(provider, finish_reason) if finish_reason is not None else None,
         "seconds": round(seconds, 2) if seconds is not None else None,
         "text_chars": text_chars,
         "cache_expected": cache_expected,

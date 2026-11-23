@@ -43,6 +43,7 @@ else this app persists to disk.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import uuid
@@ -58,7 +59,6 @@ from app_state import (
     add_test_log,
     clear_off_peak_job_state,
     clear_test_off_peak_job_state,
-    load_source_folder,
     lock,
     state,
     stop_event,
@@ -68,8 +68,9 @@ from app_state import (
     write_off_peak_job_state,
     write_test_off_peak_job_state,
 )
-from customizable_transcriber import page_zoom, usage_ledger
+from customizable_transcriber import page_zoom, stop_reasons, usage_ledger
 from customizable_transcriber.core import (
+    _TRUNCATION_NOTICE,
     BATCH_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_MODEL,
     FILE_TYPE_MIME,
@@ -80,8 +81,10 @@ from customizable_transcriber.core import (
     claude_api_key,
     count_failures,
     display_name,
+    ensure_key_matches_model,
     gemini_sampling_kwargs,
     humanize_provider_error,
+    incomplete_summary_suffix,
     keeps_line_structure,
     physical_neighbors,
     provider_for_model,
@@ -94,11 +97,12 @@ from customizable_transcriber.page_check import apply_page_check
 from customizable_transcriber.year_check import apply_year_check
 from profiles_store import PROJECT_DIR
 from run_support import (
+    approved_profile,
     build_system_prompt,
     extensions_for_file_type,
     file_type_display,
     preflight_source_file_type,
-    resolve_profile_for_run,
+    resolved_source_folder,
     selected_file_type,
     write_docx,
 )
@@ -248,6 +252,26 @@ def _log_timestamp() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 
+class SubmissionStopped(Exception):
+    """Stop was pressed before the batch was sent: nothing reached the
+    provider, so there is nothing to cancel (CODEX_REVIEW_2.md M-4)."""
+
+
+def _check_stop(should_stop) -> None:
+    if should_stop is not None and should_stop():
+        raise SubmissionStopped()
+
+
+def _send_if_not_stopped(before_send) -> None:
+    """The last check before the billable create call. before_send takes the
+    same lock the Stop handler takes and marks the run as submitting, so a
+    Stop either lands before this (nothing sent) or is known to have arrived
+    during sending (cancelled through the normal poll path once the job id
+    is back)."""
+    if before_send is not None and not before_send():
+        raise SubmissionStopped()
+
+
 class BatchSubmissionError(RuntimeError):
     """Raised when building/validating/submitting the batch itself fails --
     before any per-image outcome exists, so this always aborts the whole
@@ -288,6 +312,34 @@ MAX_BATCH_IMAGE_COUNT = 1000
 # are rejected up front with a message to split them; revisit with measured peak
 # memory per provider if this proves too tight.
 MAX_BATCH_AGGREGATE_BYTES = 500_000_000  # 500 MB of combined raw source-file bytes
+
+
+# Anthropic's documented ceiling for one Message Batches create request is
+# 256 MB. Images go inline as base64 (4/3 expansion) and every request repeats
+# the system prompt, so the raw-byte cap above does not keep a Claude batch
+# under it (reviews/CODEX_REVIEW_8.md M-5). Checked before any file is read.
+# A small margin is kept for JSON framing.
+CLAUDE_BATCH_MAX_REQUEST_BYTES = 250_000_000
+_PER_REQUEST_FRAMING_BYTES = 1_024
+
+
+def estimated_claude_batch_bytes(images: list[Path], system_prompt: str) -> int:
+    prompt_bytes = len(json.dumps(system_prompt)) + len(json.dumps(USER_INSTRUCTION))
+    total = 0
+    for path in images:
+        size = path.stat().st_size
+        total += 4 * ((size + 2) // 3) + prompt_bytes + _PER_REQUEST_FRAMING_BYTES
+    return total
+
+
+def check_claude_batch_envelope(images: list[Path], system_prompt: str) -> None:
+    estimate = estimated_claude_batch_bytes(images, system_prompt)
+    if estimate > CLAUDE_BATCH_MAX_REQUEST_BYTES:
+        raise BatchSubmissionError(
+            f"This batch would be about {estimate / 1_000_000:,.0f} MB once encoded for Claude, over "
+            f"Anthropic's {CLAUDE_BATCH_MAX_REQUEST_BYTES // 1_000_000} MB limit for one batch request. "
+            "Split the folder into smaller batches (e.g. by sub-folder or date range) and run each one."
+        )
 
 
 def validated_images(
@@ -333,10 +385,12 @@ def validated_images(
 # ---------------------------------------------------------------------------
 
 def submit_gemini_batch(
-    client: genai.Client, model: str, system_prompt: str, images: list[Path], zoom_pages: bool = False
+    client: genai.Client, model: str, system_prompt: str, images: list[Path], zoom_pages: bool = False,
+    *, should_stop=None, before_send=None,
 ) -> str:
     requests = []
     for index, path in enumerate(images):
+        _check_stop(should_stop)
         data = path.read_bytes()
         detected = sniff_file_type(data)
         if detected is None:
@@ -361,6 +415,7 @@ def submit_gemini_batch(
                 metadata={"index": str(index)},
             )
         )
+    _send_if_not_stopped(before_send)
     job = client.batches.create(
         model=model,
         src=requests,
@@ -418,6 +473,43 @@ def cancel_gemini_batch(client: genai.Client, job_name: str) -> None:
         pass
 
 
+_PROVIDER_ITEM_ERROR = (
+    "The AI provider could not process this image. The Progress Console shows the provider's message."
+)
+
+
+class ItemError(str):
+    """A per-item off-peak error. The string value is a message this app
+    wrote and may save; `detail` is the provider's own text, for the live
+    Progress Console only (CODEX_REVIEW_2.md M-2). Typed rather than judged
+    by its opening words, so provider text that happens to start like one of
+    our sentences is never saved."""
+
+    detail: str
+
+    def __new__(cls, message: str, detail: str = "") -> ItemError:
+        value = super().__new__(cls, message)
+        value.detail = detail
+        return value
+
+
+def provider_item_error(detail: object) -> ItemError:
+    return ItemError(_PROVIDER_ITEM_ERROR, str(detail or ""))
+
+
+def safe_batch_item_error(error: str) -> str:
+    if isinstance(error, ItemError):
+        return str.__str__(error)
+    return _PROVIDER_ITEM_ERROR
+
+
+def item_error_for_log(error: str) -> str:
+    """What the live log shows: the provider's detail when there is one."""
+    if isinstance(error, ItemError) and error.detail:
+        return error.detail
+    return str.__str__(error)
+
+
 def collect_gemini_batch_results(job, usage_sink: list | None = None) -> dict[int, tuple[str, str]]:
     """index -> (text, error_message). error_message is "" on success. If
     usage_sink is given, each successful item's token usage is appended to it
@@ -431,17 +523,20 @@ def collect_gemini_batch_results(job, usage_sink: list | None = None) -> dict[in
         except ValueError:
             continue
         if item.error:
-            results[index] = ("", item.error.message or str(item.error))
+            results[index] = ("", provider_item_error(item.error.message or item.error))
         else:
             text = (item.response.text if item.response else "") or ""
-            results[index] = (text, "")
+            candidates = (getattr(item.response, "candidates", None) or []) if item.response else []
+            finish_reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+            # Same classification as real-time Gemini (CODEX_REVIEW_2.md H-5).
+            saved, error = stop_reasons.finish("gemini", text, finish_reason, _TRUNCATION_NOTICE)
+            results[index] = (saved, ItemError(error) if error else "")
             if usage_sink is not None and item.response is not None:
-                candidates = getattr(item.response, "candidates", None) or []
                 usage_sink.append(
                     {
                         "index": index,
                         "usage": getattr(item.response, "usage_metadata", None),
-                        "finish_reason": getattr(candidates[0], "finish_reason", None) if candidates else None,
+                        "finish_reason": finish_reason,
                         "text_chars": len(text),
                     }
                 )
@@ -453,12 +548,14 @@ def collect_gemini_batch_results(job, usage_sink: list | None = None) -> dict[in
 # ---------------------------------------------------------------------------
 
 def submit_claude_batch(
-    client: anthropic.Anthropic, model: str, system_prompt: str, images: list[Path]
+    client: anthropic.Anthropic, model: str, system_prompt: str, images: list[Path],
+    *, should_stop=None, before_send=None,
 ) -> str:
     import base64
 
     requests = []
     for index, path in enumerate(images):
+        _check_stop(should_stop)
         data = path.read_bytes()
         detected = sniff_file_type(data)
         if detected is None:
@@ -492,6 +589,7 @@ def submit_claude_batch(
     # The SDK retries a failed/timed-out request by default (twice). Batch creation is
     # not idempotent, so a retry after a lost response would create a SECOND paid
     # batch (reviews/CODEX_REVIEW.md H-1) -- never retry this call automatically.
+    _send_if_not_stopped(before_send)
     batch = client.with_options(max_retries=0).messages.batches.create(requests=requests)
     return batch.id
 
@@ -539,7 +637,10 @@ def collect_claude_batch_results(
         result = item.result
         if result.type == "succeeded":
             text = "".join(block.text for block in result.message.content if block.type == "text")
-            results[index] = (text, "")
+            stop_reason = getattr(result.message, "stop_reason", None)
+            # Same classification as real-time Claude (CODEX_REVIEW_2.md H-5).
+            saved, error = stop_reasons.finish("claude", text, stop_reason, _TRUNCATION_NOTICE)
+            results[index] = (saved, ItemError(error) if error else "")
             if usage_sink is not None:
                 usage_sink.append(
                     {
@@ -550,10 +651,14 @@ def collect_claude_batch_results(
                     }
                 )
         elif result.type == "errored":
-            results[index] = ("", str(result.error))
+            results[index] = ("", provider_item_error(result.error))
         else:
             # "canceled"/"expired" -- no content was ever produced for this item.
-            results[index] = ("", f"Request was {result.type}.")
+            message = (
+                f"Request was {result.type}." if result.type in {"canceled", "expired"}
+                else "The AI provider returned no result for this image."
+            )
+            results[index] = ("", ItemError(message))
     return results
 
 
@@ -611,7 +716,7 @@ def _record_batch_usage(
         if error:
             usage_ledger.event(
                 "image_done", run=ledger_run, image=names[index] if 0 <= index < len(names) else str(index),
-                ok=False, error=error[:200],
+                ok=False, error=safe_batch_item_error(error)[:200],
             )
     # This run is written at collection time, so the ledger's own clock would read ~0s;
     # for a batch the meaningful duration is submission -> results in hand.
@@ -630,11 +735,27 @@ def _record_batch_usage(
 class TranscribeOffPeakSink:
     """Where one off-peak job reports its progress and outcome. This default
     one is the Transcribe page's: app_state.state/lock/stop_event and the
-    single OFF_PEAK_JOB_FILE record. Test Mode passes TestModeOffPeakSink
-    (below) instead, one per run, so the job logic itself is shared."""
+    job's own entry in OFF_PEAK_JOB_FILE (keyed per job, so a later job never
+    erases an unresolved earlier one -- reviews/CODEX_REVIEW_8.md M-3). Test
+    Mode passes TestModeOffPeakSink (below) instead, one per run, so the job
+    logic itself is shared."""
+
+    def __init__(self) -> None:
+        self.record_key = uuid.uuid4().hex
 
     def stop_requested(self) -> bool:
         return stop_event.is_set()
+
+    def begin_submission(self) -> bool:
+        with lock:
+            if stop_event.is_set():
+                return False
+            state["batch_submitting"] = True
+            return True
+
+    def end_submission(self) -> None:
+        with lock:
+            state["batch_submitting"] = False
 
     def log(self, line: str) -> None:
         with lock:
@@ -658,10 +779,10 @@ class TranscribeOffPeakSink:
                 state["log"] = state["log"][-300:]
 
     def persist(self, **fields: object) -> bool:
-        return write_off_peak_job_state(**fields)
+        return write_off_peak_job_state(record_key=self.record_key, **fields)
 
     def clear_persisted(self) -> None:
-        clear_off_peak_job_state()
+        clear_off_peak_job_state(self.record_key)
 
     def finished(self, summary: str, download: Path | None) -> None:
         with lock:
@@ -693,12 +814,26 @@ class TestModeOffPeakSink:
         self.run_id = run_id
         self.tag = tag
         self.markdown_file = markdown_file
+        # Unique per job, not just per run id: a reused run id must not
+        # replace an earlier job's unresolved record (M-3).
+        self.record_key = f"{run_id}#{uuid.uuid4().hex[:8]}"
 
     def _run_state(self) -> dict | None:
         return test_state["runs"].get(self.run_id)
 
     def stop_requested(self) -> bool:
         return test_stop_event.is_set()
+
+    def begin_submission(self) -> bool:
+        with test_lock:
+            if test_stop_event.is_set():
+                return False
+            test_state["batch_submitting"] = int(test_state.get("batch_submitting") or 0) + 1
+            return True
+
+    def end_submission(self) -> None:
+        with test_lock:
+            test_state["batch_submitting"] = max(0, int(test_state.get("batch_submitting") or 0) - 1)
 
     def log(self, line: str) -> None:
         add_test_log(f"{self.tag} {line}")
@@ -719,10 +854,10 @@ class TestModeOffPeakSink:
             self.log(line)
 
     def persist(self, **fields: object) -> bool:
-        return write_test_off_peak_job_state(self.run_id, **fields)
+        return write_test_off_peak_job_state(self.record_key, **fields)
 
     def clear_persisted(self) -> None:
-        clear_test_off_peak_job_state(self.run_id)
+        clear_test_off_peak_job_state(self.record_key)
 
     def finished(self, summary: str, download: Path | None) -> None:
         with test_lock:
@@ -746,10 +881,13 @@ class TestModeOffPeakSink:
 
 def _validate_and_submit(
     *, project_dir, image_folder, extensions, model, provider, system_prompt,
-    api_key_override, reverse_order, zoom_pages,
+    api_key_override, reverse_order, zoom_pages, sink=None,
 ):
     """Read and check the source images, build the provider clients and submit
-    the batch. Returns (images, names, light_client, heavy_client, job_id)."""
+    the batch. Returns (images, names, light_client, heavy_client, job_id).
+    Raises SubmissionStopped if Stop is pressed before the batch is sent."""
+    should_stop = sink.stop_requested if sink is not None else None
+    _check_stop(should_stop)
     images = validated_images(
         image_folder,
         extensions,
@@ -760,21 +898,31 @@ def _validate_and_submit(
         raise BatchSubmissionError("No source images were found in the selected folder.")
     names = [display_name(path, image_folder) for path in images]
 
+    key = (api_key_override or "").strip() or (
+        claude_api_key(project_dir) if provider == "claude" else api_key(project_dir)
+    )
+    ensure_key_matches_model(model, key)
     if provider == "claude":
-        key = (api_key_override or "").strip() or claude_api_key(project_dir)
+        check_claude_batch_envelope(images, system_prompt)
         heavy_client = _claude_client(key, BATCH_SUBMIT_TIMEOUT_SECONDS)
         light_client = _claude_client(key, BATCH_STATUS_TIMEOUT_SECONDS)
     else:
-        key = (api_key_override or "").strip() or api_key(project_dir)
         heavy_client = _gemini_client(key, BATCH_SUBMIT_TIMEOUT_SECONDS)
         light_client = _gemini_client(key, BATCH_STATUS_TIMEOUT_SECONDS)
 
+    _check_stop(should_stop)
+    before_send = sink.begin_submission if sink is not None else None
     submit_started = time.monotonic()
     try:
         if provider == "claude":
-            job_id = submit_claude_batch(heavy_client, model, system_prompt, images)
+            job_id = submit_claude_batch(
+                heavy_client, model, system_prompt, images, should_stop=should_stop, before_send=before_send
+            )
         else:
-            job_id = submit_gemini_batch(heavy_client, model, system_prompt, images, zoom_pages=zoom_pages)
+            job_id = submit_gemini_batch(
+                heavy_client, model, system_prompt, images, zoom_pages=zoom_pages,
+                should_stop=should_stop, before_send=before_send,
+            )
     except (httpx.TimeoutException, httpx.RemoteProtocolError, anthropic.APIConnectionError) as exc:
         # Outcome UNKNOWN, not failure (reviews/CODEX_REVIEW.md H-1 / HD-1): the provider may
         # have accepted the batch even though its response never arrived, and it may
@@ -788,6 +936,9 @@ def _validate_and_submit(
             "account's batch list/dashboard for a job submitted around now BEFORE trying "
             "again, so you don't pay for the same batch twice."
         ) from exc
+    finally:
+        if sink is not None:
+            sink.end_submission()
 
     return images, names, light_client, heavy_client, job_id
 
@@ -836,11 +987,10 @@ def run_off_peak_job(
         if submit_lock is not None:
             submit_lock.acquire()
         try:
-            if submit_lock is not None and sink.stop_requested():
-                # Stop was pressed while this run waited for another run's
-                # submission: nothing was sent, so there is nothing to cancel.
-                sink.finished("Stopped before this off-peak batch was submitted.", None)
-                return
+            # Stop is honoured on entry, while waiting for another run's
+            # submission, during preparation, and at the last check before
+            # the create call -- with or without a submit_lock
+            # (CODEX_REVIEW_2.md M-4). Nothing was sent, so nothing to cancel.
             images, names, light_client, heavy_client, job_id = _validate_and_submit(
                 project_dir=project_dir,
                 image_folder=image_folder,
@@ -851,7 +1001,11 @@ def run_off_peak_job(
                 api_key_override=api_key_override,
                 reverse_order=reverse_order,
                 zoom_pages=zoom_pages,
+                sink=sink,
             )
+        except SubmissionStopped:
+            sink.finished("Stopped before this off-peak batch was submitted.", None)
+            return
         finally:
             if submit_lock is not None:
                 submit_lock.release()
@@ -1031,12 +1185,19 @@ def run_off_peak_job(
         )
 
         image_results: list[ImageResult] = []
+        sink.log(f"[{_log_timestamp()}] Source folder: {image_folder}")
         with markdown_file.open("w", encoding="utf-8") as output:
-            output.write(f"# Transcription Output\n\nSource folder: {image_folder}\n")
+            # Folder name only (reviews/CODEX_REVIEW_8.md L-3 / HD-2); the full path
+            # is in the Progress Console line above.
+            output.write(f"# Transcription Output\n\nSource folder: {Path(image_folder).name}\n")
             for index, name in enumerate(names):
-                text, error = results.get(index, ("", "No result was returned for this image."))
+                text, error = results.get(index, ("", ItemError("No result was returned for this image.")))
                 if error:
-                    entry_text = f"ERROR: {error}"
+                    # The provider's own per-item error text goes to the live
+                    # log only; the saved document gets a fixed sentence
+                    # (reviews/CODEX_REVIEW_8.md M-2).
+                    sink.log(f"[{_log_timestamp()}] {name}: {item_error_for_log(error)}")
+                    entry_text = f"ERROR: {safe_batch_item_error(error)}"
                     image_results.append(ImageResult(name, False, entry_text))
                 else:
                     entry_text = text
@@ -1066,7 +1227,10 @@ def run_off_peak_job(
         failures = count_failures(image_results)
         really_cancelled = cancelled and _batch_was_cancelled(provider, job)
         if really_cancelled:
-            summary = f"Off-peak batch cancelled after {len(image_results)} image(s), {failures} failure(s)."
+            summary = (
+                f"Off-peak batch cancelled after {len(image_results)} image(s), {failures} failure(s)"
+                f"{incomplete_summary_suffix(image_results)}."
+            )
         elif cancelled:
                 # Stop was requested, but the job's own terminal state
                 # doesn't actually show a cancellation -- it finished
@@ -1076,10 +1240,13 @@ def run_off_peak_job(
             # that didn't happen. See reviews/CODEX_REVIEW.md finding H-1.
             summary = (
                 f"Off-peak batch finished processing before cancellation took effect: "
-                f"{len(image_results)} image(s), {failures} failure(s)."
+                f"{len(image_results)} image(s), {failures} failure(s){incomplete_summary_suffix(image_results)}."
             )
         else:
-            summary = f"Off-peak: processed {len(image_results)} image(s), {failures} failure(s)."
+            summary = (
+                f"Off-peak: processed {len(image_results)} image(s), {failures} failure(s)"
+                f"{incomplete_summary_suffix(image_results)}."
+            )
         sink.finished(summary, docx_file)
         # Fully resolved -- nothing left to recover after a restart.
         sink.clear_persisted()
@@ -1095,7 +1262,9 @@ def run_off_peak_job(
         sink.released()
 
 
-def run_test_off_peak_job(form, run_specs: list[tuple[str, str, str, str, Path, Path]]) -> None:
+def run_test_off_peak_job(
+    form, run_specs: list[tuple[str, str, str, str, Path, Path]], profile: dict | None = None
+) -> None:
     """Test Mode's off-peak counterpart to run_support.run_test_job(): every
     queued run (same run_specs shape) is submitted as its own provider batch
     and all of them are watched at the same time, each on its own thread with
@@ -1105,9 +1274,9 @@ def run_test_off_peak_job(form, run_specs: list[tuple[str, str, str, str, Path, 
     run's failure is recorded against that run only, as in run_test_job()."""
     model = DEFAULT_MODEL
     try:
-        image_folder = load_source_folder()
+        image_folder = resolved_source_folder(form)
         file_type = selected_file_type(form)
-        profile = resolve_profile_for_run(form)
+        profile = approved_profile(form, profile)
         system_prompt = build_system_prompt(tool="generic", profile=profile)
         add_test_log(f"Using prompt profile: {profile['label']}")
         source_count = preflight_source_file_type(image_folder, file_type)

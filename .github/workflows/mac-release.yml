@@ -69,6 +69,7 @@ jobs:
 
       - name: Build, sign and notarize
         env:
+          CT_RELEASE: "1"   # mac/build.sh fails rather than skip notarization
           NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
@@ -78,6 +79,23 @@ jobs:
           printf '%s\n' "$NOTARY_API_KEY" > "$NOTARY_KEY_PATH"
           trap 'rm -f "$NOTARY_KEY_PATH"' EXIT
           mac/build.sh "$RUNNER_TEMP/out"
+
+      # Nothing is uploaded unless the final disk image and the app inside it are
+      # signed, notarized and stapled (reviews/CODEX_REVIEW_8.md M-10).
+      - name: Verify the disk image is notarized and stapled
+        run: |
+          set -euo pipefail
+          dmg="$RUNNER_TEMP/out/Customizable-Transcriber-Mac.dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          mnt="$RUNNER_TEMP/dmg-check"
+          mkdir -p "$mnt"
+          hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+          trap 'hdiutil detach -quiet "$mnt" || true' EXIT
+          app="$mnt/Customizable Transcriber.app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          codesign --verify --strict --deep --verbose=2 "$app"
 
       - name: Check the disk image's version matches the tag
         if: startsWith(github.ref, 'refs/tags/v')

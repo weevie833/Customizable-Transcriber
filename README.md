@@ -94,8 +94,14 @@ worked.
 **4. Install the app's dependencies:**
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.lock
 ```
+
+`requirements.lock` lists the exact version of every package the app uses,
+the same set the double-click installers install and the tests run against.
+(`requirements.txt` lists only the app's direct dependencies; don't install
+from it, because the other packages would then be whatever versions pip picks
+that day.)
 
 **Using Windows instead of macOS?** Steps 1–4 are the same idea, but two
 commands differ:
@@ -127,13 +133,24 @@ and one of these two ways to supply its key (you don't need both):
   app has an `API key` field you paste into before each run, matching
   whichever model you selected (a Gemini key for a Gemini model, a Claude
   key for a Claude model); it's never written to a file.
-- **Save it once** as a convenience for the small, single-image tools:
+- **Save it once** as a convenience for the small, single-image tools. The
+  file goes in the app's own data folder, not the app folder, so replacing
+  the app folder on an update never deletes it:
+
+  - macOS: `~/Library/Application Support/Customizable Transcriber/.env`
+  - Windows: `%APPDATA%\Customizable Transcriber\.env`
+  - Linux: `~/.local/share/Customizable Transcriber/.env`
+
+  On macOS/Linux, create it readable only by you (run from the app folder):
 
   ```bash
-  cp .env.example .env
+  mkdir -p ~/Library/Application\ Support/Customizable\ Transcriber
+  (umask 077 && cp .env.example ~/Library/Application\ Support/Customizable\ Transcriber/.env)
   ```
 
-  Then open `.env` in any text editor (TextEdit works fine) and replace
+  On Windows, copy `.env.example` to that folder (paste `%APPDATA%` into the
+  File Explorer address bar to open it) and rename the copy to `.env`. Then
+  open `.env` in any text editor (TextEdit works fine) and replace
   `your_api_key_here` with your real key(s) — set whichever provider(s) you
   actually plan to use, leaving the other blank or removed is fine:
 
@@ -142,9 +159,12 @@ and one of these two ways to supply its key (you don't need both):
   ANTHROPIC_API_KEY=your_api_key_here
   ```
 
-  `.env` holds your API keys in plain text, so make it readable only by you
-  (macOS/Linux): `chmod 600 .env`. On a computer other people also log into,
-  prefer pasting the key into the browser each time instead of saving it.
+  `.env` holds your API keys in plain text. On a computer other people also
+  log into, prefer pasting the key into the browser each time instead of
+  saving it. A `.env` in the app folder from an older setup still works: the
+  app copies it to the data folder (readable only by you) the first time it
+  starts, and the Mac installers do the same before an update. A key
+  exported in your shell's environment takes precedence over either file.
 
   **This only skips the paste step for the quick, single-image tools** —
   Prompt Builder's `Preflight Test` and XLS Conversion's `Detect Languages`,
@@ -196,7 +216,7 @@ Download the latest copy of this project and replace your existing project
 folder (the one containing `app.py`, whatever it's named) with it, then repeat
 steps 3–4 above
 (`python3 -m venv .venv` / `source .venv/bin/activate` / `pip install -r
-requirements.txt`) inside the new folder — dependencies can change between
+requirements.lock`) inside the new folder — dependencies can change between
 versions, so it's worth reinstalling them rather than assuming the old
 `.venv` still matches.
 

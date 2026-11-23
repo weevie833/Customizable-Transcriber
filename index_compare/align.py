@@ -64,11 +64,47 @@ def identity_fields(config: RecordTypeConfig) -> tuple[str | None, str | None, s
 
 def _identity_key(
     row: Row, given_field: str | None, last_field: str | None, year_field: str | None
-) -> tuple[str, str]:
+) -> tuple[str, str, bool]:
+    """(name, year, has surname)."""
     given = normalize_for_comparison(row.get(given_field, "")) if given_field else ""
     last = normalize_for_comparison(row.get(last_field, "")) if last_field else ""
     year = str(row.get(year_field, "")).strip() if year_field else ""
-    return f"{given} {last}".strip(), year
+    return f"{given} {last}".strip(), year, bool(last)
+
+
+def _corroborated(truth_key: tuple[str, str, bool], candidate_key: tuple[str, str, bool]) -> bool:
+    """Whether a name match has evidence beyond a given name: both rows give
+    a surname, or both give a year (already required to agree). Where rows
+    share no page or act number, a lone given name ("Paolo" = "Paolo") is not
+    enough to call them the same person; they stay missing and extra
+    (CODEX_REVIEW_2.md M-15 / HD-1, maintainer's decision 2026-11-22)."""
+    return (truth_key[2] and candidate_key[2]) or bool(truth_key[1] and candidate_key[1])
+
+
+# Upper bound on name comparisons for one alignment (both passes together).
+# Rows without locators are compared all-against-all within a year, so two
+# large unpaginated indexes could otherwise mean tens of millions of
+# comparisons on a desktop app serving other jobs (reviews/CODEX_REVIEW_8.md
+# M-7). 5 million comparisons take a few seconds.
+MAX_IDENTITY_PAIR_VISITS = 5_000_000
+
+
+class AlignmentTooLargeError(RuntimeError):
+    pass
+
+
+class _PairBudget:
+    def __init__(self, limit: int) -> None:
+        self.remaining = limit
+
+    def spend(self, visits: int) -> None:
+        self.remaining -= visits
+        if self.remaining < 0:
+            raise AlignmentTooLargeError(
+                "These indexes are too large to compare by name in one go (too many rows without a "
+                "page or act number in the same year). Fill in the Page #/Act # column, or split the "
+                "workbooks into smaller ranges of pages or years, and compare each part."
+            )
 
 
 def _score_identity_pairs(
@@ -77,6 +113,8 @@ def _score_identity_pairs(
     given_field: str | None,
     last_field: str | None,
     year_field: str | None,
+    budget: _PairBudget | None = None,
+    require_corroboration: bool = False,
 ) -> list[tuple[float, int, int]]:
     """Every (truth index, candidate index) pair whose primary-person name
     scores at or above _NAME_MATCH_THRESHOLD -- fuzzy, to tolerate the same
@@ -86,20 +124,49 @@ def _score_identity_pairs(
     in the same register year is the real collision risk this guards
     against; cross-year name coincidences are exactly what the gate rules
     out instead. Sorted highest-score-first for _assign_best_first()."""
+    # Identities are computed once per row, and candidates are partitioned by
+    # year, so a truth row only visits candidates it could actually match
+    # (same year, or either side without a year). The visits are charged to
+    # the budget from integer bucket sizes, row by row, before any comparison
+    # runs, and charging stops at the first row that exceeds it -- no
+    # candidate list is copied to work out the cost (CODEX_REVIEW_2.md M-7).
+    # require_corroboration: rows not sharing a page/act number need more
+    # than a given name to pair (see _corroborated()).
+    truth_keys = [_identity_key(row, given_field, last_field, year_field) for row in truth_rows]
+    candidate_keys = [_identity_key(row, given_field, last_field, year_field) for row in candidate_rows]
+    all_named: list[int] = []
+    by_year: dict[str, list[int]] = {}
+    no_year: list[int] = []
+    for c_index, (c_name, c_year, _c_last) in enumerate(candidate_keys):
+        if not c_name:
+            continue
+        all_named.append(c_index)
+        if c_year:
+            by_year.setdefault(c_year, []).append(c_index)
+        else:
+            no_year.append(c_index)
+
+    def candidate_groups(t_year: str) -> tuple[list[int], ...]:
+        return (all_named,) if not t_year else (by_year.get(t_year, []), no_year)
+
+    if budget is not None:
+        for t_name, t_year, _t_last in truth_keys:
+            if t_name:
+                budget.spend(sum(len(group) for group in candidate_groups(t_year)))
+
     scored: list[tuple[float, int, int]] = []
-    for t_index, truth_row in enumerate(truth_rows):
-        t_name, t_year = _identity_key(truth_row, given_field, last_field, year_field)
+    for t_index, t_key in enumerate(truth_keys):
+        t_name, t_year, _t_last = t_key
         if not t_name:
             continue
-        for c_index, candidate_row in enumerate(candidate_rows):
-            c_name, c_year = _identity_key(candidate_row, given_field, last_field, year_field)
-            if not c_name:
-                continue
-            if t_year and c_year and t_year != c_year:
-                continue  # different years -- never the same record, regardless of name similarity
-            score = fuzz.ratio(t_name, c_name)
-            if score >= _NAME_MATCH_THRESHOLD:
-                scored.append((score, t_index, c_index))
+        for group in candidate_groups(t_year):
+            for c_index in group:
+                c_key = candidate_keys[c_index]
+                if require_corroboration and not _corroborated(t_key, c_key):
+                    continue
+                score = fuzz.ratio(t_name, c_key[0])
+                if score >= _NAME_MATCH_THRESHOLD:
+                    scored.append((score, t_index, c_index))
     scored.sort(key=lambda item: item[0], reverse=True)
     return scored
 
@@ -129,7 +196,9 @@ def _match_within_bucket(
     given_field: str | None,
     last_field: str | None,
     year_field: str | None,
-) -> tuple[list[tuple[Row, Row]], list[Row], list[Row]]:
+    budget: _PairBudget | None = None,
+    allow_positional: bool = True,
+) -> tuple[list[tuple[Row, Row]], list[Row], list[Row], int]:
     """Pairs the rows sharing one locator value (e.g. every entry on page
     34) by identity first, falling back to position only for whatever
     identity couldn't place (no usable name fields, or no confident match).
@@ -142,13 +211,22 @@ def _match_within_bucket(
     the actual miss. Matching by name (+ year, when available) first
     re-anchors same-identity rows correctly regardless of a hole earlier in
     the page; position is only used to fill in rows identity had nothing to
-    say about."""
-    scored = _score_identity_pairs(truth_rows, candidate_rows, given_field, last_field, year_field)
+    say about.
+
+    allow_positional=False (the no-locator "" bucket, reviews/CODEX_REVIEW_8.md
+    M-15 / HD-1): rows there can come from anywhere in the file, so their
+    order is no evidence that two of them describe the same person; what
+    identity can't pair stays missing/extra. The last return value counts
+    the pairs made by position alone, so the report can show them."""
+    scored = _score_identity_pairs(
+        truth_rows, candidate_rows, given_field, last_field, year_field, budget,
+        require_corroboration=not allow_positional,
+    )
     used_truth, used_candidate, pairs = _assign_best_first(scored)
 
     remaining_truth = [i for i in range(len(truth_rows)) if i not in used_truth]
     remaining_candidate = [i for i in range(len(candidate_rows)) if i not in used_candidate]
-    pair_count = min(len(remaining_truth), len(remaining_candidate))
+    pair_count = min(len(remaining_truth), len(remaining_candidate)) if allow_positional else 0
     for i in range(pair_count):
         pairs.append((remaining_truth[i], remaining_candidate[i]))
 
@@ -161,11 +239,11 @@ def _match_within_bucket(
 
     missing = [truth_rows[i] for i in remaining_truth[pair_count:]]
     extra = [candidate_rows[i] for i in remaining_candidate[pair_count:]]
-    return matched, missing, extra
+    return matched, missing, extra, pair_count
 
 
 def _match_by_identity(
-    truth_rows: list[Row], candidate_rows: list[Row], config: RecordTypeConfig
+    truth_rows: list[Row], candidate_rows: list[Row], config: RecordTypeConfig, budget: _PairBudget | None = None
 ) -> tuple[list[tuple[Row, Row]], list[Row], list[Row]]:
     """Final-pass fallback for whatever per-locator-bucket matching in
     align_rows() couldn't pair -- most often because the ground truth never
@@ -180,7 +258,11 @@ def _match_by_identity(
     if not given_field and not last_field:
         return [], truth_rows, candidate_rows
 
-    scored = _score_identity_pairs(truth_rows, candidate_rows, given_field, last_field, year_field)
+    # Rows reaching this pass don't share a page or act number, so a lone
+    # given name is not enough (M-15 / HD-1).
+    scored = _score_identity_pairs(
+        truth_rows, candidate_rows, given_field, last_field, year_field, budget, require_corroboration=True
+    )
     used_truth, used_candidate, pairs = _assign_best_first(scored)
     matched = [(truth_rows[t], candidate_rows[c]) for t, c in pairs]
 
@@ -194,6 +276,8 @@ class AlignmentResult:
     matched: list[tuple[Row, Row]] = field(default_factory=list)
     missing_from_candidate: list[Row] = field(default_factory=list)
     extra_in_candidate: list[Row] = field(default_factory=list)
+    # Pairs within one page/act made by row order only, not by name (M-15).
+    position_only_pairs: int = 0
 
 
 def align_rows(truth_rows: list[Row], candidate_rows: list[Row], config: RecordTypeConfig) -> AlignmentResult:
@@ -228,19 +312,23 @@ def align_rows(truth_rows: list[Row], candidate_rows: list[Row], config: RecordT
     # insertion-order quirks, and every bucket on either side gets visited.
     locator_keys = list(truth_buckets) + [key for key in candidate_buckets if key not in truth_buckets]
 
+    budget = _PairBudget(MAX_IDENTITY_PAIR_VISITS)
     matched: list[tuple[Row, Row]] = []
     missing_from_candidate: list[Row] = []
     extra_in_candidate: list[Row] = []
+    position_only_pairs = 0
     for key in locator_keys:
-        bucket_matched, bucket_missing, bucket_extra = _match_within_bucket(
-            truth_buckets.get(key, []), candidate_buckets.get(key, []), given_field, last_field, year_field
+        bucket_matched, bucket_missing, bucket_extra, positional = _match_within_bucket(
+            truth_buckets.get(key, []), candidate_buckets.get(key, []), given_field, last_field, year_field, budget,
+            allow_positional=key != "",
         )
+        position_only_pairs += positional
         matched.extend(bucket_matched)
         missing_from_candidate.extend(bucket_missing)
         extra_in_candidate.extend(bucket_extra)
 
     identity_matched, missing_from_candidate, extra_in_candidate = _match_by_identity(
-        missing_from_candidate, extra_in_candidate, config
+        missing_from_candidate, extra_in_candidate, config, budget
     )
     matched.extend(identity_matched)
 
@@ -248,4 +336,5 @@ def align_rows(truth_rows: list[Row], candidate_rows: list[Row], config: RecordT
         matched=matched,
         missing_from_candidate=missing_from_candidate,
         extra_in_candidate=extra_in_candidate,
+        position_only_pairs=position_only_pairs,
     )

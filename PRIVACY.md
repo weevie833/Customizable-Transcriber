@@ -80,17 +80,20 @@ the option README recommends first), the app itself never writes it to any
 file or log — it's held only in memory for the duration of the request that
 uses it, and transmitted only to the one AI provider's API endpoint you're
 actively using. README also documents an optional convenience for skipping
-that paste step: saving your key yourself into a local `.env` file so the
-app can read it back automatically. **This only ever applies to the small,
+that paste step: saving your key yourself into a local `.env` file (in the
+app's own data folder, so updates don't delete it) so the app can read it
+back automatically. **This only ever applies to the small,
 single-image tools (Prompt Builder's Preflight Test, XLS Conversion's
 Detect Languages)** — the batch tools (Transcribe, Test Mode, and XLS
 Conversion's Parse/Preflight) always require the key to be pasted into the
 browser for that run, deliberately, regardless of whether a `.env` file is
 present; see README's setup section for why. If you do set up `.env` for
 the tools that honor it, your key sits in a plain-text file on your own
-machine (protected only by your computer's normal file permissions) — the
-app doesn't create or modify that file on its own, but it will read
-whatever you put there. Use the paste-it-each-time option instead if you'd
+machine (protected only by your computer's normal file permissions). The
+app never writes a key into it; the one thing it does on its own is copy a
+`.env` you left in the app folder by an older setup into the data folder,
+readable only by you, so an update can't delete it. It reads whatever you
+put there. Use the paste-it-each-time option instead if you'd
 rather your key never touch disk at all.
 
 ## If your records involve living individuals

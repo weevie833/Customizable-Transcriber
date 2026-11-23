@@ -58,6 +58,7 @@ from profiles_store import (
     USER_PROFILES_DIR,  # noqa: F401 -- re-exported for test monkeypatching, see comment above
     ensure_profiles_dir,
     load_profile,
+    migrate_saved_keys_file,
     save_custom_profile,  # noqa: F401 -- re-exported for tests
 )
 from run_support import (
@@ -430,6 +431,12 @@ class Handler(
             self.respond_json({"version": APP_VERSION})
             return
 
+        if parsed.path == "/api/health":
+            # App-specific identity for the launchers, so an unrelated service
+            # on this port is never mistaken for this app (reviews/CODEX_REVIEW_8.md L-1).
+            self.respond_json({"app": HEALTH_APP_ID, "version": APP_VERSION})
+            return
+
         if parsed.path == "/api/update-check":
             # Asks GitHub for the latest release (cached; see update_check.py).
             # Done server-side because the pages' CSP allows fetch only to this app.
@@ -798,12 +805,16 @@ class Handler(
         return
 
 
+HEALTH_APP_ID = "customizable-transcriber"
+
+
 def main() -> None:
     global CSRF_TOKEN
     ensure_profiles_dir()
     CSRF_TOKEN = load_request_token(USER_DATA_DIR)
     usage_ledger.configure(USER_DATA_DIR / "usage")
     migrate_legacy_outputs_and_settings()
+    migrate_saved_keys_file()
     with lock:
         state["profile_id"] = ""
     surface_stale_off_peak_job()

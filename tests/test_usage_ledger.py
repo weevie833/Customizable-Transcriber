@@ -244,7 +244,7 @@ def test_xls_claude_call_is_recorded_under_its_stage(tmp_path, monkeypatch):
     )
 
     with usage_ledger.run(mode="regular", stage="xls_parse", provider="claude", model="claude-sonnet-5"):
-        ai_parser.call_claude_json("key", "claude-sonnet-5", "system", "user")
+        ai_parser.call_claude_json("sk-ant-key", "claude-sonnet-5", "system", "user")
 
     records = _read(tmp_path / "usage")
     assert records[0]["stage"] == "xls_parse"
@@ -260,7 +260,7 @@ def test_gemini_batch_collection_fills_usage_sink_without_changing_results():
         error=None,
         response=pytypes.SimpleNamespace(
             text="hello",
-            candidates=[pytypes.SimpleNamespace(finish_reason="MAX_TOKENS")],
+            candidates=[pytypes.SimpleNamespace(finish_reason="STOP")],
             usage_metadata=_gemini_usage(),
         ),
     )
@@ -270,7 +270,7 @@ def test_gemini_batch_collection_fills_usage_sink_without_changing_results():
     results = collect_gemini_batch_results(job, usage_sink=sink)
 
     assert results == {0: ("hello", "")}
-    assert sink[0]["index"] == 0 and sink[0]["finish_reason"] == "MAX_TOKENS" and sink[0]["text_chars"] == 5
+    assert sink[0]["index"] == 0 and sink[0]["finish_reason"] == "STOP" and sink[0]["text_chars"] == 5
     assert collect_gemini_batch_results(job) == results  # sink is optional
 
 

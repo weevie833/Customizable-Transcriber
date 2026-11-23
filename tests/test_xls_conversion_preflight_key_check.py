@@ -72,7 +72,7 @@ def test_preflight_fails_fast_on_bad_key_without_the_expensive_call(jar, monkeyp
         port,
         cookiejar,
         "/api/xls-conversion/preflight",
-        {"model": "claude-opus-5", "gemini_api_key": "sk-ant-not-a-real-key", "record_type": "battesimi", "text": "x"},
+        {"model": "claude-opus-5", "gemini_api_key": "sk-ant-not-a-real-key", "record_type": "battesimi", "text": "x", "target_role": "translation"},
     )
     assert response.status == 400
     data = json.loads(response.read())
@@ -115,7 +115,7 @@ def test_parse_fails_fast_on_bad_key_without_the_expensive_call(jar, monkeypatch
         port,
         cookiejar,
         "/api/xls-conversion/parse",
-        {"model": "claude-opus-5", "gemini_api_key": "sk-ant-not-a-real-key", "record_type": "battesimi", "text": "x"},
+        {"model": "claude-opus-5", "gemini_api_key": "sk-ant-not-a-real-key", "record_type": "battesimi", "text": "x", "target_role": "translation"},
     )
     assert response.status == 400
     data = json.loads(response.read())
@@ -178,9 +178,9 @@ def test_all_three_endpoints_bound_the_key_check_to_preflight_timeout(jar, monke
     monkeypatch.setattr(xls_handlers, "validate_xls_preflight", mock.Mock(return_value=None))
 
     for path, extra in (
-        ("/api/xls-conversion/preflight", {"record_type": "battesimi", "text": "x"}),
+        ("/api/xls-conversion/preflight", {"record_type": "battesimi", "text": "x", "target_role": "translation"}),
         ("/api/xls-conversion/detect-languages", {"text": "x"}),
-        ("/api/xls-conversion/parse", {"record_type": "battesimi", "text": "x"}),
+        ("/api/xls-conversion/parse", {"record_type": "battesimi", "text": "x", "target_role": "translation"}),
     ):
         payload = {"model": "claude-opus-5", "gemini_api_key": "sk-ant-not-a-real-key", **extra}
         response = _post_json(host, port, cookiejar, path, payload)

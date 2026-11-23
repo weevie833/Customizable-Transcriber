@@ -33,6 +33,7 @@ from http.cookiejar import Cookie, CookieJar
 import app as ctapp
 import handlers.test_mode_run as test_mode_handlers
 import handlers.transcribe_run as transcribe_handlers
+import run_support
 
 
 def _cookie_header(jar: CookieJar) -> str:
@@ -58,6 +59,10 @@ def _get_csrf_cookie(host: str, port: int) -> CookieJar:
 def _post_no_redirect(host: str, port: int, jar: CookieJar, path: str, fields: dict[str, str]):
     """POSTs without following any redirect, so the response actually
     returned by the handler under test can be inspected directly."""
+    # Mirrors the page's hidden source_folder field (reviews/CODEX_REVIEW_8.md H-2).
+    # Only run endpoints read it; other handlers don't read the body at all.
+    if path.rstrip("/").endswith(("/run", "/run-offpeak")):
+        fields = {"source_folder": str(run_support.load_source_folder() or ""), **fields}
     body = urllib.parse.urlencode(fields).encode("utf-8")
     conn = http.client.HTTPConnection(host, port, timeout=5)
     conn.request(
@@ -97,8 +102,8 @@ def test_run_redirects_instead_of_rendering_html(live_server, sandboxed_user_dat
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(transcribe_handlers, "load_source_folder", lambda: source_folder)
-    monkeypatch.setattr(transcribe_handlers, "run_job", lambda form, output_file: None)
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(transcribe_handlers, "run_job", lambda form, output_file, *_: None)
 
     profile = ctapp.save_custom_profile("Redirect Test Profile", "role", "reference", "format")
     try:
@@ -129,8 +134,8 @@ def test_test_mode_run_redirects_instead_of_rendering_html(live_server, sandboxe
     source_folder = tmp_path / "source"
     source_folder.mkdir()
     (source_folder / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(test_mode_handlers, "load_source_folder", lambda: source_folder)
-    monkeypatch.setattr(test_mode_handlers, "run_test_job", lambda form, run_specs: None)
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source_folder)
+    monkeypatch.setattr(test_mode_handlers, "run_test_job", lambda form, run_specs, *_: None)
 
     profile = ctapp.save_custom_profile("Redirect Test Mode Profile", "role", "reference", "format")
     try:

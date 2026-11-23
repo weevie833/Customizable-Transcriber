@@ -311,7 +311,7 @@ def test_call_claude_json_requests_cache_control_when_enabled(monkeypatch):
 
     monkeypatch.setattr(ai_parser.anthropic, "Anthropic", lambda **kwargs: _FakeAnthropicClient())
 
-    ai_parser.call_claude_json("key", "claude-sonnet-5", "system prompt", "user", use_prompt_cache=True)
+    ai_parser.call_claude_json("sk-ant-key", "claude-sonnet-5", "system prompt", "user", use_prompt_cache=True)
 
     assert "cache_control" not in captured
     assert captured["system"] == [
@@ -333,7 +333,7 @@ def test_call_claude_json_omits_cache_control_by_default(monkeypatch):
 
     monkeypatch.setattr(ai_parser.anthropic, "Anthropic", lambda **kwargs: _FakeAnthropicClient())
 
-    ai_parser.call_claude_json("key", "claude-sonnet-5", "system prompt", "user")
+    ai_parser.call_claude_json("sk-ant-key", "claude-sonnet-5", "system prompt", "user")
 
     assert "cache_control" not in captured
     assert captured["system"] == "system prompt"

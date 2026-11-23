@@ -11,6 +11,7 @@ import app as ctapp
 import app_state
 import batch_transcription as bt
 import handlers.test_mode_run as test_mode_handlers
+import run_support
 from tests.test_offpeak_batch import _FakeGeminiClient, _write_jpeg
 from tests.test_post_redirect_get import _get_csrf_cookie, _post_no_redirect
 
@@ -43,8 +44,8 @@ def _setup(tmp_path, monkeypatch, run_ids):
     source.mkdir()
     _write_jpeg(source / "a.jpg")
     _write_jpeg(source / "b.jpg")
-    monkeypatch.setattr(bt, "load_source_folder", lambda: source)
-    monkeypatch.setattr(bt, "resolve_profile_for_run", lambda form: {"id": "p", "label": "Profile", "role_context": "r"})
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source)
+    monkeypatch.setattr(bt, "approved_profile", lambda form, profile: {"id": "p", "label": "Profile", "role_context": "r"})
     monkeypatch.setattr(bt, "build_system_prompt", lambda tool, profile: "system prompt")
     monkeypatch.setattr(bt.time, "sleep", lambda _s: None)
 
@@ -105,13 +106,13 @@ def test_one_runs_failure_does_not_stop_the_others(tmp_path, monkeypatch, sandbo
     calls = {"n": 0}
     calls_lock = threading.Lock()
 
-    def flaky_submit(client, model, system_prompt, images, zoom_pages=False):
+    def flaky_submit(client, model, system_prompt, images, zoom_pages=False, **kwargs):
         with calls_lock:
             calls["n"] += 1
             first = calls["n"] == 1
         if first:
             raise RuntimeError("provider rejected the batch")
-        return real_submit(client, model, system_prompt, images, zoom_pages=zoom_pages)
+        return real_submit(client, model, system_prompt, images, zoom_pages=zoom_pages, **kwargs)
 
     monkeypatch.setattr(bt.genai, "Client", lambda **kwargs: _FakeGeminiClient())
     monkeypatch.setattr(bt, "submit_gemini_batch", flaky_submit)
@@ -141,10 +142,12 @@ def test_unresolved_job_is_recorded_per_run_and_surfaced_then_reset(tmp_path, mo
     bt.run_test_off_peak_job(_Form(file_type="jpeg", order="oldest"), specs)
 
     jobs = app_state.read_test_off_peak_jobs()
-    assert set(jobs) == {"b1-a"}
-    assert jobs["b1-a"]["status"] == "status_unknown"
-    assert jobs["b1-a"]["job_id"] == "batches/fake123"
-    assert "api_key" not in jobs["b1-a"]
+    assert len(jobs) == 1
+    (key, job), = jobs.items()
+    assert key.startswith("b1-a#")  # keyed per job, not just per run id (M-3)
+    assert job["status"] == "status_unknown"
+    assert job["job_id"] == "batches/fake123"
+    assert "api_key" not in job
 
     with app_state.test_lock:
         app_state.test_state["log"] = []
@@ -168,7 +171,7 @@ def test_stop_while_waiting_to_submit_sends_nothing(tmp_path, monkeypatch, sandb
         _run_id, _label, model, key, markdown, docx = specs[0]
         bt.run_off_peak_job(
             project_dir=tmp_path,
-            image_folder=bt.load_source_folder(),
+            image_folder=run_support.load_source_folder(),
             extensions=frozenset({".jpg"}),
             model=model,
             provider="gemini",
@@ -198,10 +201,10 @@ def test_run_offpeak_route_starts_the_off_peak_job(live_server, sandboxed_user_d
     source = tmp_path / "source"
     source.mkdir()
     (source / "page_001.jpg").write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
-    monkeypatch.setattr(test_mode_handlers, "load_source_folder", lambda: source)
+    monkeypatch.setattr(run_support, "load_source_folder", lambda: source)
     started = threading.Event()
-    monkeypatch.setattr(test_mode_handlers, "run_test_off_peak_job", lambda form, run_specs: started.set())
-    monkeypatch.setattr(test_mode_handlers, "run_test_job", lambda form, run_specs: None)
+    monkeypatch.setattr(test_mode_handlers, "run_test_off_peak_job", lambda form, run_specs, *_: started.set())
+    monkeypatch.setattr(test_mode_handlers, "run_test_job", lambda form, run_specs, *_: None)
 
     profile = ctapp.save_custom_profile("Off-Peak Route Profile", "role", "reference", "format")
     try:

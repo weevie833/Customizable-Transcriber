@@ -15,6 +15,8 @@ import zipfile
 from http.cookiejar import CookieJar
 from pathlib import Path
 
+import pytest
+
 import app_state
 import handlers.transcribe_translate as translate_handlers
 import transcript_translation as tt
@@ -111,7 +113,7 @@ def test_parses_entries_fragments_and_side_blocks(monkeypatch):
     plan = tt.build_plan(NATI, "napoli-nati", ["English"])
     assert plan.errors == []
     entries = plan.parsed.entries
-    assert [e.entry_id for e in entries] == ["Nati_002.jpg#1", "Nati_003.jpg#1", "Nati_003.jpg#2"]
+    assert [e.entry_id for e in entries] == ["1/Nati_002.jpg#1", "2/Nati_003.jpg#1", "2/Nati_003.jpg#2"]
     assert [e.is_fragment for e in entries] == [False, True, False]
     assert entries[0].first("baptism") is not None
     # The end-of-record continuation note is not an entry.
@@ -125,7 +127,7 @@ def test_assembly_inserts_after_transcription_and_keeps_every_original_line(monk
     lines = output.split("\n")
     # Translation sits between the transcription and the Baptism Record.
     transcription_at = lines.index("Italian Transcription: Num. d'ordine. Quattrocentocinquantuno L'anno mille ottocento trentaquattro.")
-    assert lines[transcription_at + 2] == "English Translation: [English Nati_002.jpg#1]"
+    assert lines[transcription_at + 2] == "English Translation: [English 1/Nati_002.jpg#1]"
     assert lines[transcription_at + 4].startswith("Baptism Record:")
     # Removing each inserted "blank line + translation" pair gives back the original exactly.
     restored = output
@@ -263,17 +265,17 @@ def test_chunk_failures_are_reported_and_truncation_splits(monkeypatch):
 
     monkeypatch.setattr(tt, "call_ai_json", fake_call)
     done, _cwr_done, failed = tt._translate_chunk(chunk, plan, "key", "gemini-3.1-pro-preview", "prompt", None, False)
-    assert calls == [["Nati_003.jpg#1", "Nati_003.jpg#2"], ["Nati_003.jpg#1"], ["Nati_003.jpg#2"]]
-    assert done == {"Nati_003.jpg#1": {"English": "The presentation was made."}}
-    assert failed == {"Nati_003.jpg#2": "The AI response left this entry out."}
+    assert calls == [["2/Nati_003.jpg#1", "2/Nati_003.jpg#2"], ["2/Nati_003.jpg#1"], ["2/Nati_003.jpg#2"]]
+    assert done == {"2/Nati_003.jpg#1": {"English": "The presentation was made."}}
+    assert failed == {"2/Nati_003.jpg#2": "The AI response left this entry out."}
 
 
 def test_chunks_never_cross_images(monkeypatch):
     _use_profiles(monkeypatch, _profile())
     plan = tt.build_plan(NATI, "napoli-nati", ["English"])
     assert [[e.entry_id for e in c] for c in tt._chunks(plan.entries_to_translate, plan)] == [
-        ["Nati_002.jpg#1"],
-        ["Nati_003.jpg#1", "Nati_003.jpg#2"],
+        ["1/Nati_002.jpg#1"],
+        ["2/Nati_003.jpg#1", "2/Nati_003.jpg#2"],
     ]
 
 
@@ -295,7 +297,7 @@ def test_job_writes_docx_md_and_report(monkeypatch, sandboxed_user_data):
         assert app_state.state["summary"].startswith("Translated 3 of 3 entries")
     assert download.endswith(".docx") and "Napoli-corrected-translated" in download
     text = extract_docx_text(Path(download).read_bytes())
-    assert "English Translation: T Nati_003.jpg#2" in text
+    assert "English Translation: T 2/Nati_003.jpg#2" in text
     assert "Translations produced: English" in text
     with zipfile.ZipFile(io.BytesIO(Path(report).read_bytes())) as archive:
         report_xml = archive.read("word/document.xml").decode("utf-8")
@@ -406,7 +408,7 @@ def test_long_notes_split_the_request(monkeypatch):
     plan = tt.build_plan(_with_long_notes(5600), "napoli-nati", ["English"])
     assert not plan.errors
     chunks = [[e.entry_id for e in c] for c in tt._chunks(plan.entries_to_translate, plan)]
-    assert chunks == [["Nati_002.jpg#1"], ["Nati_003.jpg#1"], ["Nati_003.jpg#2"]]
+    assert chunks == [["1/Nati_002.jpg#1"], ["2/Nati_003.jpg#1"], ["2/Nati_003.jpg#2"]]
     for chunk in tt._chunks(plan.entries_to_translate, plan):
         message = json.dumps({"entries": [tt._entry_payload(e, plan) for e in chunk]}, ensure_ascii=False)
         assert len(message) <= tt.MAX_SOURCE_CHARS_PER_CALL + 20
@@ -439,3 +441,187 @@ def test_source_fields_are_data_not_instructions(monkeypatch):
     payloads = [tt._entry_payload(e, plan) for e in plan.entries_to_translate]
     assert [p["transcription"] for p in payloads if hostile in str(p)] == [hostile]
     assert hostile not in prompt
+
+
+# --- reviews/CODEX_REVIEW_8.md H-3 / H-4 ------------------------------------
+
+
+def _writers(paths):
+    return [(path, lambda temp, path=path: temp.write_text(path.name)) for path in paths]
+
+
+def test_dotted_source_names_never_share_or_overwrite_outputs(monkeypatch, sandboxed_user_data):
+    out_dir = tt.USER_OUTPUTS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sentinel_docx = out_dir / "Register.docx"
+    sentinel_md = out_dir / "Register.md"
+    sentinel_docx.write_text("SENTINEL")
+    sentinel_md.write_text("SENTINEL")
+    first = tt.publish_outputs(tt.plan_output_names("Register.1750.docx"), _writers)
+    second = tt.publish_outputs(tt.plan_output_names("Register.1751.docx"), _writers)
+    names = [p.name for p in (*first, *second)]
+    assert len(set(names)) == 6
+    assert all(name.startswith(("Register.1750-", "Register.1751-")) for name in names)
+    assert first[0].suffix == ".docx" and first[1].suffix == ".md"
+    assert sentinel_docx.read_text() == "SENTINEL" and sentinel_md.read_text() == "SENTINEL"
+
+
+def test_same_timestamp_gets_a_fresh_name(monkeypatch, sandboxed_user_data):
+    names = tt.plan_output_names("X.docx")
+    taken = names.for_attempt(1)[2]
+    taken.write_text("FIRST")
+    paths = tt.publish_outputs(names, _writers)
+    assert paths == names.for_attempt(2)
+    assert all(path.name.endswith(("-2.docx", "-2.md")) for path in paths)
+    assert taken.read_text() == "FIRST"
+    assert not names.for_attempt(1)[0].exists()
+
+
+def test_name_taken_while_publishing_moves_the_whole_set(monkeypatch, sandboxed_user_data):
+    """A name claimed by someone else between the check and the publish is
+    never replaced; the set moves on and nothing of the first attempt stays."""
+    names = tt.plan_output_names("X.docx")
+    first = names.for_attempt(1)
+    real_claim = tt._claim
+
+    def racing_claim(temp, final):
+        if final == first[1] and not final.exists():
+            final.write_text("OTHER")
+        return real_claim(temp, final)
+
+    monkeypatch.setattr(tt, "_claim", racing_claim)
+    paths = tt.publish_outputs(names, _writers)
+    assert paths == names.for_attempt(2)
+    assert first[1].read_text() == "OTHER"
+    assert not first[0].exists() and not first[2].exists()
+
+
+# --- CODEX_REVIEW_2.md N-1 / N-2: failed publication leaves no output ---------
+
+
+def _run_job(monkeypatch, source_name="Napoli corrected.docx", calls=None):
+    _use_profiles(monkeypatch, _profile())
+    monkeypatch.setattr(tt, "validate_api_key_with_retry", lambda *a, **k: None)
+    monkeypatch.setattr(tt, "create_gemini_prompt_cache", lambda *a, **k: None)
+
+    def fake_call(api_key, model, system_prompt, message, cached, use_cache):
+        if calls is not None:
+            calls.append(1)
+        return {"entries": [{"id": e["id"], "translations": {"English": "T " + e["id"]}} for e in json.loads(message)["entries"]]}
+
+    monkeypatch.setattr(tt, "call_ai_json", fake_call)
+    with app_state.lock:
+        app_state.state["running"] = True
+        app_state.state["download"] = ""
+        app_state.state["report_download"] = ""
+    tt.run_translation_job(NATI, source_name, "napoli-nati", ["English"], "gemini-3.1-pro-preview", "key")
+    with app_state.lock:
+        return dict(app_state.state)
+
+
+def _outputs():
+    return sorted(p.name for p in tt.USER_OUTPUTS_DIR.iterdir()) if tt.USER_OUTPUTS_DIR.exists() else []
+
+
+@pytest.mark.parametrize("failing", ["write_text", "write_docx", "write_bytes", "report", "claim"])
+def test_any_publication_failure_leaves_no_files(monkeypatch, sandboxed_user_data, failing):
+    def boom(*a, **k):
+        raise OSError("disk full")
+
+    if failing == "write_text":
+        real = Path.write_text
+        monkeypatch.setattr(Path, "write_text", lambda self, *a, **k: boom() if self.name.startswith(".ct-") else real(self, *a, **k))
+    elif failing == "write_bytes":
+        real_b = Path.write_bytes
+        monkeypatch.setattr(Path, "write_bytes", lambda self, *a, **k: boom() if self.name.startswith(".ct-") else real_b(self, *a, **k))
+    elif failing == "write_docx":
+        monkeypatch.setattr(tt, "write_docx", boom)
+    elif failing == "report":
+        monkeypatch.setattr(tt, "build_report_docx", boom)
+    else:
+        real_claim = tt._claim
+        seen = []
+
+        def claim_then_fail(temp, final):
+            seen.append(final)
+            if len(seen) == 3:
+                boom()
+            return real_claim(temp, final)
+
+        monkeypatch.setattr(tt, "_claim", claim_then_fail)
+    state = _run_job(monkeypatch)
+    assert state["summary"].startswith("Fatal error"), state["summary"]
+    assert state["download"] == "" and state["running"] is False
+    assert _outputs() == []
+
+
+def test_claim_fallback_without_hard_links(monkeypatch, sandboxed_user_data):
+    monkeypatch.setattr(tt.os, "link", lambda *a: (_ for _ in ()).throw(OSError("links not supported")))
+    state = _run_job(monkeypatch)
+    assert state["summary"].startswith("Translated 3 of 3"), state["summary"]
+    assert len(_outputs()) == 3 and not any(name.startswith(".ct-") for name in _outputs())
+
+
+def test_near_limit_source_name_exports(monkeypatch, sandboxed_user_data):
+    stem = "R" * 200
+    state = _run_job(monkeypatch, source_name=f"{stem}.docx")
+    assert state["summary"].startswith("Translated 3 of 3"), state["summary"]
+    names = _outputs()
+    assert len(names) == 3
+    assert all(len(name.encode()) <= 255 for name in names)
+    assert Path(state["download"]).name in names
+
+
+def test_outputs_folder_too_long_fails_before_any_request(monkeypatch, sandboxed_user_data):
+    calls = []
+    monkeypatch.setattr(tt, "_name_limit", lambda directory: 40)
+    state = _run_job(monkeypatch, calls=calls)
+    assert "too long" in state["summary"]
+    assert calls == [] and _outputs() == []
+
+
+DUPLICATE_HEADINGS = """--- START OF RECORD: Nati_002.jpg ---
+
+Date: uno Gennaro 1834 [1 January 1834]
+
+Italian Transcription: Prima voce.
+
+--- START OF RECORD: Nati_002.jpg ---
+
+Date: due Gennaro 1834 [2 January 1834]
+
+Italian Transcription: Seconda voce.
+"""
+
+
+def test_duplicate_record_headings_keep_separate_translations(monkeypatch):
+    _use_profiles(monkeypatch, _profile())
+    plan = tt.build_plan(DUPLICATE_HEADINGS, "napoli-nati", ["English"])
+    ids = [e.entry_id for e in plan.entries_to_translate]
+    assert len(ids) == 2 and len(set(ids)) == 2
+    # Same-chunk and different-chunk: chunks never span two records.
+    assert [len(c) for c in tt._chunks(plan.entries_to_translate, plan)] == [1, 1]
+    answers = {ids[0]: "First.", ids[1]: "Second."}
+    output = tt.assemble(plan, {i: {"English": answers[i]} for i in ids}, {})
+    assert output.count("English Translation: First.") == 1
+    assert output.count("English Translation: Second.") == 1
+
+
+def test_duplicate_response_identity_is_a_failure(monkeypatch):
+    _use_profiles(monkeypatch, _profile())
+    plan = tt.build_plan(NATI, "napoli-nati", ["English"])
+    chunk = [e for e in plan.parsed.entries if e.record == "Nati_003.jpg"]
+    target = chunk[0].entry_id
+
+    def fake_call(*args, **kwargs):
+        return {"entries": [
+            {"id": target, "translations": {"English": "A"}},
+            {"id": target, "translations": {"English": "B"}},
+            {"id": chunk[1].entry_id, "translations": {"English": "C"}},
+            {"id": "99/unexpected#1", "translations": {"English": "D"}},
+        ]}
+
+    monkeypatch.setattr(tt, "call_ai_json", fake_call)
+    done, _, failed = tt._translate_chunk(chunk, plan, "k", "gemini-3.1-pro-preview", "sys", None, False)
+    assert target in failed and "more than once" in failed[target]
+    assert done == {chunk[1].entry_id: {"English": "C"}}

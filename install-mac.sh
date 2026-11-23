@@ -26,6 +26,41 @@ fail() {
     exit 1
 }
 
+# An opted-in saved-keys .env in the installed copy is carried over to the user-data folder
+# (owner-readable only) before that copy is replaced, so an update can't delete a saved key
+# the app still uses (reviews/CODEX_REVIEW_8.md L-4, CODEX_REVIEW_2.md L-4). The app reads
+# the user-data file first and the app folder's second, per key; so a key the user-data
+# file doesn't set yet is appended from the old file, line as written. Nothing already in
+# the user-data file is changed. Returns 1 on any write error, and the caller then keeps
+# the installed copy instead of replacing it. Never prints a key.
+saved_key_line() {
+    # The first line in $1 that sets key $2, as the app reads it ("KEY=value", # = comment).
+    awk -v k="$2" '{ l = $0; sub(/^[ \t]+/, "", l) }
+        l !~ /^#/ && index(l, "=") { n = substr(l, 1, index(l, "=") - 1); gsub(/[ \t]+$/, "", n)
+        if (n == k) { print $0; exit } }' "$1" 2>/dev/null
+}
+
+keep_saved_keys() {
+    local data_dir="${CT_DATA_DIR:-$HOME/Library/Application Support/Customizable Transcriber}"
+    local source="$1/.env" target key line
+    target="$data_dir/.env"
+    [ -f "$source" ] || return 0
+    mkdir -p "$data_dir" || return 1
+    if [ ! -e "$target" ]; then
+        (umask 077 && cp "$source" "$target") || return 1
+        return 0
+    fi
+    for key in GEMINI_API_KEY ANTHROPIC_API_KEY; do
+        line="$(saved_key_line "$source" "$key")"
+        [ -n "$line" ] || continue
+        [ -n "$(saved_key_line "$target" "$key")" ] && continue
+        {
+            [ -z "$(tail -c 1 "$target")" ] || echo
+            printf '%s\n' "$line"
+        } >> "$target" || return 1
+    done
+}
+
 main() {
     local app_dir="${CT_APP_DIR:-$HOME/Library/Application Support/Customizable Transcriber/App}"
     local archive_url="$CT_ARCHIVE_URL" version=""
@@ -88,6 +123,7 @@ main() {
     # Keep the installed copy until the new one is set up, so a failed update goes back to it.
     rm -rf "$old"
     if [ -d "$app_dir" ]; then
+        keep_saved_keys "$app_dir" || { rm -rf "$new"; fail "Your saved API keys (.env) couldn't be copied to the Application Support folder, so the installed copy was left as it is. Check that your disk isn't full, then try again."; }
         mv "$app_dir" "$old" || { rm -rf "$new"; fail "The installed copy couldn't be replaced."; }
     fi
     mv "$new" "$app_dir" || { [ -d "$old" ] && mv "$old" "$app_dir"; fail "The app couldn't be installed."; }

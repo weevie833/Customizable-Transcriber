@@ -16,7 +16,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from customizable_transcriber import page_zoom, usage_ledger
+from customizable_transcriber import page_zoom, stop_reasons, usage_ledger
 from customizable_transcriber.page_check import apply_page_check
 from customizable_transcriber.year_check import apply_year_check
 
@@ -183,12 +183,33 @@ def load_env_file(path: Path) -> None:
         os.environ[key] = value.strip().strip("\"'")
 
 
+def saved_keys_files(project_dir: Path) -> list[Path]:
+    """Where an opted-in saved-keys .env is looked for, first match wins per
+    key: the per-user data folder (survives app updates, owner-private --
+    reviews/CODEX_REVIEW_8.md L-4), then the app folder (older installs). An
+    exported environment variable still beats both (load_env_file())."""
+    files: list[Path] = []
+    try:
+        import profiles_store  # repo-root module; read at call time so tests can sandbox it
+
+        files.append(profiles_store.USER_DATA_DIR / ".env")
+    except ImportError:
+        pass
+    files.append(project_dir / ".env")
+    return files
+
+
+def _load_saved_keys(project_dir: Path) -> None:
+    for path in saved_keys_files(project_dir):
+        load_env_file(path)
+
+
 def api_key(project_dir: Path) -> str:
-    load_env_file(project_dir / ".env")
+    _load_saved_keys(project_dir)
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise RuntimeError(
-            "GEMINI_API_KEY is not set. Add it to .env or export it before running."
+            "GEMINI_API_KEY is not set. Paste the key, or save it in .env (see README), or export it before running."
         )
     if key == "your_api_key_here":
         raise RuntimeError("GEMINI_API_KEY is still set to the placeholder value.")
@@ -196,11 +217,11 @@ def api_key(project_dir: Path) -> str:
 
 
 def claude_api_key(project_dir: Path) -> str:
-    load_env_file(project_dir / ".env")
+    _load_saved_keys(project_dir)
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise RuntimeError(
-            "ANTHROPIC_API_KEY is not set. Add it to .env or export it before running."
+            "ANTHROPIC_API_KEY is not set. Paste the key, or save it in .env (see README), or export it before running."
         )
     if key == "your_api_key_here":
         raise RuntimeError("ANTHROPIC_API_KEY is still set to the placeholder value.")
@@ -246,6 +267,29 @@ def key_looks_like_claude(api_key: str) -> bool:
     wrapper, since which provider a given key is *for* is now declared by
     which field it was typed into, not inferred from a model selection."""
     return api_key.strip().startswith("sk-ant-")
+
+
+def key_provider_mismatch(model: str, key: str) -> str:
+    """"" unless `key` is recognizably for the other provider than `model`'s,
+    else a message saying so. Checked locally, before any SDK client is built,
+    so a key pasted for the wrong provider is never sent to the other one
+    (reviews/CODEX_REVIEW_8.md M-1). Same rule Test Mode and translation
+    preflight already used."""
+    key = (key or "").strip()
+    if not key:
+        return ""
+    if provider_for_model(model) == "claude":
+        if not key_looks_like_claude(key):
+            return "The API key doesn't look like a Claude key, but the selected model is a Claude model."
+    elif key_looks_like_claude(key):
+        return "The API key looks like a Claude key, but the selected model is a Gemini model."
+    return ""
+
+
+def ensure_key_matches_model(model: str, key: str) -> None:
+    problem = key_provider_mismatch(model, key)
+    if problem:
+        raise RuntimeError(problem)
 
 
 def parse_date_folder(name: str) -> tuple[int, int, int] | None:
@@ -343,14 +387,14 @@ def validate_batch_source_file(image_path: Path, source_root: Path) -> None:
     unbounded amount of data into memory before ever finding out it was too
     large (the size check runs before anything reads the file's bytes)."""
     if _path_is_or_contains_symlink(image_path, source_root):
-        raise RuntimeError(
+        raise SafeMessageError(
             f"{image_path.name} is a symlink (or is reached through one) -- refusing to follow it. "
             "Source images must be real files inside the selected source folder, not links to files "
             "elsewhere on this machine."
         )
     size = image_path.stat().st_size
     if size > MAX_BATCH_IMAGE_BYTES:
-        raise RuntimeError(
+        raise SafeMessageError(
             f"{image_path.name} is {size / 1_000_000:.1f} MB, over the "
             f"{MAX_BATCH_IMAGE_BYTES // 1_000_000} MB per-file limit -- skipping."
         )
@@ -437,11 +481,13 @@ def make_client(
     provider = provider_for_model(model)
     if provider == "claude":
         key = (api_key_override or "").strip() or claude_api_key(project_dir)
+        ensure_key_matches_model(model, key)
         claude_kwargs: dict[str, object] = {"api_key": key}
         if timeout_seconds is not None:
             claude_kwargs["timeout"] = timeout_seconds
         return LLMClient(provider="claude", claude=anthropic.Anthropic(**claude_kwargs))
     key = (api_key_override or "").strip() or api_key(project_dir)
+    ensure_key_matches_model(model, key)
     gemini_kwargs: dict[str, object] = {"api_key": key}
     if timeout_seconds is not None:
         gemini_kwargs["http_options"] = types.HttpOptions(timeout=int(timeout_seconds * 1000))
@@ -555,7 +601,7 @@ def _generate_content_with_cache_fallback(
             f"[gemini-cache] Prompt cache no longer available ({exc}); "
             "retrying this request with the system prompt sent directly."
         )
-        usage_ledger.event("cache_fallback", reason=str(exc)[:200])
+        usage_ledger.event("cache_fallback", reason=safe_error_summary(exc))
         return client.models.generate_content(
             model=model, contents=contents, config=types.GenerateContentConfig(**config_without_cache)
         )
@@ -580,7 +626,7 @@ def _with_transient_retry(call: Callable[[], object], progress: Callable[[str], 
             delay = min(RETRY_BASE_DELAY_SECONDS * (2**attempt), RETRY_MAX_DELAY_SECONDS)
             delay += random.uniform(0, delay * 0.25)
             usage_ledger.event(
-                "transient_retry", attempt_number=attempt + 1, status=_provider_error_status(exc), error=str(exc)[:200]
+                "transient_retry", attempt_number=attempt + 1, status=_provider_error_status(exc), error=safe_error_summary(exc)
             )
             if progress:
                 progress(
@@ -616,7 +662,20 @@ def _is_auth_error(exc: Exception, status: int | None) -> bool:
     return False
 
 
-def humanize_provider_error(exc: Exception, model: str) -> str:
+def _is_provider_sdk_error(exc: Exception) -> bool:
+    return isinstance(exc, (genai_errors.APIError, anthropic.APIError, httpx.HTTPError))
+
+
+def safe_error_summary(exc: Exception) -> str:
+    """Error class plus HTTP status only -- never the exception's own text,
+    which for an SDK or transport error can echo request content, headers or
+    URLs. Used for anything written to disk (usage ledger, transcripts,
+    reports): reviews/CODEX_REVIEW_8.md M-2."""
+    status = _provider_error_status(exc)
+    return type(exc).__name__ + (f" (HTTP {status})" if status else "")
+
+
+def humanize_provider_error(exc: Exception, model: str, include_original: bool = True) -> str:
     """Rewrite a known failure shape (bad API key, no access to this model,
     rate-limited, provider outage) into a message a non-technical user can
     actually act on -- names the model and the provider account setting
@@ -625,6 +684,7 @@ def humanize_provider_error(exc: Exception, model: str) -> str:
     shapes passes through as str(exc) unchanged, so a real, unanticipated
     error is never hidden behind a generic message."""
     status = _provider_error_status(exc)
+    original = f" (Original error: {exc})" if include_original else ""
     provider = provider_for_model(model)
     provider_name = "Anthropic" if provider == "claude" else "Google AI"
     console_hint = (
@@ -639,7 +699,7 @@ def humanize_provider_error(exc: Exception, model: str) -> str:
             "bug in this app. Double-check you copied the entire key with no extra spaces or line "
             f"breaks, that it hasn't been regenerated or revoked since you copied it ({console_hint}), "
             "and that it's actually a key for this provider (a Claude key won't work for a Gemini "
-            f"model, or the reverse). (Original error: {exc})"
+            f"model, or the reverse).{original}"
         )
     if status == 403:
         return (
@@ -647,24 +707,33 @@ def humanize_provider_error(exc: Exception, model: str) -> str:
             "permission denied). This usually means the key's account doesn't have this specific "
             "model enabled, has no billing/payment method set up, or has hit an organization-level "
             f"restriction -- check the key's account settings at {console_hint}, not this app. "
-            f"(Original error: {exc})"
-        )
+            f"{original.lstrip()}"
+        ).rstrip()
     if not _is_transient_provider_error(exc):
-        return str(exc)
+        if include_original or isinstance(exc, SafeMessageError):
+            return str(exc)
+        # Durable form: never the exception's own text, which can carry
+        # provider detail or local paths (CODEX_REVIEW_2.md M-2).
+        if _is_provider_sdk_error(exc):
+            return f"The AI provider returned an error ({safe_error_summary(exc)})."
+        return (
+            f"An unexpected error stopped this image ({type(exc).__name__}). "
+            "The Progress Console shows the details."
+        )
     if status == 429:
         return (
             f'"{model}" is rate-limiting this API key right now (HTTP 429, too many requests). '
             f"This already retried {MAX_TRANSIENT_RETRIES} times with a short delay and is still "
             "being limited -- wait a bit and try again, or switch to a different model for now. "
-            f"(Original error: {exc})"
-        )
+            f"{original.lstrip()}"
+        ).rstrip()
     return (
         f'"{model}" is temporarily unavailable on the provider\'s own servers (HTTP {status or "5xx"}) '
         "-- this is not a problem with your API key or this app. It already retried "
         f"{MAX_TRANSIENT_RETRIES} times with a short delay before giving up. This is usually "
         "temporary: wait a few minutes and try again, or switch to a different model for now. "
-        f"(Original error: {exc})"
-    )
+        f"{original.lstrip()}"
+    ).rstrip()
 
 
 # A response cut off mid-generation by the provider's own output-token cap is
@@ -675,6 +744,13 @@ def humanize_provider_error(exc: Exception, model: str) -> str:
 # usable model output up to that point -- but append a marker that can't be
 # missed, matching this app's existing convention of flagging a gap rather
 # than hiding it (see the Uncertainty Protocol's [illegible]/[damaged]).
+class SafeMessageError(RuntimeError):
+    """An error whose whole message this app wrote itself from safe fields
+    (a filename, a size, a stop reason), so it may be saved in a transcript or
+    the usage ledger. Any other exception is rendered from its type only when
+    the message is durable (CODEX_REVIEW_2.md M-2)."""
+
+
 _TRUNCATION_NOTICE = (
     "\n\n[TRUNCATED: this image's response hit the model's output token limit before "
     "finishing. Everything above is genuine model output, but later entries on this image "
@@ -788,15 +864,13 @@ def _transcribe_image_gemini(
     )
     candidates = getattr(response, "candidates", None) or []
     finish_reason = getattr(candidates[0], "finish_reason", None) if candidates else None
-    if not text.strip():
-        # A safety/recitation block or a thoughts-only reply comes back as "" --
-        # saving that as a finished record would hide a missing page. Raising
-        # sends it through run_batch()'s per-image error path instead.
-        reason = getattr(finish_reason, "name", None) or str(finish_reason or "no candidates")
-        raise RuntimeError(f"The model returned no transcription text (finish reason: {reason}).")
-    if finish_reason == types.FinishReason.MAX_TOKENS:
-        text += _TRUNCATION_NOTICE
-    return text
+    # An empty reply, a refusal or a safety block fails the page (it goes
+    # through run_batch()'s per-image error path); a reply that stopped early
+    # keeps its text with a notice naming why (CODEX_REVIEW_2.md H-5).
+    saved, error = stop_reasons.finish("gemini", text, finish_reason, _TRUNCATION_NOTICE)
+    if error:
+        raise SafeMessageError(error)
+    return saved
 
 
 def claude_system_param(system_prompt: str, use_prompt_cache: bool) -> str | list[dict[str, object]]:
@@ -870,9 +944,11 @@ def _transcribe_image_claude(
         cache_expected=use_prompt_cache,
         text_chars=len(text),
     )
-    if response.stop_reason == "max_tokens":
-        text += _TRUNCATION_NOTICE
-    return text
+    # Same rules as _transcribe_image_gemini() (CODEX_REVIEW_2.md H-5).
+    saved, error = stop_reasons.finish("claude", text, response.stop_reason, _TRUNCATION_NOTICE)
+    if error:
+        raise SafeMessageError(error)
+    return saved
 
 
 def transcribe_image(
@@ -901,7 +977,7 @@ def transcribe_image(
     # try/except) instead.
     detected_type = sniff_file_type(data)
     if detected_type is None:
-        raise RuntimeError(
+        raise SafeMessageError(
             f"{image_path.name} does not look like a JPEG or PNG file (checked its content, "
             "not just its extension) -- skipping."
         )
@@ -1057,7 +1133,7 @@ def create_gemini_prompt_cache(
             ),
         )
     except Exception as exc:
-        usage_ledger.event("cache_unavailable", reason=str(exc)[:200])
+        usage_ledger.event("cache_unavailable", reason=safe_error_summary(exc))
         if progress:
             progress(f"Prompt caching unavailable for {model} ({exc}); continuing without it.")
         return None
@@ -1258,7 +1334,7 @@ def run_batch(
         if progress:
             progress(message)
 
-    log(f"Found {len(files)} source file(s).")
+    log(f"Found {len(files)} source file(s) in {config.image_folder}.")
     client = make_client(
         project_dir, config.model, config.api_key_override, timeout_seconds=BATCH_REQUEST_TIMEOUT_SECONDS
     )
@@ -1298,7 +1374,10 @@ def run_batch(
 
     try:
         with config.output_file.open("w", encoding="utf-8") as output:
-            output.write(f"# Transcription Output\n\nSource folder: {config.image_folder}\n")
+            # Folder name only: the full path would reveal the account name and folder
+            # layout when the transcript is shared (reviews/CODEX_REVIEW_8.md L-3 /
+            # HD-2). The full path is in the Progress Console.
+            output.write(f"# Transcription Output\n\nSource folder: {Path(config.image_folder).name}\n")
 
             names = [display_name(path, config.image_folder) for path in files]
             for index, image_path in enumerate(files, start=1):
@@ -1337,9 +1416,11 @@ def run_batch(
                         image=name,
                         ok=False,
                         seconds=round(time.monotonic() - image_started, 2),
-                        error=str(exc)[:200],
+                        error=safe_error_summary(exc),
                     )
-                    error = f"ERROR: {humanize_provider_error(exc, config.model)}"
+                    # The document gets the message without the raw exception
+                    # text; the live log below still shows the full detail.
+                    error = f"ERROR: {humanize_provider_error(exc, config.model, include_original=False)}"
                     output.write(render_entry(name, error, next_name, previous_name, keep_lines))
                     output.flush()
                     results.append(ImageResult(name, False, error))
@@ -1381,3 +1462,23 @@ def run_batch(
 
 def count_failures(results: Iterable[ImageResult]) -> int:
     return sum(1 for result in results if not result.ok)
+
+
+TRUNCATION_MARKER = "[TRUNCATED:"
+
+
+def count_incomplete(results: Iterable[ImageResult]) -> int:
+    """Pages saved with partial text: the model hit its output limit
+    ([TRUNCATED: ...]) or stopped early for another reason ([INCOMPLETE: ...])."""
+    return sum(
+        1 for result in results
+        if result.ok and (TRUNCATION_MARKER in result.text or stop_reasons.INCOMPLETE_MARKER in result.text)
+    )
+
+
+def incomplete_summary_suffix(results: Iterable[ImageResult]) -> str:
+    """", N incomplete ..." for a run summary, or "" when every saved page is
+    complete -- so a truncated page is visible in the summary, not only
+    inside the document (reviews/CODEX_REVIEW_8.md H-5)."""
+    count = count_incomplete(results)
+    return f", {count} incomplete (the model stopped before finishing)" if count else ""

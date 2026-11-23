@@ -15,6 +15,10 @@
 #   NOTARY_ISSUER_ID   its Issuer ID
 # With all four, the app is notarized and stapled, then the disk image is signed,
 # notarized and stapled too, so both open without a warning, even offline.
+#
+# CT_RELEASE=1 (set by .github/workflows/mac-release.yml) makes all four required: the
+# build stops instead of quietly producing an ad-hoc or unnotarized disk image
+# (reviews/CODEX_REVIEW_8.md M-10). Local builds leave it unset.
 set -euo pipefail
 
 APP_NAME="Customizable Transcriber"
@@ -29,6 +33,19 @@ NOTARIZE=""
 if [ -n "${NOTARY_KEY_PATH:-}" ] && [ -n "${NOTARY_KEY_ID:-}" ] && [ -n "${NOTARY_ISSUER_ID:-}" ]; then
     [ "$IDENTITY" != "-" ] || { echo "Notarization needs CT_SIGN_IDENTITY." >&2; exit 2; }
     NOTARIZE=1
+fi
+if [ "${CT_RELEASE:-}" = "1" ]; then
+    missing=""
+    [ "$IDENTITY" != "-" ] || missing="$missing CT_SIGN_IDENTITY"
+    [ -n "${NOTARY_KEY_ID:-}" ] || missing="$missing NOTARY_KEY_ID"
+    [ -n "${NOTARY_ISSUER_ID:-}" ] || missing="$missing NOTARY_ISSUER_ID"
+    if [ -z "${NOTARY_KEY_PATH:-}" ] || ! grep -q "BEGIN PRIVATE KEY" "$NOTARY_KEY_PATH" 2>/dev/null; then
+        missing="$missing NOTARY_KEY_PATH(a .p8 key)"
+    fi
+    if [ -n "$missing" ]; then
+        echo "Release build refused: missing or empty:$missing. A release must be signed and notarized." >&2
+        exit 2
+    fi
 fi
 
 APP="$OUT/$APP_NAME.app"

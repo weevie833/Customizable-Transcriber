@@ -99,3 +99,47 @@ def test_oversized_declared_xml_is_rejected_before_decompression():
     huge_repetitive_xml = _valid_document_xml("x" * 1024) * (ctapp.MAX_DOCX_XML_BYTES // 1024 + 1)
     with pytest.raises(RuntimeError):
         ctapp.extract_docx_text(_docx_bytes(huge_repetitive_xml))
+
+
+# reviews/CODEX_REVIEW_8.md M-9: the no-DTD rule holds whatever the XML
+# encoding, not only for ASCII-compatible bytes.
+import io as _io
+import zipfile as _zipfile
+
+import pytest as _pytest
+
+from http_utils import extract_docx_text as _extract
+
+_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _docx(xml_bytes: bytes) -> bytes:
+    buffer = _io.BytesIO()
+    with _zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("word/document.xml", xml_bytes)
+    return buffer.getvalue()
+
+
+_BODY = f'<w:document xmlns:w="{_W}"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>'
+
+
+@_pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "utf-16-le", "utf-16-be"])
+def test_ordinary_document_reads_in_each_encoding(encoding):
+    declared = "UTF-16" if encoding.startswith("utf-16") else "UTF-8"
+    xml = f'<?xml version="1.0" encoding="{declared}"?>{_BODY}'
+    data = xml.encode(encoding)
+    if encoding in ("utf-16-le", "utf-16-be"):
+        data = ("﻿" + xml).encode(encoding)
+    assert "Hello" in _extract(_docx(data))
+
+
+def test_utf16_doctype_is_rejected_at_the_parser():
+    xml = (
+        '<?xml version="1.0" encoding="UTF-16"?>'
+        '<!DOCTYPE d [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;">]>'
+        f'<w:document xmlns:w="{_W}"><w:body><w:p><w:r><w:t>&b;</w:t></w:r></w:p></w:body></w:document>'
+    )
+    data = xml.encode("utf-16")
+    assert b"<!DOCTYPE" not in data  # the byte search alone can't see it
+    with _pytest.raises(RuntimeError, match="not a readable DOCX"):
+        _extract(_docx(data))

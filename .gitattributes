@@ -14,6 +14,7 @@ tests/ export-ignore
 xls_conversion/tests/ export-ignore
 profiles/worksheets/ export-ignore
 reviews/ export-ignore
+/CODEX_REVIEW*.md export-ignore
 install-mac.sh export-ignore
 mac/ export-ignore
 requirements-dev.txt export-ignore

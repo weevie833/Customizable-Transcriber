@@ -272,6 +272,12 @@
     "This label doesn't appear in the results table (the corrected file is the yardstick every row is measured against, not a row itself) — it's carried into the downloadable report so the ground truth used is easy to identify later.":
       "Questa etichetta non compare nella tabella dei risultati (il file corretto è il metro di paragone rispetto a cui ogni riga viene misurata, non è una riga essa stessa) — viene riportata nel report scaricabile in modo da poter identificare facilmente in seguito i dati di riferimento usati.",
     "Run Comparison": "Esegui confronto",
+    "Candidate": "Candidato",
+    "Matched": "Abbinate",
+    "Matched by order only (part of Matched)": "Abbinate solo per ordine (incluse in Abbinate)",
+    "Missing from candidate": "Mancanti nel candidato",
+    "Extra in candidate": "In più nel candidato",
+    "Order-only matches are already counted in Matched -- don't add them again.": "Gli abbinamenti solo per ordine sono già contati in Abbinate: non sommarli di nuovo.",
     "Compare each transcript against a fully corrected version of the same content. Results show different types of error rates.":
       "Confronta ogni trascrizione con una versione completamente corretta dello stesso contenuto. I risultati mostrano diversi tipi di tassi di errore.",
     "Download Comparison Report": "Scarica il report di confronto",

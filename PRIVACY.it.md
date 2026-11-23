@@ -80,11 +80,22 @@ IP. Per disattivarlo, avvia l'app con la variabile d'ambiente
 `CT_NO_UPDATE_CHECK=1`.
 
 **Gestione della chiave API** (verificata nell'audit di preparazione alla
-produzione di questo progetto): le chiavi vengono mantenute solo in memoria
-per la durata della richiesta che le utilizza. Non vengono mai scritte in
-alcun file, non vengono mai registrate nei log e non vengono mai trasmesse
-altrove se non all'endpoint API del singolo fornitore di IA che stai
-utilizzando in quel momento.
+produzione di questo progetto): se incolli la chiave nel browser a ogni
+esecuzione (l'opzione predefinita), l'app la mantiene solo in memoria per la
+durata della richiesta che la utilizza. Non la scrive mai in alcun file, non
+la registra mai nei log e non la trasmette mai altrove se non all'endpoint
+API del singolo fornitore di IA che stai utilizzando in quel momento.
+
+Il README descrive anche un'opzione facoltativa: salvare tu stesso la chiave
+in un file `.env` nella cartella dei dati dell'app (così gli aggiornamenti non
+lo cancellano), che l'app legge automaticamente. **Vale solo per gli strumenti
+rapidi su una singola immagine** (Preflight Test di Prompt Builder, Detect
+Languages di XLS Conversion): gli strumenti batch (Trascrivi, Test Mode,
+Parse/Preflight di XLS Conversion) richiedono sempre di incollare la chiave.
+In quel file la chiave è in chiaro sul tuo computer, protetta solo dai normali
+permessi dei file. L'app non vi scrive mai una chiave; l'unica cosa che fa da
+sola è copiare un `.env` lasciato nella cartella dell'app da una
+configurazione precedente nella cartella dei dati, leggibile solo da te.
 
 ## Se i tuoi registri riguardano persone viventi
 

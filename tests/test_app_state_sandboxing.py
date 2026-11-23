@@ -112,3 +112,20 @@ def test_surface_stale_off_peak_job_does_nothing_when_no_job_is_stale(sandboxed_
     with app_state.lock:
         assert app_state.state["log"] == []
         assert app_state.state["summary"] == ""
+
+
+# reviews/CODEX_REVIEW_8.md L-2: valid JSON of the wrong shape, or invalid
+# UTF-8, must not break load/save/clear.
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("content", [b"[]", b"null", b'"x"', b'{"source_folder": 5}', b"\xff\xfe{"])
+def test_wrong_shaped_settings_file_recovers(sandboxed_user_data, tmp_path, content):
+    app_state.APP_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    app_state.APP_SETTINGS_FILE.write_bytes(content)
+    assert app_state.load_source_folder() is None
+    app_state.save_source_folder(tmp_path)
+    assert app_state.load_source_folder() == tmp_path
+    app_state.APP_SETTINGS_FILE.write_bytes(content)
+    app_state.clear_source_folder()
+    assert app_state.load_source_folder() is None

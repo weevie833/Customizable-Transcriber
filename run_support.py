@@ -23,6 +23,7 @@ boundary).
 
 from __future__ import annotations
 
+import copy
 import re
 import secrets
 import zipfile
@@ -52,18 +53,20 @@ from customizable_transcriber.core import (
     default_output_file,
     extensions_for_file_type,
     humanize_provider_error,
+    incomplete_summary_suffix,
     provider_for_model,
     run_batch,
     source_files,
     validate_api_key_with_retry,
+    validate_batch_source_file,
 )
 from docx_package import content_types_xml, root_rels_xml, strip_xml_illegal_chars
 from http_utils import FormData, pasted_value
 from profiles_store import (
     PROFILES_DIR,
     PROJECT_DIR,
-    find_profile_path,
-    load_profile,
+    load_custom_profiles,
+    load_profile_exact,
     safe_filename,
     save_custom_profile,
     update_profile,
@@ -198,7 +201,15 @@ def page_zoom_advice(
         return ""
     try:
         sample = source_files(source_folder, extensions_for_file_type(file_type))[:PAGE_ZOOM_SAMPLE_SIZE]
-        infos = [page_zoom.analyze_file(path) for path in sample]
+        infos = []
+        for path in sample:
+            # The same admission checks as the batch (no symlinks, per-file
+            # size cap) before Pillow opens anything (reviews/CODEX_REVIEW_8.md M-8).
+            try:
+                validate_batch_source_file(path, source_folder)
+            except (RuntimeError, OSError):
+                continue
+            infos.append(page_zoom.analyze_file(path))
     except Exception:
         return ""  # informational only; the run itself reports real problems
     if not infos:
@@ -293,9 +304,18 @@ def selected_profile_id(form: FormData) -> str:
     profile_id = form.getfirst("profile_id", "") or ""
     if not profile_id:
         raise RuntimeError("Select a prompt profile before running transcription.")
-    if find_profile_path(profile_id) is not None:
+    # Exact match among profiles that actually load, not mere file existence:
+    # a file the loader skips (unreadable, or legacy) must not pass here and
+    # then fall back to some other profile (reviews/CODEX_REVIEW_8.md M-13).
+    if any(profile["id"] == profile_id for profile in load_custom_profiles()):
         return profile_id
     raise RuntimeError("Select a valid prompt profile before running transcription.")
+
+
+def approved_profile(form: FormData, profile: dict | None) -> dict:
+    """A private copy of the profile the handler approved; resolve from the
+    form only when a caller passed none (CODEX_REVIEW_2.md N-3)."""
+    return copy.deepcopy(profile) if profile is not None else resolve_profile_for_run(form)
 
 
 def resolve_profile_for_run(form: FormData) -> dict[str, str]:
@@ -323,7 +343,7 @@ def resolve_profile_for_run(form: FormData) -> dict[str, str]:
             output_format,
         )
 
-    return load_profile(profile_id)
+    return load_profile_exact(profile_id)
 
 
 def default_custom_output_format(tool: str) -> str:
@@ -695,18 +715,52 @@ def write_docx(
         output.writestr("word/document.xml", document_xml(text, header_box, compact=compact))
 
 
-def run_job(form: FormData, output_file: Path) -> None:
+RESOLVED_SOURCE_FOLDER_FIELD = "_resolved_source_folder"
+
+
+def bind_source_folder(form: FormData) -> Path:
+    """Check the folder the submitting page showed (its hidden source_folder
+    field) against the saved setting, and pin the result on the form so the
+    worker uses exactly this folder. A second tab can change the shared
+    setting between page load and Run; without this the run would upload the
+    other tab's folder (reviews/CODEX_REVIEW_8.md H-2)."""
+    current = load_source_folder()
+    if current is None:
+        raise RuntimeError("Choose a source folder before running.")
+    submitted = (form.getfirst("source_folder", "") or "").strip()
+    if not submitted or Path(submitted) != current:
+        shown = submitted or "no folder"
+        raise RuntimeError(
+            f"The source folder changed after this page was loaded (the page showed {shown}; "
+            f"the saved folder is now {current}), probably in another tab. Reload the page, "
+            "check the folder, and run again."
+        )
+    form.setfirst(RESOLVED_SOURCE_FOLDER_FIELD, str(current))
+    return current
+
+
+def resolved_source_folder(form: FormData) -> Path | None:
+    """The folder bind_source_folder() pinned for this run. Falls back to the
+    saved setting only for callers that never went through a handler."""
+    pinned = (form.getfirst(RESOLVED_SOURCE_FOLDER_FIELD, "") or "").strip()
+    return Path(pinned) if pinned else load_source_folder()
+
+
+def run_job(form: FormData, output_file: Path, profile: dict | None = None) -> None:
+    """profile: the profile the handler validated and the user confirmed. The
+    worker uses that snapshot, never the saved file again, so an edit made
+    after Run can't change this run's prompt (CODEX_REVIEW_2.md N-3)."""
     # Defaulted before the try so the except block below always has some
     # value to name in a humanize_provider_error() message, even if the real
     # selected_model(form) call below is itself what raised.
     model = DEFAULT_MODEL
     try:
         model = selected_model(form)
-        image_folder = load_source_folder()
+        image_folder = resolved_source_folder(form)
         file_type = selected_file_type(form)
         markdown_file = USER_OUTPUTS_DIR / f"{output_file.stem}.md"
         delay = 2.0
-        profile = resolve_profile_for_run(form)
+        profile = approved_profile(form, profile)
         system_prompt = build_system_prompt(
             tool="generic",
             profile=profile,
@@ -763,9 +817,14 @@ def run_job(form: FormData, output_file: Path) -> None:
         failures = count_failures(results)
         with lock:
             if stop_event.is_set():
-                state["summary"] = f"Stopped after {len(results)} image(s), {failures} failure(s)."
+                state["summary"] = (
+                    f"Stopped after {len(results)} image(s), {failures} failure(s)"
+                    f"{incomplete_summary_suffix(results)}."
+                )
             else:
-                state["summary"] = f"Processed {len(results)} image(s), {failures} failure(s)."
+                state["summary"] = (
+                    f"Processed {len(results)} image(s), {failures} failure(s){incomplete_summary_suffix(results)}."
+                )
             state["download"] = str(output_file) if output_file.exists() else ""
     except Exception as exc:
         message = humanize_provider_error(exc, model)
@@ -780,6 +839,7 @@ def run_job(form: FormData, output_file: Path) -> None:
 def run_test_job(
     form: FormData,
     run_specs: list[tuple[str, str, str, str, Path, Path]],
+    profile: dict | None = None,
 ) -> None:
     """Run every queued (batch, model) pair's full image batch, one after another.
 
@@ -809,9 +869,9 @@ def run_test_job(
     model = DEFAULT_MODEL
     failed_run_ids: set[str] = set()
     try:
-        image_folder = load_source_folder()
+        image_folder = resolved_source_folder(form)
         file_type = selected_file_type(form)
-        profile = resolve_profile_for_run(form)
+        profile = approved_profile(form, profile)
         system_prompt = build_system_prompt(tool="generic", profile=profile)
         if profile.get("kind") == "custom":
             add_test_log(f"Using custom prompt profile: {profile['label']}")
@@ -878,11 +938,13 @@ def run_test_job(
                     if run_state is not None:
                         if test_stop_event.is_set():
                             run_state["summary"] = (
-                                f"Stopped after {len(results)} image(s), {failures} failure(s)."
+                                f"Stopped after {len(results)} image(s), {failures} failure(s)"
+                                f"{incomplete_summary_suffix(results)}."
                             )
                         else:
                             run_state["summary"] = (
-                                f"Processed {len(results)} image(s), {failures} failure(s)."
+                                f"Processed {len(results)} image(s), {failures} failure(s)"
+                                f"{incomplete_summary_suffix(results)}."
                             )
                         run_state["download"] = str(output_file) if output_file.exists() else ""
                         run_state["markdown"] = str(markdown_file) if markdown_file.exists() else ""

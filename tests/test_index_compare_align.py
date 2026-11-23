@@ -49,9 +49,12 @@ def test_missing_and_extra_rows_are_reported_not_dropped_or_misaligned():
     assert result.extra_in_candidate[0]["groom_given_name"] == "Someone Else"
 
 
-def test_blank_and_illegible_locators_fall_back_to_positional_matching():
-    truth = [_row("", "Giuseppe"), _row("[illegible]", "Marco")]
-    candidate = [_row("", "Giuseppe-AI"), _row("", "Marco-AI")]
+def test_blank_and_illegible_locators_pair_by_corroborated_name():
+    # Blank and "[illegible]" locators share the no-locator bucket, where rows
+    # pair by name only -- and, since CODEX_REVIEW_2.md M-15 / HD-1, only when
+    # both rows give a surname or a year (here: a surname).
+    truth = [dict(_row("", "Giuseppe"), groom_last_name="Rossi"), dict(_row("[illegible]", "Marco"), groom_last_name="Bianchi")]
+    candidate = [dict(_row("", "Giuseppe-AI"), groom_last_name="Rossi"), dict(_row("", "Marco-AI"), groom_last_name="Bianchi")]
     result = align_rows(truth, candidate, MATRIMONI)
     assert len(result.matched) == 2
     assert result.matched[0][0]["groom_given_name"] == "Giuseppe"
@@ -72,8 +75,8 @@ def test_leading_zeros_do_not_prevent_a_locator_match():
 def test_unlocated_rows_never_collide_with_a_real_locator_value():
     # A blank locator must not accidentally key the same as a real page "0"
     # or an empty-string page value some other file might legitimately use.
-    truth = [_row("", "Blank Page Entry"), _row("0", "Page Zero Entry")]
-    candidate = [_row("", "Blank Page Entry"), _row("0", "Page Zero Entry")]
+    truth = [dict(_row("", "Blank Page Entry"), groom_last_name="Rossi"), _row("0", "Page Zero Entry")]
+    candidate = [dict(_row("", "Blank Page Entry"), groom_last_name="Rossi"), _row("0", "Page Zero Entry")]
     result = align_rows(truth, candidate, MATRIMONI)
     assert len(result.matched) == 2
     names = {t["groom_given_name"] for t, _ in result.matched}
@@ -185,3 +188,133 @@ def test_locator_matches_take_priority_over_identity_fallback():
     assert len(result.matched) == 1
     assert result.matched[0][0] is truth[0]
     assert result.matched[0][1] is candidate[0]
+
+
+# reviews/CODEX_REVIEW_8.md M-7: name matching has an overall budget,
+# charged before any comparison runs.
+import pytest as _pytest
+
+import index_compare.align as _align
+
+
+def test_pair_budget_rejects_oversized_alignment(monkeypatch):
+    monkeypatch.setattr(_align, "MAX_IDENTITY_PAIR_VISITS", 10)
+    calls = []
+    monkeypatch.setattr(_align.fuzz, "ratio", lambda a, b: calls.append(1) or 0)
+    truth = [_row("", f"Name{i}") for i in range(5)]
+    candidate = [_row("", f"Other{i}") for i in range(5)]
+    with _pytest.raises(_align.AlignmentTooLargeError, match="too large"):
+        align_rows(truth, candidate, MATRIMONI)
+    assert calls == []  # refused before doing the work
+
+
+def test_pair_budget_allows_small_alignment(monkeypatch):
+    monkeypatch.setattr(_align, "MAX_IDENTITY_PAIR_VISITS", 100)
+    truth = [dict(_row("", f"Name{i}"), groom_last_name="Rossi") for i in range(5)]
+    result = align_rows(truth, list(truth), MATRIMONI)
+    assert len(result.matched) == 5
+
+
+def test_year_partition_skips_cross_year_visits(monkeypatch):
+    calls = []
+    real_ratio = _align.fuzz.ratio
+    monkeypatch.setattr(_align.fuzz, "ratio", lambda a, b: calls.append(1) or real_ratio(a, b))
+    year_field = _align.identity_fields(MATRIMONI)[2]
+    truth = [{"page_number": "", "groom_given_name": "Giuseppe", year_field: "1800"}]
+    candidate = [{"page_number": "", "groom_given_name": "Giuseppe", year_field: str(1801 + i)} for i in range(50)]
+    align_rows(truth, candidate, MATRIMONI)
+    assert calls == []
+
+
+# reviews/CODEX_REVIEW_8.md M-15 / HD-1 (maintainer chose option 3): rows with
+# no page/act number pair by name (and year) only, never by order; pairs made
+# by order within one page are counted so the report can show them.
+
+def _unlocated(given: str, last: str, year: str) -> dict[str, str]:
+    return {"page_number": "", "groom_given_name": given, "groom_last_name": last, "marriage_year": year}
+
+
+def test_unlocated_rows_with_conflicting_identity_are_not_paired_by_order():
+    truth = [_unlocated("Paolo", "Rossi", "1800")]
+    candidate = [_unlocated("Anne", "Smith", "1900")]
+    result = align_rows(truth, candidate, MATRIMONI)
+    assert result.matched == []
+    assert len(result.missing_from_candidate) == 1
+    assert len(result.extra_in_candidate) == 1
+    assert result.position_only_pairs == 0
+
+
+def test_unlocated_shifted_rows_still_pair_by_identity():
+    truth = [_unlocated("Paolo", "Rossi", "1800"), _unlocated("Maria", "Bruno", "1801")]
+    candidate = [_unlocated("Maria", "Bruno", "1801"), _unlocated("Paolo", "Rossi", "1800")]
+    result = align_rows(truth, candidate, MATRIMONI)
+    pairs = {(t["groom_last_name"], c["groom_last_name"]) for t, c in result.matched}
+    assert pairs == {("Rossi", "Rossi"), ("Bruno", "Bruno")}
+    assert result.position_only_pairs == 0
+
+
+def test_same_page_order_fallback_is_kept_and_counted():
+    truth = [_row("34", "Giuseppe")]
+    candidate = [_row("34", "Zzyzx")]  # badly misread name on the same page
+    result = align_rows(truth, candidate, MATRIMONI)
+    assert len(result.matched) == 1
+    assert result.position_only_pairs == 1
+
+
+# CODEX_REVIEW_2.md M-15 / HD-1 (maintainer: a lone given name is not
+# identity evidence for rows with no page or act number).
+
+def test_unlocated_given_name_only_rows_stay_missing_and_extra():
+    truth = [_unlocated("Paolo", "", "")]
+    candidate = [_unlocated("Paolo", "", "")]
+    result = align_rows(truth, candidate, MATRIMONI)
+    assert result.matched == []
+    assert len(result.missing_from_candidate) == 1 and len(result.extra_in_candidate) == 1
+
+
+def test_unlocated_given_name_with_matching_year_pairs():
+    result = align_rows([_unlocated("Paolo", "", "1800")], [_unlocated("Paolo", "", "1800")], MATRIMONI)
+    assert len(result.matched) == 1 and result.position_only_pairs == 0
+
+
+def test_unlocated_full_name_without_year_pairs():
+    result = align_rows([_unlocated("Paolo", "Rossi", "")], [_unlocated("Paolo", "Rossi", "")], MATRIMONI)
+    assert len(result.matched) == 1
+
+
+def test_located_given_name_only_still_pairs_on_same_page():
+    truth = [{"page_number": "4", "groom_given_name": "Paolo", "groom_last_name": "", "marriage_year": ""}]
+    candidate = [dict(truth[0])]
+    assert len(align_rows(truth, candidate, MATRIMONI).matched) == 1
+
+
+def test_cross_page_fallback_needs_more_than_a_given_name():
+    truth = [{"page_number": "4", "groom_given_name": "Paolo", "groom_last_name": "", "marriage_year": ""}]
+    candidate = [{"page_number": "9", "groom_given_name": "Paolo", "groom_last_name": "", "marriage_year": ""}]
+    result = align_rows(truth, candidate, MATRIMONI)
+    assert result.matched == []
+
+
+# CODEX_REVIEW_2.md M-7: the budget is charged from integer counts, row by
+# row, and the comparison is refused before any candidate list is copied
+# or any name compared.
+
+def test_budget_rejection_does_no_list_copies_or_comparisons(monkeypatch):
+    monkeypatch.setattr(_align, "MAX_IDENTITY_PAIR_VISITS", 50)
+    compared = {"n": 0}
+    monkeypatch.setattr(_align.fuzz, "ratio", lambda a, b: compared.__setitem__("n", compared["n"] + 1) or 0)
+    spends: list[int] = []
+    real_spend = _align._PairBudget.spend
+
+    def counting_spend(self, visits):
+        spends.append(visits)
+        real_spend(self, visits)
+
+    monkeypatch.setattr(_align._PairBudget, "spend", counting_spend)
+    truth = [_unlocated(f"Name{i}", "Rossi", "1800") for i in range(1000)]
+    candidate = [_unlocated(f"Name{i}", "Rossi", "1800") for i in range(1000)]
+    with _pytest.raises(_align.AlignmentTooLargeError):
+        align_rows(truth, candidate, MATRIMONI)
+    assert compared["n"] == 0
+    # Stopped at the first truth row that exceeded the budget, not after all 1000.
+    assert len(spends) == 1 and spends[0] == 1000

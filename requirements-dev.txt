@@ -9,7 +9,7 @@
 # /tmp/pytest-of-{user} tmpdir handling on UNIX, fixed in 9.0.3). Pinned to
 # the current latest rather than exactly 9.0.3 since there's no reason to
 # stop one patch release short of it.
-pytest==9.1.1
+pytest==9.2.0
 # CI tooling (.github/workflows/tests.yml's lint/dependency-audit jobs)
 # used to `pip install ruff`/`pip install pip-audit` with no version pin at
 # all -- an unreviewed executable landing in CI on every run, the exact

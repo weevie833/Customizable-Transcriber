@@ -430,11 +430,15 @@ def test_setup_instructions_install_the_tested_lock():
     import re
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    installs = {name.rstrip("`)") for name in re.findall(r"pip install -r\s+(\S+)", readme)}
-    # requirements-dev.txt (developer tooling) itself pulls in the lock, below.
+    installs = {name.rstrip("`)") for name in re.findall(r"-r\s+(\S+)", readme)}
+    # requirements-dev.txt (developer tooling) is installed alongside the lock.
     assert installs - {"requirements-dev.txt"} == {"requirements.lock"}
+    assert "pip install -r requirements.lock -r requirements-dev.txt" in readme
+    # No includes in the dev file: Dependabot can't follow one to requirements.lock.
     dev = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
-    assert "-r requirements.lock" in dev and "-r requirements.txt" not in dev
+    assert not [line for line in dev if line.startswith("-r")]
+    workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    assert workflow.count("pip install -r requirements.lock -r requirements-dev.txt") == 2
 
 
 # CODEX_REVIEW_2.md L-1: the signed app's shell launcher applies the same

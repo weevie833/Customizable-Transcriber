@@ -1,9 +1,10 @@
 # Development/test-only dependencies -- not needed to run the app itself.
-# Install with: pip install -r requirements-dev.txt
-# Pulls in requirements.lock (the exact runtime set users install), not
-# requirements.txt, so CI tests the same versions the manual setup and the
-# installers use (CODEX_REVIEW_2.md M-14).
--r requirements.lock
+# Install with: pip install -r requirements.lock -r requirements-dev.txt
+# The runtime set comes from requirements.lock (the exact set users install),
+# so tests run against the same versions as the manual setup and the
+# installers (CODEX_REVIEW_2.md M-14). It is installed alongside this file,
+# not pulled in with "-r": Dependabot only reads requirements*.txt files and
+# fails on an include of requirements.lock.
 # 8.3.4 was affected by PYSEC-2026-1845 / CVE-2025-71176 (insecure
 # /tmp/pytest-of-{user} tmpdir handling on UNIX, fixed in 9.0.3). Pinned to
 # the current latest rather than exactly 9.0.3 since there's no reason to

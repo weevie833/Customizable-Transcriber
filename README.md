@@ -358,7 +358,7 @@ parsing rules — the "why," not just the "what."
 Only needed for development, not for regular use of the app.
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements.lock -r requirements-dev.txt
 python3 -m pytest tests/
 ```
 

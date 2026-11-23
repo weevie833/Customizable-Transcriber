@@ -232,6 +232,8 @@ if not exist "%BUILD_MARKER%" goto begin_write
 copy /y "%BUILD_MARKER%" "%BUILD_MARKER%.old" >nul
 if errorlevel 1 exit /b 1
 :begin_write
+rem A successful redirect leaves ERRORLEVEL as it was (often 1 from the fc compare that
+rem started this update), so check that the marker exists instead.
 (echo %~1)>"%PENDING%"
-if errorlevel 1 exit /b 1
+if not exist "%PENDING%" exit /b 1
 exit /b 0

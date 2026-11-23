@@ -17,5 +17,5 @@ pytest==9.2.0
 # every other dev/test dependency. Pinned here to the current latest
 # release of each (confirmed via `pip index versions`) and installed from
 # this file instead. See reviews/CODEX_REVIEW_2.md finding L-5.
-ruff==0.16.7
+ruff==0.17.6
 pip-audit==2.10.1

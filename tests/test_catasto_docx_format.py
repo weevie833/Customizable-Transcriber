@@ -29,6 +29,12 @@ Gius.e fllo brac.te an: 24.
 = Testa di Ant.o — 1.
 
 abita in Casa propria =
+
+--- START OF RECORD: Lappano_008.png —
+
+Italian Transcription:
+
+D. O. M.
 """
 
 
@@ -52,6 +58,7 @@ def test_catasto_docx_spaces_groups_and_bolds_labels(tmp_path):
     assert len(body) == len(paras) - 1  # only the spacer after the header box is empty
     by_text = {text: (after, bold) for text, after, bold in body}
     assert by_text["--- START OF RECORD: Lappano_007.png ---"] == ("240", True)
+    assert by_text["--- START OF RECORD: Lappano_008.png —"][1] is True  # autocorrected ending
     assert by_text["Italian Transcription:"] == ("240", True)
     assert by_text["Ant.o Bafaro brac.te, anni 28."] == ("0", False)  # household lines run on
     assert by_text["Gius.e fllo brac.te an: 24."] == ("240", False)

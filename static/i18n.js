@@ -770,8 +770,8 @@
       "Scorri fino alla Console di avanzamento. Scarica documento fornisce la trascrizione tradotta; Scarica il rapporto di traduzione elenca ciò che è stato tradotto.",
     "Choose English, Italian, or both.": "Scegli Inglese, Italiano o entrambi.",
     "The selected prompt profile was not found.": "Il profilo del prompt selezionato non è stato trovato.",
-    "No \"--- START OF RECORD: ... ---\" lines were found. Upload a transcript produced by the Transcribe page.":
-      "Non è stata trovata alcuna riga \"--- START OF RECORD: ... ---\". Carica una trascrizione prodotta dalla pagina Trascrivi.",
+    "No \"START OF RECORD:\" lines were found. Upload a transcript produced by the Transcribe page.":
+      "Non è stata trovata alcuna riga \"START OF RECORD:\". Carica una trascrizione prodotta dalla pagina Trascrivi.",
     "No transcription blocks were found (lines such as \"Latin Transcription:\" or \"Trascrizione in Latino:\").":
       "Non è stato trovato alcun blocco di trascrizione (righe come \"Latin Transcription:\" o \"Trascrizione in Latino:\").",
     "Every entry already has the selected translation(s). There is nothing to translate.":

@@ -93,7 +93,11 @@ _FROM_ITALIAN_NAMES = {value.casefold(): key for key, value in ITALIAN_LANGUAGE_
 # 3,542 saved ones was about 3,400 characters.
 MAX_SOURCE_CHARS_PER_CALL = 6000
 
-_RECORD_RE = re.compile(r"^\s*-{3,}\s*START OF RECORD:\s*(?P<name>.+?)\s*-{3,}\s*$", re.IGNORECASE)
+# The record line, matched on "START OF RECORD:" alone. Word's autocorrect can
+# turn either run of "---" into an en or em dash (a corrected Lappano Catasto
+# transcript had two lines ending "... .png —", which merged three images), so
+# any dashes, or none, are accepted around it and stripped from the name.
+_RECORD_RE = re.compile(r"^\s*[-\u2013\u2014]*\s*START OF RECORD:\s*(?P<name>.+?)[\s\-\u2013\u2014]*$", re.IGNORECASE)
 # A locator line on its own: "Page 34 - Entry 1:", "Page 34:", "Act 17:",
 # "Entry 3:". Mirrors _ENTRY_LOCATOR_LINE_RE in xls_conversion/ai_parser.py.
 _LOCATOR_RE = re.compile(
@@ -460,7 +464,7 @@ def build_plan(text: str, profile_id: str, languages: list[str], options: Transl
             )
     if not parsed.records:
         errors.append(
-            'No "--- START OF RECORD: ... ---" lines were found. Upload a transcript produced by the Transcribe page.'
+            'No "START OF RECORD:" lines were found. Upload a transcript produced by the Transcribe page.'
         )
     elif not parsed.entries:
         errors.append(

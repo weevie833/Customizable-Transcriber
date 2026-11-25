@@ -625,3 +625,33 @@ def test_duplicate_response_identity_is_a_failure(monkeypatch):
     done, _, failed = tt._translate_chunk(chunk, plan, "k", "gemini-3.1-pro-preview", "sys", None, False)
     assert target in failed and "more than once" in failed[target]
     assert done == {chunk[1].entry_id: {"English": "C"}}
+
+
+# Word's autocorrect turned record lines' "---" into dashes in a real corrected
+# Lappano Catasto transcript; the closing "---" was required, so three images
+# were read as one and each translation landed after the next record line.
+AUTOCORRECTED_RECORD_LINES = """--- START OF RECORD: Lappano_002.png ---
+
+Italian Transcription:
+
+Lappano Cal.a Citra
+
+--- START OF RECORD: Lappano_003.png —
+
+Italian Transcription:
+
+Catasto Gen.le
+
+– START OF RECORD: Lappano_004.png
+
+Italian Transcription:
+
+D. O. M.
+"""
+
+
+def test_record_lines_match_without_the_closing_dashes():
+    parsed = tt.parse_transcript(AUTOCORRECTED_RECORD_LINES)
+    assert [record.name for record in parsed.records] == ["Lappano_002.png", "Lappano_003.png", "Lappano_004.png"]
+    assert [len(record.entries) for record in parsed.records] == [1, 1, 1]
+    assert "START OF RECORD" not in parsed.records[0].entries[0].transcription.text

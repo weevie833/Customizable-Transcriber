@@ -482,7 +482,7 @@ def build_system_prompt(tool: str, profile: dict[str, str]) -> str:
 # transcription or translation label standing alone on its line (English or
 # Italian form). A label followed by text on the same line stays plain.
 _BOLD_LINE_RE = re.compile(
-    r"^\s*(?:---\s*START OF RECORD\b.*---"
+    r"^\s*(?:[-\u2013\u2014]*\s*START OF RECORD:.*"
     r"|[A-Za-z][A-Za-z ]*?\s(?:Transcription|Translation)\s*:"
     r"|(?:Trascrizione|Traduzione)\s+in\s+[^:]+:)\s*$",
     re.IGNORECASE,

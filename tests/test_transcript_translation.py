@@ -270,6 +270,23 @@ def test_chunk_failures_are_reported_and_truncation_splits(monkeypatch):
     assert failed == {"2/Nati_003.jpg#2": "The AI response left this entry out."}
 
 
+def test_report_says_why_a_reply_could_not_be_used(monkeypatch):
+    # A complete reply that isn't valid JSON used to show only "An unexpected
+    # error stopped this image (RuntimeError)" in the report.
+    from xls_conversion.ai_parser import _parse_json_response
+
+    _use_profiles(monkeypatch, _profile())
+    plan = tt.build_plan(NATI, "napoli-nati", ["English"])
+    chunk = [e for e in plan.parsed.entries if e.record == "Nati_002.jpg"]
+
+    def fake_call(*args):
+        return _parse_json_response('{"entries": [{"id": "x", ')
+
+    monkeypatch.setattr(tt, "call_ai_json", fake_call)
+    _done, _cwr, failed = tt._translate_chunk(chunk, plan, "key", "gemini-3.1-pro-preview", "prompt", None, False)
+    assert failed and set(failed.values()) == {"The AI response was not valid JSON."}
+
+
 def test_chunks_never_cross_images(monkeypatch):
     _use_profiles(monkeypatch, _profile())
     plan = tt.build_plan(NATI, "napoli-nati", ["English"])
@@ -655,3 +672,83 @@ def test_record_lines_match_without_the_closing_dashes():
     assert [record.name for record in parsed.records] == ["Lappano_002.png", "Lappano_003.png", "Lappano_004.png"]
     assert [len(record.entries) for record in parsed.records] == [1, 1, 1]
     assert "START OF RECORD" not in parsed.records[0].entries[0].transcription.text
+
+
+def test_progress_line_says_what_each_request_covers(monkeypatch):
+    # "[1/87] ..., entry 1" read as if only the first entry was translated.
+    _use_profiles(monkeypatch, _profile())
+    plan = tt.build_plan(NATI, "napoli-nati", ["English"])
+    one, fragment, second = plan.parsed.entries
+    assert tt.progress_span([one], plan) == "its only entry"
+    assert tt.progress_span([fragment, second], plan) == "all 2 entries"
+    assert tt.progress_span([second], plan) == "entry 2 of 2"
+    plan.line_structure = True  # Catasto: one request per page, translated whole
+    assert tt.progress_span([one], plan) == "whole page"
+
+
+def _run_with(monkeypatch, fake_call):
+    _use_profiles(monkeypatch, _profile())
+    monkeypatch.setattr(tt, "validate_api_key_with_retry", lambda *a, **k: None)
+    monkeypatch.setattr(tt, "create_gemini_prompt_cache", lambda *a, **k: None)
+    monkeypatch.setattr(tt, "RETRY_PASS_DELAY_SECONDS", 0)
+    monkeypatch.setattr(tt, "call_ai_json", fake_call)
+    with app_state.lock:
+        app_state.state["running"] = True
+        app_state.state["log"] = []
+    app_state.stop_event.clear()
+    tt.run_translation_job(NATI, "Napoli corrected.docx", "napoli-nati", ["English"], "gemini-3.1-pro-preview", "key")
+    with app_state.lock:
+        return dict(app_state.state), "\n".join(app_state.state["log"])
+
+
+def test_failed_entries_are_retried_at_the_end_of_the_run(monkeypatch, sandboxed_user_data):
+    calls = []
+
+    def fake_call(api_key, model, system_prompt, message, cached, use_cache):
+        ids = [e["id"] for e in json.loads(message)["entries"]]
+        calls.append(ids)
+        if "1/Nati_002.jpg#1" in ids and calls.count(ids) == 1:
+            raise RuntimeError("boom")
+        return {"entries": [{"id": i, "translations": {"English": "T " + i}} for i in ids]}
+
+    state, log = _run_with(monkeypatch, fake_call)
+    assert calls[-1] == ["1/Nati_002.jpg#1"]
+    assert "Retrying 1 entry that failed, in 0 seconds..." in log
+    assert "Retry pass: 1 of 1 now translated." in log
+    assert state["summary"].startswith("Translated 3 of 3 entries") and state["untranslated"] == 0
+    text = extract_docx_text(Path(state["download"]).read_bytes())
+    assert "NOT TRANSLATED" not in text and "English Translation: T 1/Nati_002.jpg#1" in text
+
+
+def test_entry_that_fails_twice_is_marked_in_the_document(monkeypatch, sandboxed_user_data):
+    def fake_call(api_key, model, system_prompt, message, cached, use_cache):
+        ids = [e["id"] for e in json.loads(message)["entries"]]
+        return {"entries": [{"id": i, "translations": {"English": "T " + i}} for i in ids if not i.endswith("003.jpg#2")]}
+
+    state, log = _run_with(monkeypatch, fake_call)
+    assert "Still a problem with" in log
+    assert state["untranslated"] == 1 and state["untranslated_unit"] == "entries"
+    text = extract_docx_text(Path(state["download"]).read_bytes())
+    marker = "[NOT TRANSLATED: The AI response left this entry out. Run Translate again on this file to retry.]"
+    assert text.count(marker) == 1
+
+    # Re-running on the output: the marker isn't sent as text, the entry is
+    # requested again, and a successful translation replaces the marker.
+    plan = tt.build_plan(text, "napoli-nati", ["English"])
+    (entry,) = plan.entries_to_translate
+    assert entry.entry_id.endswith("003.jpg#2") and "NOT TRANSLATED" not in entry.transcription.text
+    fixed = tt.assemble(plan, {entry.entry_id: {"English": "Done."}}, {})
+    assert "NOT TRANSLATED" not in fixed and "English Translation: Done." in fixed
+    # The marker and its blank line go, leaving no extra gap.
+    assert fixed.count("\n\n\n") == text.count("\n\n\n")
+    # Failing again leaves exactly one marker.
+    again = tt.assemble(plan, {}, {}, {entry.entry_id: "The AI response was not valid JSON."})
+    assert again.count("[NOT TRANSLATED:") == 1 and "not valid JSON" in again
+
+
+def test_not_translated_marker_keeps_the_first_sentence():
+    long = '"m" is temporarily unavailable (HTTP 504) -- not your key. It already retried 3 times.'
+    assert tt.not_translated_marker(long) == (
+        '[NOT TRANSLATED: "m" is temporarily unavailable (HTTP 504) -- not your key. '
+        "Run Translate again on this file to retry.]"
+    )

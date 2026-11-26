@@ -943,6 +943,119 @@ def _validate_and_submit(
     return images, names, light_client, heavy_client, job_id
 
 
+def watch_batch(
+    *, provider: str, light_client, job_id: str, model: str, submitted_at: str, total: int, sink,
+):
+    """Poll one submitted batch until it reaches a terminal state, or until a
+    requested cancellation has gone unconfirmed for
+    CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS. Stop (sink.stop_requested())
+    sends a cancel request and keeps polling. Returns (job, cancelled,
+    cancellation_unconfirmed). Shared by the transcription and translation
+    off-peak jobs; raises after sustained poll failures."""
+    submitted_at_iso = submitted_at
+    cancelled = False
+    cancel_requested_at: float | None = None
+    cancellation_unconfirmed = False
+    job = None
+    consecutive_poll_failures = 0
+    last_logged_counts: dict[str, int] | None = None
+    while True:
+        if sink.stop_requested():
+            if not cancelled:
+                cancelled = True
+                cancel_requested_at = time.monotonic()
+                sink.persist(
+                    provider=provider, model=model, job_id=job_id,
+                    submitted_at=submitted_at_iso, status="cancellation_requested",
+                )
+                sink.log(
+                    f"[{_log_timestamp()}] Off-peak batch cancellation requested -- waiting "
+                    "for the provider to confirm before reporting an outcome."
+                )
+            if provider == "claude":
+                cancel_claude_batch(light_client, job_id)
+            else:
+                cancel_gemini_batch(light_client, job_id)
+
+        try:
+            if provider == "claude":
+                job = poll_claude_batch(light_client, job_id)
+                terminal = claude_batch_is_terminal(job)
+                counts = claude_batch_counts(job)
+            else:
+                job = poll_gemini_batch(light_client, job_id)
+                terminal = gemini_batch_is_terminal(job)
+                counts = gemini_batch_counts(job)
+        except Exception as exc:
+            # Deliberately no "if cancelled: treat this as done" shortcut
+            # here (there used to be one) -- see reviews/CODEX_REVIEW.md finding
+            # H-1: a poll failure right after Stop says nothing about
+            # whether the provider actually stopped the job, so it goes
+            # through the exact same bounded transient-retry treatment as
+            # any other poll failure. The cancellation-confirmation
+            # deadline below (checked after a *successful* poll) is what
+            # eventually gives up on a cancellation that truly never
+            # confirms; this path gives up (the same way an uncancelled
+            # run already does) only after sustained, repeated failures.
+            if not _is_transient_poll_error(exc):
+                raise
+            consecutive_poll_failures += 1
+            if consecutive_poll_failures > MAX_CONSECUTIVE_POLL_FAILURES:
+                minutes = consecutive_poll_failures * POLL_INTERVAL_SECONDS // 60
+                cancel_note = (
+                    " You requested cancellation, but this app was never able to confirm it took "
+                    "effect."
+                    if cancelled
+                    else ""
+                )
+                raise RuntimeError(
+                    f"Couldn't check your off-peak batch job's status for about {minutes} minutes "
+                    f"({consecutive_poll_failures} consecutive temporary provider errors) -- "
+                    f"giving up on watching it.{cancel_note} This does NOT necessarily mean the "
+                    f"job itself failed: a status check failing says nothing about the job, which "
+                    f"keeps running on the provider's own servers regardless. Job id: {job_id}. "
+                    "This app has no way to reconnect to an already-submitted job, so check the "
+                    "provider's own console/dashboard for its outcome. "
+                    f"(Last error: {exc})"
+                ) from exc
+            sink.log(
+                f"[{_log_timestamp()}] Off-peak status check failed (transient, "
+                f"{consecutive_poll_failures}/{MAX_CONSECUTIVE_POLL_FAILURES}) -- the batch "
+                f"job itself is unaffected; retrying in {POLL_INTERVAL_SECONDS}s. ({exc})"
+            )
+            time.sleep(POLL_INTERVAL_SECONDS)
+            continue
+
+        consecutive_poll_failures = 0
+        counts["total"] = total
+
+        # Log a line only when the counts actually change, not on
+        # every 30-second poll -- a multi-hour job would otherwise
+        # bury the console in hundreds of identical "no change"
+        # lines. Compared against a copy with "total" removed since
+        # that key never changes and would never let this fire on
+        # its own.
+        counts_text = ", ".join(f"{k} {v}" for k, v in counts.items())
+        comparable_counts = {k: v for k, v in counts.items() if k != "total"}
+        progress_line = None
+        if comparable_counts != last_logged_counts:
+            progress_line = f"[{_log_timestamp()}] Off-peak progress: {counts_text}"
+            last_logged_counts = comparable_counts
+        sink.progress(counts, "Off-peak: " + counts_text, progress_line)
+
+        if terminal:
+            break
+        if (
+            cancelled
+            and cancel_requested_at is not None
+            and time.monotonic() - cancel_requested_at > CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS
+        ):
+            cancellation_unconfirmed = True
+            break
+        time.sleep(POLL_INTERVAL_SECONDS)
+    return job, cancelled, cancellation_unconfirmed
+
+
 def run_off_peak_job(
     *,
     project_dir: Path,
@@ -1022,106 +1135,10 @@ def run_off_peak_job(
             "Processed on the provider's own schedule -- this may take a while.",
         )
 
-        cancelled = False
-        cancel_requested_at: float | None = None
-        cancellation_unconfirmed = False
-        job = None
-        consecutive_poll_failures = 0
-        last_logged_counts: dict[str, int] | None = None
-        while True:
-            if sink.stop_requested():
-                if not cancelled:
-                    cancelled = True
-                    cancel_requested_at = time.monotonic()
-                    sink.persist(
-                        provider=provider, model=model, job_id=job_id,
-                        submitted_at=submitted_at_iso, status="cancellation_requested",
-                    )
-                    sink.log(
-                        f"[{_log_timestamp()}] Off-peak batch cancellation requested -- waiting "
-                        "for the provider to confirm before reporting an outcome."
-                    )
-                if provider == "claude":
-                    cancel_claude_batch(light_client, job_id)
-                else:
-                    cancel_gemini_batch(light_client, job_id)
-
-            try:
-                if provider == "claude":
-                    job = poll_claude_batch(light_client, job_id)
-                    terminal = claude_batch_is_terminal(job)
-                    counts = claude_batch_counts(job)
-                else:
-                    job = poll_gemini_batch(light_client, job_id)
-                    terminal = gemini_batch_is_terminal(job)
-                    counts = gemini_batch_counts(job)
-            except Exception as exc:
-                # Deliberately no "if cancelled: treat this as done" shortcut
-                # here (there used to be one) -- see reviews/CODEX_REVIEW.md finding
-                # H-1: a poll failure right after Stop says nothing about
-                # whether the provider actually stopped the job, so it goes
-                # through the exact same bounded transient-retry treatment as
-                # any other poll failure. The cancellation-confirmation
-                # deadline below (checked after a *successful* poll) is what
-                # eventually gives up on a cancellation that truly never
-                # confirms; this path gives up (the same way an uncancelled
-                # run already does) only after sustained, repeated failures.
-                if not _is_transient_poll_error(exc):
-                    raise
-                consecutive_poll_failures += 1
-                if consecutive_poll_failures > MAX_CONSECUTIVE_POLL_FAILURES:
-                    minutes = consecutive_poll_failures * POLL_INTERVAL_SECONDS // 60
-                    cancel_note = (
-                        " You requested cancellation, but this app was never able to confirm it took "
-                        "effect."
-                        if cancelled
-                        else ""
-                    )
-                    raise RuntimeError(
-                        f"Couldn't check your off-peak batch job's status for about {minutes} minutes "
-                        f"({consecutive_poll_failures} consecutive temporary provider errors) -- "
-                        f"giving up on watching it.{cancel_note} This does NOT necessarily mean the "
-                        f"job itself failed: a status check failing says nothing about the job, which "
-                        f"keeps running on the provider's own servers regardless. Job id: {job_id}. "
-                        "This app has no way to reconnect to an already-submitted job, so check the "
-                        "provider's own console/dashboard for its outcome. "
-                        f"(Last error: {exc})"
-                    ) from exc
-                sink.log(
-                    f"[{_log_timestamp()}] Off-peak status check failed (transient, "
-                    f"{consecutive_poll_failures}/{MAX_CONSECUTIVE_POLL_FAILURES}) -- the batch "
-                    f"job itself is unaffected; retrying in {POLL_INTERVAL_SECONDS}s. ({exc})"
-                )
-                time.sleep(POLL_INTERVAL_SECONDS)
-                continue
-
-            consecutive_poll_failures = 0
-            counts["total"] = len(images)
-
-            # Log a line only when the counts actually change, not on
-            # every 30-second poll -- a multi-hour job would otherwise
-            # bury the console in hundreds of identical "no change"
-            # lines. Compared against a copy with "total" removed since
-            # that key never changes and would never let this fire on
-            # its own.
-            counts_text = ", ".join(f"{k} {v}" for k, v in counts.items())
-            comparable_counts = {k: v for k, v in counts.items() if k != "total"}
-            progress_line = None
-            if comparable_counts != last_logged_counts:
-                progress_line = f"[{_log_timestamp()}] Off-peak progress: {counts_text}"
-                last_logged_counts = comparable_counts
-            sink.progress(counts, "Off-peak: " + counts_text, progress_line)
-
-            if terminal:
-                break
-            if (
-                cancelled
-                and cancel_requested_at is not None
-                and time.monotonic() - cancel_requested_at > CANCELLATION_CONFIRMATION_TIMEOUT_SECONDS
-            ):
-                cancellation_unconfirmed = True
-                break
-            time.sleep(POLL_INTERVAL_SECONDS)
+        job, cancelled, cancellation_unconfirmed = watch_batch(
+            provider=provider, light_client=light_client, job_id=job_id, model=model,
+            submitted_at=submitted_at_iso, total=len(images), sink=sink,
+        )
 
         if cancellation_unconfirmed:
             # Never reached a terminal state within the confirmation window

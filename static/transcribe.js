@@ -31,7 +31,7 @@ exactly where the inline block used to sit. */
       if (reportLink) reportLink.hidden = !status.report;
 
       if (status.completed) {
-        showCompletionAlert(status.report);
+        showCompletionAlert(status.report, status.untranslated || 0, status.untranslated_unit);
       }
 
       if (status.running) {
@@ -58,9 +58,22 @@ exactly where the inline block used to sit. */
       link.tabIndex = available ? 0 : -1;
     }
 
-    function showCompletionAlert(translationReport) {
+    function showCompletionAlert(translationReport, untranslated, unit) {
       if (completionAlertShown) return;
       completionAlertShown = true;
+      if (translationReport && untranslated > 0) {
+        // Assembled from a count: pre-translated through i18n.js's patterns.
+        const translate = window.tbTranslateStatusText || ((text) => text);
+        showSettingsAlert(
+          translate(
+            untranslated === 1
+              ? `1 ${unit === "pages" ? "page" : "entry"} could not be translated. Search the document for NOT TRANSLATED, or see the translation report. Run Translate again on the translated file to retry it.`
+              : `${untranslated} ${unit === "pages" ? "pages" : "entries"} could not be translated. Search the document for NOT TRANSLATED, or see the translation report. Run Translate again on the translated file to retry them.`
+          ),
+          "Translation incomplete"
+        );
+        return;
+      }
       if (translationReport) {
         showSettingsAlert(
           "Scroll down to the Progress Console. Download Document gives the translated transcript; Download Translation Report lists what was translated.",

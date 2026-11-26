@@ -428,3 +428,19 @@ input[type="radio"]:focus-visible {
 .update-banner-command button {
   flex: 0 0 auto;
 }
+/* A file picker that also takes a dragged file (file_picker_html(drop_zone=True);
+   handled in static/app-common.js). */
+.file-picker.drop-zone {
+  padding: 8px 10px;
+  border: 2px dashed #b8b2a5;
+  border-radius: 8px;
+  background: #fbfaf7;
+  min-width: 0;
+}
+.file-picker.drop-zone:hover {
+  border-color: #8a8377;
+}
+.file-picker.drop-zone.drag-over {
+  border-color: #255c99;
+  background: #eaf1f9;
+}

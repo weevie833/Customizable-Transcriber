@@ -153,3 +153,18 @@ def test_realtime_document_drops_unexpected_exception_text(tmp_path, monkeypatch
     ledger = "".join(p.read_text() for p in (tmp_path / "usage").rglob("*") if p.is_file())
     assert "ERROR:" in document and SECRET not in document and SECRET not in ledger
     assert any(SECRET in line for line in logged)
+
+
+def test_gateway_timeout_does_not_call_itself_temporary():
+    from google.genai import errors as genai_errors
+    import transcript_translation as tt
+
+    timeout = genai_errors.APIError(504, {"error": {"code": 504, "message": "Deadline expired", "status": "DEADLINE_EXCEEDED"}})
+    message = core.humanize_provider_error(timeout, "gemini-3.1-pro-preview", include_original=False)
+    assert message.startswith('"gemini-3.1-pro-preview" did not finish in time (HTTP 504')
+    assert "temporarily" not in message and "switch to a different model" in message
+    # The document marker keeps only the first sentence, which still names the timeout.
+    assert "did not finish in time (HTTP 504" in tt.not_translated_marker(message)
+
+    unavailable = genai_errors.APIError(503, {"error": {"code": 503, "message": "Overloaded", "status": "UNAVAILABLE"}})
+    assert "temporarily unavailable" in core.humanize_provider_error(unavailable, "m", include_original=False)

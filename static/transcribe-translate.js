@@ -52,9 +52,15 @@ asks for it or no profile was found. */
     return body;
   }
 
+  function setRunButtons(enabled) {
+    el("translate-run-button").disabled = !enabled;
+    const offPeak = el("translate-run-offpeak-button");
+    if (offPeak) offPeak.disabled = !enabled;
+  }
+
   function resetPreflight() {
     preflightPassed = false;
-    el("translate-run-button").disabled = true;
+    setRunButtons(false);
   }
 
   function addList(container, heading, items, className) {
@@ -123,7 +129,7 @@ asks for it or no profile was found. */
     }
     addList(box, "Warnings:", data.warnings, "translate-warning");
     addList(box, "Your edits, accepted as written:", data.accepted_edits, "");
-    if (data.ok) addLine(box, "Preflight passed. Click Translate to start.");
+    if (data.ok) addLine(box, "Preflight passed. Click Translate, or Translate Off-Peak for roughly half the price.");
     if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
   }
 
@@ -145,7 +151,7 @@ asks for it or no profile was found. */
       const data = await response.json();
       renderPreflight(data);
       preflightPassed = Boolean(data.ok);
-      el("translate-run-button").disabled = !preflightPassed;
+      setRunButtons(preflightPassed);
     } catch (err) {
       renderPreflight({ ok: false, errors: ["The preflight check could not reach the app. Is it still running?"] });
     } finally {
@@ -153,7 +159,7 @@ asks for it or no profile was found. */
     }
   }
 
-  async function runTranslation() {
+  async function runTranslation(offPeak) {
     if (!preflightPassed) {
       showSettingsAlert("Please run the preflight check before translating.");
       return;
@@ -162,14 +168,14 @@ asks for it or no profile was found. */
       showSettingsAlert("Paste your API key in the API key field above.");
       return;
     }
-    const runButton = el("translate-run-button");
-    runButton.disabled = true;
+    setRunButtons(false);
+    const url = offPeak ? "/api/translate-transcript/run-offpeak" : "/api/translate-transcript/run";
     try {
-      const response = await fetch("/api/translate-transcript/run", { method: "POST", body: requestBody() });
+      const response = await fetch(url, { method: "POST", body: requestBody() });
       const data = await response.json();
       if (!response.ok || !data.ok) {
         showSettingsAlert(translateText((data.errors || ["The translation could not start."]).join(" ")));
-        runButton.disabled = false;
+        setRunButtons(true);
         return;
       }
       resetPreflight();
@@ -179,7 +185,7 @@ asks for it or no profile was found. */
       if (progressHeading) progressHeading.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
       showSettingsAlert("The translation could not start.");
-      runButton.disabled = false;
+      setRunButtons(true);
     }
   }
 
@@ -188,7 +194,8 @@ asks for it or no profile was found. */
     if (!form) return;
     form.addEventListener("submit", (event) => event.preventDefault());
     el("translate-preflight-button").addEventListener("click", runPreflight);
-    el("translate-run-button").addEventListener("click", runTranslation);
+    el("translate-run-button").addEventListener("click", () => runTranslation(false));
+    el("translate-run-offpeak-button").addEventListener("click", () => runTranslation(true));
     // Any change to what would be sent means the preflight must run again.
     form.addEventListener("change", (event) => {
       if (event.target.id === "translate-source-file") {

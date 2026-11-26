@@ -19,6 +19,7 @@ from customizable_transcriber.core import (
     MAX_TRANSIENT_RETRIES,
     RETRY_BASE_DELAY_SECONDS,
     RETRY_MAX_DELAY_SECONDS,
+    SafeMessageError,
     _generate_content_with_cache_fallback,
     _is_transient_provider_error,
     claude_system_param,
@@ -39,7 +40,9 @@ AI_REQUEST_TIMEOUT_SECONDS = 90
 
 
 def _timeout_error(elapsed: float) -> RuntimeError:
-    return RuntimeError(
+    # SafeMessageError (a RuntimeError): app-written text, so a saved report
+    # may show it as written instead of a generic sentence.
+    return SafeMessageError(
         f"The AI provider did not respond within {AI_REQUEST_TIMEOUT_SECONDS} seconds "
         f"(waited {elapsed:.0f}s). Try again, or try a different model."
     )
@@ -1092,7 +1095,7 @@ def split_image_blocks(
     )
 
 
-class TruncatedResponseError(RuntimeError):
+class TruncatedResponseError(SafeMessageError):
     """The model hit its output-token cap before finishing the JSON. Distinct
     from a plain "not valid JSON" error so parse_generic() can retry the block
     in smaller pieces instead of dropping its rows."""
@@ -1112,7 +1115,7 @@ def _parse_json_response(raw: str) -> object:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("The AI response was not valid JSON.") from exc
+        raise SafeMessageError("The AI response was not valid JSON.") from exc
 
 
 def call_gemini_json(

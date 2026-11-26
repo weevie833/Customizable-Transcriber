@@ -28,6 +28,7 @@ from transcript_translation import (
     preflight_summary,
     start_translation_job,
 )
+from translation_offpeak import start_off_peak_translation_job
 
 
 def _translation_request(handler) -> tuple[str, str, str, list[str], str, str, TranslationOptions]:
@@ -101,6 +102,12 @@ class TranscribeTranslateHandlerMixin:
             self.respond_json({"ok": False, "errors": [str(exc)]}, status=400)
 
     def run_translation(self) -> None:
+        self._start_translation(off_peak=False)
+
+    def run_translation_off_peak(self) -> None:
+        self._start_translation(off_peak=True)
+
+    def _start_translation(self, *, off_peak: bool) -> None:
         with lock:
             already_running = state["running"]
             if not already_running:
@@ -140,11 +147,13 @@ class TranscribeTranslateHandlerMixin:
             state["output"] = ""
             state["download"] = ""
             state["report_download"] = ""
-            state["off_peak"] = False
-            state["summary"] = f"Translating {filename}..."
-        start_translation_job(
-            text, filename, str((plan.profile or {}).get("id", "")), plan.languages, model, api_key, plan.options
-        )
+            state["untranslated"] = 0
+            state["off_peak"] = off_peak
+            state["summary"] = (
+                f"Submitting off-peak translation of {filename}..." if off_peak else f"Translating {filename}..."
+            )
+        start = start_off_peak_translation_job if off_peak else start_translation_job
+        start(text, filename, str((plan.profile or {}).get("id", "")), plan.languages, model, api_key, plan.options)
         self.respond_json({"ok": True})
 
     def download_translation_report(self) -> None:

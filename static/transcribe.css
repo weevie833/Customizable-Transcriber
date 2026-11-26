@@ -170,6 +170,12 @@ since this isn't inside an f-string anymore). */
     .translate-body .translate-actions {
       margin-top: 14px;
     }
+    /* Translate Off-Peak and its info button, side by side. */
+    .translate-offpeak-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
     .translate-preflight-result p {
       margin: 2px 0;
     }

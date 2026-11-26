@@ -754,11 +754,16 @@
     "No saved prompt profile was found; translating without background on the register.":
       "Nessun profilo del prompt salvato trovato; traduzione senza il contesto del registro.",
     "Translate": "Traduci",
+    "Translate Off-Peak": "Traduci Off-Peak",
+    "Translate Off-Peak sends the same translation requests to your provider's batch queue, typically billed at roughly half the standard per-token rate. Keep the app open until it finishes; the provider works on its own schedule, from a few minutes to several hours. Any request the batch could not translate is sent again in real time at the end. Clicking Stop cancels the batch; pages already translated are kept in the document.":
+      "Traduci Off-Peak invia le stesse richieste di traduzione alla coda batch del tuo provider, di norma fatturate a circa la metà della tariffa standard per token. Tieni l'app aperta fino alla fine; il provider lavora secondo i propri tempi, da pochi minuti a diverse ore. Le richieste che il batch non è riuscito a tradurre vengono inviate di nuovo in tempo reale alla fine. Cliccando Stop il batch viene annullato; le pagine già tradotte restano nel documento.",
     "Download Translation Report": "Scarica il rapporto di traduzione",
     "Fix these before translating:": "Correggi questi punti prima di tradurre:",
     "Warnings:": "Avvisi:",
     "Your edits, accepted as written:": "Le tue modifiche, accettate così come sono:",
     "Preflight passed. Click Translate to start.": "Controllo preliminare superato. Clicca su Traduci per iniziare.",
+    "Preflight passed. Click Translate, or Translate Off-Peak for roughly half the price.":
+      "Controllo preliminare superato. Clicca su Traduci, oppure su Traduci Off-Peak per circa la metà del prezzo.",
     "Choose the corrected DOCX transcript first.": "Scegli prima la trascrizione DOCX corretta.",
     "Please run the preflight check before translating.": "Esegui il controllo preliminare prima di tradurre.",
     "Paste your API key in the API key field above.": "Incolla la tua chiave API nel campo Chiave API qui sopra.",
@@ -766,6 +771,7 @@
     "The preflight check could not reach the app. Is it still running?":
       "Il controllo preliminare non ha raggiunto l'app. È ancora in esecuzione?",
     "Translation completed": "Traduzione completata",
+    "Translation incomplete": "Traduzione incompleta",
     "Scroll down to the Progress Console. Download Document gives the translated transcript; Download Translation Report lists what was translated.":
       "Scorri fino alla Console di avanzamento. Scarica documento fornisce la trascrizione tradotta; Scarica il rapporto di traduzione elenca ciò che è stato tradotto.",
     "Choose English, Italian, or both.": "Scegli Inglese, Italiano o entrambi.",
@@ -945,13 +951,26 @@
       it: function () { return "Seleziona un profilo valido prima di eliminarlo."; },
     },
     {
-      re: /^"([^"]+)" is temporarily unavailable on the provider's own servers \(HTTP ([^)]+)\) -- this is not a problem with your API key or this app\. It already retried (\d+) times with a short delay before giving up\. This is usually temporary: wait a few minutes and try again, or switch to a different model for now\. \(Original error: ([\s\S]+)\)$/,
+      re: /^"([^"]+)" is temporarily unavailable on the provider's own servers \(HTTP ([^)]+)\) -- this is not a problem with your API key or this app\. It already retried (\d+) times with a short delay before giving up\. This is usually temporary: wait a few minutes and try again, or switch to a different model for now\.(?: \(Original error: ([\s\S]+)\))?$/,
       it: function (m) {
         return (
           '"' + m[1] + '" non è al momento disponibile sui server del provider (HTTP ' + m[2] + ") -- " +
           "non è un problema della tua chiave API o di questa app. Ha già ritentato " + m[3] +
           " volte con un breve ritardo prima di rinunciare. Di solito è temporaneo: attendi qualche " +
-          "minuto e riprova, oppure passa a un altro modello per ora. (Errore originale: " + m[4] + ")"
+          "minuto e riprova, oppure passa a un altro modello per ora." +
+          (m[4] ? " (Errore originale: " + m[4] + ")" : "")
+        );
+      },
+    },
+    {
+      re: /^"([^"]+)" did not finish in time \(HTTP 504, timed out on the provider's own servers\) -- this is not a problem with your API key or this app\. It already retried (\d+) times\. If the same image or page times out again, the model is likely spending too long on that one: switch to a different model for it rather than trying again\.(?: \(Original error: ([\s\S]+)\))?$/,
+      it: function (m) {
+        return (
+          '"' + m[1] + '" non ha finito in tempo (HTTP 504, tempo scaduto sui server del provider) -- ' +
+          "non è un problema della tua chiave API o di questa app. Ha già ritentato " + m[2] +
+          " volte. Se la stessa immagine o pagina va di nuovo in timeout, probabilmente il modello " +
+          "impiega troppo tempo su quella: usa un altro modello per quella pagina invece di riprovare." +
+          (m[3] ? " (Errore originale: " + m[3] + ")" : "")
         );
       },
     },
@@ -1114,18 +1133,74 @@
       },
     },
     {
-      re: /^Translating (\d+) entries into (.+) with (.+) \((\d+) request\(s\)\)\.$/,
-      it: function (m) { return "Traduzione di " + m[1] + " voci in " + m[2].replace("English", "Inglese").replace("Italian", "Italiano") + " con " + m[3] + " (" + m[4] + " richiesta/e)."; },
+      re: /^Off-peak: translating (\d+) (entries|pages) into (.+) with (.+) as one batch \((\d+) request\(s\)\)\.$/,
+      it: function (m) {
+        return "Off-peak: traduzione di " + m[1] + (m[2] === "pages" ? " pagine" : " voci") + " in " +
+          m[3].replace("English", "Inglese").replace("Italian", "Italiano") + " con " + m[4] + " in un unico batch (" + m[5] + " richiesta/e).";
+      },
     },
     {
-      re: /^Translated (\d+) of (\d+) entries(, (\d+) with a problem)?( \(stopped\))?\. Download the document and the translation report\.$/,
+      re: /^Translating (\d+) (entries|pages) into (.+) with (.+) \((\d+) request\(s\)\)\.$/,
       it: function (m) {
-        return "Tradotte " + m[1] + " voci su " + m[2] + (m[3] ? ", " + m[4] + " con un problema" : "") +
-          (m[5] ? " (interrotto)" : "") + ". Scarica il documento e il rapporto di traduzione.";
+        return "Traduzione di " + m[1] + (m[2] === "pages" ? " pagine" : " voci") + " in " +
+          m[3].replace("English", "Inglese").replace("Italian", "Italiano") + " con " + m[4] + " (" + m[5] + " richiesta/e).";
+      },
+    },
+    {
+      re: /^(\[(?:retry )?\d+\/\d+\] .+), (whole page|its only entry|all (\d+) entries|entry (\d+) of (\d+)|entries (\d+)-(\d+) of (\d+))$/,
+      it: function (m) {
+        var span = m[2] === "whole page" ? "pagina intera"
+          : m[2] === "its only entry" ? "unica voce"
+          : m[3] ? "tutte le " + m[3] + " voci"
+          : m[4] ? "voce " + m[4] + " di " + m[5]
+          : "voci " + m[6] + "-" + m[7] + " di " + m[8];
+        return m[1].replace(/^\[retry /, "[nuovo tentativo ") + ", " + span;
+      },
+    },
+    {
+      re: /^(?:Off-peak: )?Translated (\d+) of (\d+) (entries|pages)(, (\d+) with a problem)?( \(stopped\))?\. Download the document and the translation report\.$/,
+      it: function (m) {
+        return (m[0].indexOf("Off-peak: ") === 0 ? "Off-peak: " : "") + "Tradotte " + m[1] + (m[3] === "pages" ? " pagine" : " voci") + " su " + m[2] +
+          (m[4] ? ", " + m[5] + " con un problema" : "") +
+          (m[6] ? " (interrotto)" : "") + ". Scarica il documento e il rapporto di traduzione.";
       },
     },
     { re: /^Report: (.+)$/, it: function (m) { return "Rapporto: " + m[1]; } },
     { re: /^Stopped before the next request\.$/, it: function () { return "Interrotto prima della richiesta successiva."; } },
+    // End-of-run retry pass (retry_failed_entries() in transcript_translation.py).
+    {
+      re: /^Retrying (\d+) (entry|entries|page|pages) that failed, in (\d+) seconds\.\.\.$/,
+      it: function (m) {
+        var noun = { entry: "voce", entries: "voci", page: "pagina", pages: "pagine" }[m[2]];
+        return "Nuovo tentativo per " + m[1] + " " + noun + (m[1] === "1" ? " non riuscita" : " non riuscite") + " tra " + m[3] + " secondi...";
+      },
+    },
+    { re: /^Retry pass: (\d+) of (\d+) now translated\.$/, it: function (m) { return "Nuovo tentativo: ora tradotte " + m[1] + " su " + m[2] + "."; } },
+    { re: /^Stopped before the retry pass\.$/, it: function () { return "Interrotto prima del nuovo tentativo."; } },
+    { re: /^Stopped during the retry pass\.$/, it: function () { return "Interrotto durante il nuovo tentativo."; } },
+    // "Problem with <file>, entry N: <reason>" (run_translation_job / off-peak) and its
+    // retry-pass twin. The reason is itself a known message, so translate it too.
+    {
+      re: /^(Still a problem|Problem) with (.+?), (entry|page) (\d+): ([\s\S]+)$/,
+      it: function (m) {
+        var lead = m[1] === "Problem" ? "Problema con " : "Ancora un problema con ";
+        return lead + m[2] + ", " + (m[3] === "entry" ? "voce " : "pagina ") + m[4] + ": " + translateDynamicLine(m[5]);
+      },
+    },
+    { re: /^The AI response was not valid JSON\.$/, it: function () { return "La risposta dell'IA non era un JSON valido."; } },
+    { re: /^Still a problem with (.+): ([\s\S]+)$/, it: function (m) { return "Ancora un problema con " + m[1] + ": " + translateDynamicLine(m[2]); } },
+    // Completion alert when a translation run left something untranslated (static/transcribe.js).
+    {
+      re: /^(\d+) (entry|entries|page|pages) could not be translated\. Search the document for NOT TRANSLATED, or see the translation report\. Run Translate again on the translated file to retry (it|them)\.$/,
+      it: function (m) {
+        var one = m[1] === "1";
+        var page = m[2].indexOf("page") === 0;
+        var noun = page ? (one ? "pagina" : "pagine") : (one ? "voce" : "voci");
+        var verb = one ? "non è stata tradotta" : "non sono state tradotte";
+        return m[1] + " " + noun + " " + verb + ". Cerca NOT TRANSLATED nel documento, oppure consulta il rapporto di traduzione. " +
+          "Esegui di nuovo Traduci sul file tradotto per riprovare.";
+      },
+    },
   ];
 
   // Wraps every pattern above so it also recognizes the two fixed English

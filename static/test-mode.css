@@ -74,20 +74,6 @@ longer doubled since this isn't inside an f-string anymore). */
     .extra-file-row input, .extra-file-row .file-picker {
       margin-top: 0;
     }
-    .file-picker.drop-zone {
-      padding: 8px 10px;
-      border: 2px dashed #b8b2a5;
-      border-radius: 8px;
-      background: #fbfaf7;
-      min-width: 0;
-    }
-    .file-picker.drop-zone:hover {
-      border-color: #8a8377;
-    }
-    .file-picker.drop-zone.drag-over {
-      border-color: #255c99;
-      background: #eaf1f9;
-    }
     .extra-file-remove {
       margin-top: 0;
       padding: 6px 10px;

@@ -21,6 +21,14 @@ OFF_PEAK_INFO_TEXT = (
     "provider's side: any images not yet completed are lost, not paused."
 )
 
+TRANSLATE_OFF_PEAK_INFO_TEXT = (
+    "Translate Off-Peak sends the same translation requests to your provider's batch queue, "
+    "typically billed at roughly half the standard per-token rate. Keep the app open until it "
+    "finishes; the provider works on its own schedule, from a few minutes to several hours. "
+    "Any request the batch could not translate is sent again in real time at the end. Clicking "
+    "Stop cancels the batch; pages already translated are kept in the document."
+)
+
 PAGE_ZOOM_INFO_TEXT = (
     "Page zoom sends each photo to Gemini together with a full-resolution crop of each page. "
     "AI models shrink large photos before reading them, so on a high-resolution photo of two "
@@ -106,6 +114,7 @@ def page() -> str:
         {"profiles": profiles_for_browser(), "running": running, "off_peak": off_peak},
     )
     off_peak_info_html = info_button_html("offpeak-info-panel", OFF_PEAK_INFO_TEXT)
+    translate_off_peak_info_html = info_button_html("translate-offpeak-info-panel", TRANSLATE_OFF_PEAK_INFO_TEXT)
     page_zoom_info_html = info_button_html("page-zoom-info-panel", PAGE_ZOOM_INFO_TEXT)
     zoom_checked = "checked" if zoom_pages else ""
     download_disabled_class = "" if download else " disabled-link"
@@ -115,7 +124,7 @@ def page() -> str:
         '<option value="" selected>Use the profile named in the document</option>',
         1,
     )
-    translate_file_picker = file_picker_html("translate-source-file", ".docx", 'name="source_file"')
+    translate_file_picker = file_picker_html("translate-source-file", ".docx", 'name="source_file"', drop_zone=True)
     download_aria_disabled = "false" if download else "true"
 
     return f"""<!doctype html>
@@ -316,6 +325,10 @@ def page() -> str:
         <div class="actions translate-actions">
           <button id="translate-preflight-button" type="button">Preflight Check</button>
           <button id="translate-run-button" type="button" disabled>Translate</button>
+          <span class="translate-offpeak-row">
+            <button id="translate-run-offpeak-button" type="button" disabled>Translate Off-Peak</button>
+            {translate_off_peak_info_html}
+          </span>
         </div>
         <div id="translate-preflight-result" class="translate-preflight-result" role="status" aria-live="polite" hidden></div>
       </div>

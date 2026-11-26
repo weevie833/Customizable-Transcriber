@@ -263,3 +263,56 @@ function wireInfoButtons() {
     if (event.key === "Escape") closeAllInfoPanels();
   });
 }
+
+(function () {
+  // File pickers made with file_picker_html(drop_zone=True): Test Mode's
+  // Compare Transcripts / Compare Indexes and Transcribe's Translate
+  // section. A dropped file is put into the picker's own <input
+  // type="file"> and a "change" event is fired, so the rest of the page
+  // reads it exactly as if it had been chosen.
+  // Files dropped anywhere else on the page are ignored rather than
+  // letting the browser navigate away to open them.
+  function dragHasFiles(event) {
+    return !!(event.dataTransfer && Array.from(event.dataTransfer.types || []).includes("Files"));
+  }
+  function fileMatchesAccept(file, accept) {
+    const exts = (accept || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    return !exts.length || exts.some((ext) => file.name.toLowerCase().endsWith(ext));
+  }
+  document.addEventListener("dragover", (event) => {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    const zone = event.target.closest && event.target.closest(".file-picker.drop-zone");
+    event.dataTransfer.dropEffect = zone ? "copy" : "none";
+    document.querySelectorAll(".file-picker.drop-zone.drag-over").forEach((el) => {
+      if (el !== zone) el.classList.remove("drag-over");
+    });
+    if (zone) zone.classList.add("drag-over");
+  });
+  document.addEventListener("dragleave", (event) => {
+    const zone = event.target.closest && event.target.closest(".file-picker.drop-zone");
+    if (zone && !zone.contains(event.relatedTarget)) zone.classList.remove("drag-over");
+  });
+  document.addEventListener("drop", (event) => {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    document.querySelectorAll(".file-picker.drop-zone.drag-over").forEach((el) => el.classList.remove("drag-over"));
+    const zone = event.target.closest && event.target.closest(".file-picker.drop-zone");
+    const input = zone && zone.querySelector('input[type="file"]');
+    const file = event.dataTransfer.files && event.dataTransfer.files[0];
+    if (!input || !file) return;
+    if (!fileMatchesAccept(file, input.getAttribute("accept"))) {
+      const nameEl = zone.querySelector(".file-picker-name");
+      if (nameEl) {
+        nameEl.textContent = "Wrong file type - use a " + input.getAttribute("accept") + " file";
+        if (typeof window.tbRefreshLanguage === "function") window.tbRefreshLanguage();
+      }
+      input.value = "";
+      return;
+    }
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+})();

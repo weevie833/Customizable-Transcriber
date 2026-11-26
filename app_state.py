@@ -64,6 +64,9 @@ state = {
     # The report DOCX of the last "Translate completed transcript" run
     # (transcript_translation.py); its translated DOCX is "download" above.
     "report_download": "",
+    # Entries/pages the last translation run could not translate.
+    "untranslated": 0,
+    "untranslated_unit": "entries",
     "summary": "",
     "model": DEFAULT_MODEL,
     "order": "oldest",
@@ -510,6 +513,7 @@ def reset_ui_state() -> bool:
         state["output"] = ""
         state["download"] = ""
         state["report_download"] = ""
+        state["untranslated"] = 0
         state["summary"] = ""
         state["model"] = DEFAULT_MODEL
         state["order"] = "oldest"
@@ -562,6 +566,8 @@ def status_payload() -> dict[str, object]:
             "output": str(state["output"]),
             "download": bool(state["download"]),
             "report": bool(state["report_download"]),
+            "untranslated": int(state["untranslated"]),
+            "untranslated_unit": str(state["untranslated_unit"]),
             "completed": bool(state["download"]) and not bool(state["running"]),
             "summary": str(state["summary"]),
             "off_peak": bool(state["off_peak"]),

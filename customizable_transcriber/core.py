@@ -727,6 +727,17 @@ def humanize_provider_error(exc: Exception, model: str, include_original: bool =
             "being limited -- wait a bit and try again, or switch to a different model for now. "
             f"{original.lstrip()}"
         ).rstrip()
+    if status == 504:
+        # A gateway timeout arrives after minutes, not seconds: the provider gave
+        # up waiting for the model. Seen repeatedly on the same Lappano Catasto
+        # pages across runs, so "temporary" was the wrong advice.
+        return (
+            f'"{model}" did not finish in time (HTTP 504, timed out on the provider\'s own servers) '
+            "-- this is not a problem with your API key or this app. It already retried "
+            f"{MAX_TRANSIENT_RETRIES} times. If the same image or page times out again, the model "
+            "is likely spending too long on that one: switch to a different model for it rather "
+            f"than trying again. {original.lstrip()}"
+        ).rstrip()
     return (
         f'"{model}" is temporarily unavailable on the provider\'s own servers (HTTP {status or "5xx"}) '
         "-- this is not a problem with your API key or this app. It already retried "

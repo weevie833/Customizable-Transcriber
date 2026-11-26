@@ -121,6 +121,10 @@ _CWR_TRANSLATION_RE = re.compile(
 )
 _CWR_RE = re.compile(r"^\s*Church\s+Wedding\s+Record\s*:(?P<rest>.*)$", re.IGNORECASE)
 _BAPTISM_RE = re.compile(r"^\s*Baptism\s+Record\s*:(?P<rest>.*)$", re.IGNORECASE)
+# Written where a translation could not be made (not_translated_marker()).
+# Its own block kind, so a re-run neither sends it as transcription text nor
+# keeps it once the entry is translated.
+_NOT_TRANSLATED_RE = re.compile(r"^\s*\[\s*NOT TRANSLATED\s*:.*\]\s*$", re.IGNORECASE)
 
 # The preset continuation notes (customizable_transcriber/core.py) and the
 # model's own fixed sentences, in English or Italian.
@@ -238,6 +242,8 @@ def _classify(line: str) -> tuple[str, str, str] | None:
         return "locator", "", ""
     if _FRONT_MATTER_RE.match(line):
         return "front_matter", "", ""
+    if _NOT_TRANSLATED_RE.match(line):
+        return "not_translated", "", ""
     for kind, pattern in (
         ("marginal", _MARGINAL_RE),
         ("date", _DATE_RE),
@@ -431,6 +437,23 @@ class Plan:
 
 def entry_label(entry: Entry) -> str:
     return f"{entry.record}, entry {entry.position}"
+
+
+def progress_span(chunk: list[Entry], plan: Plan) -> str:
+    """What one request covers, for the Progress Console. "entry 1" alone read
+    as if only the first entry was being translated, so the line says how many
+    the image holds; a Catasto page is translated whole."""
+    if plan.line_structure:
+        return "whole page"
+    first, last = chunk[0], chunk[-1]
+    total = len(plan.parsed.records[first.record_index - 1].entries)
+    if total == 1:
+        return "its only entry"
+    if len(chunk) == total:
+        return f"all {total} entries"
+    if first is last:
+        return f"entry {first.position} of {total}"
+    return f"entries {first.position}-{last.position} of {total}"
 
 
 def build_plan(text: str, profile_id: str, languages: list[str], options: TranslationOptions | None = None) -> Plan:
@@ -806,7 +829,7 @@ def _translate_chunk(
     """Returns (translations, church wedding translations, failures), each
     keyed by entry id. A call that times out or is cut off is retried in two
     halves, down to a single entry."""
-    message = json.dumps({"entries": [_entry_payload(entry, plan) for entry in chunk]}, ensure_ascii=False)
+    message = chunk_message(chunk, plan)
     try:
         response = call_ai_json(api_key, model, system_prompt, message, cached_content, use_prompt_cache)
     except Exception as exc:
@@ -818,7 +841,20 @@ def _translate_chunk(
         # Saved in the translation report, so no raw exception text (M-2).
         reason = humanize_provider_error(exc, model, include_original=False)
         return {}, {}, {entry.entry_id: reason for entry in chunk}
+    return read_chunk_response(chunk, plan, response)
 
+
+def chunk_message(chunk: list[Entry], plan: Plan) -> str:
+    """The user message for one request: the chunk's entries as JSON."""
+    return json.dumps({"entries": [_entry_payload(entry, plan) for entry in chunk]}, ensure_ascii=False)
+
+
+def read_chunk_response(
+    chunk: list[Entry], plan: Plan, response: object
+) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], dict[str, str]]:
+    """Matches a parsed JSON response back to the chunk's entries. Returns
+    (translations, church wedding translations, failures) keyed by entry id.
+    Used for a real-time response and for one off-peak batch result alike."""
     clean = _keep_lines if plan.line_structure else _one_line
     items = response.get("entries") if isinstance(response, dict) else response
     by_id: dict[str, dict] = {}
@@ -875,6 +911,17 @@ def _transcription_label(native: str, italian_labels: bool) -> str:
     return f"{native} Transcription:"
 
 
+def not_translated_marker(reason: str) -> str:
+    """The line written in the document where a translation could not be
+    made, so a skipped page can be found by searching the file."""
+    first = re.split(r"(?<=[.!?])\s+", _one_line(reason).replace("[", "(").replace("]", ")"), maxsplit=1)[0]
+    if len(first) > 200:
+        first = first[:197].rstrip() + "..."
+    if first and first[-1] not in ".!?":
+        first += "."
+    return f"[NOT TRANSLATED: {first} Run Translate again on this file to retry.]"
+
+
 def _block_lines(label: str, text: str, inline: bool) -> list[str]:
     return ["", f"{label} {text}"] if inline else ["", label, "", text]
 
@@ -889,20 +936,29 @@ def assemble(
     plan: Plan,
     translations: dict[str, dict[str, str]],
     cwr_translations: dict[str, dict[str, str]],
+    failures: dict[str, str] | None = None,
 ) -> str:
     """The corrected document with translation blocks inserted. Every original
     line is kept; only transcription and translation labels change, and only
-    when Italian is among the final translations (Prompt Builder's label rule)."""
+    when Italian is among the final translations (Prompt Builder's label rule).
+    An entry in `failures` gets a [NOT TRANSLATED: ...] line where its
+    translation would go; markers from an earlier run are always replaced."""
+    failures = failures or {}
     lines = list(plan.parsed.lines)
     italian_labels = "Italian" in plan.final_languages(translations)
     native = _english_language_name(plan.native_language) if plan.native_language else ""
 
     replacements: dict[int, str] = {}
     insert_after: dict[int, list[str]] = {}
+    dropped: set[int] = set()
     for entry in plan.parsed.entries:
         transcription = entry.transcription
         if transcription is None:
             continue
+        for block in entry.all("not_translated"):
+            dropped.update(range(block.start, block.end))
+            if block.start > 0 and not lines[block.start - 1].strip():
+                dropped.add(block.start - 1)
         transcription_language = native or transcription.language
         replacements[transcription.start] = _relabel(
             lines[transcription.start], _TRANSCRIPTION_RE, _transcription_label(transcription_language, italian_labels)
@@ -925,6 +981,14 @@ def assemble(
                 if lang in new:
                     added += _block_lines(_translation_label(lang, italian_labels), new[lang], transcription.label_inline)
             insert_after.setdefault(anchor.end - 1, []).extend(added)
+        if entry.entry_id in failures:
+            anchor = transcription
+            for block in entry.blocks[entry.blocks.index(transcription) + 1 :]:
+                if block.kind not in {"translation", "not_translated"}:
+                    break
+                if block.kind == "translation":
+                    anchor = block
+            insert_after.setdefault(anchor.end - 1, []).extend(["", not_translated_marker(failures[entry.entry_id])])
 
         cwr_new = cwr_translations.get(entry.entry_id, {})
         cwr = entry.first("cwr")
@@ -942,7 +1006,8 @@ def assemble(
 
     output: list[str] = []
     for index in range(plan.parsed.body_start, len(lines)):
-        output.append(replacements.get(index, lines[index]))
+        if index not in dropped:
+            output.append(replacements.get(index, lines[index]))
         output.extend(insert_after.get(index, []))
     return "\n".join(output).rstrip() + "\n"
 
@@ -962,6 +1027,7 @@ def build_report_docx(
     tokens: dict[str, int],
     started: datetime,
     finished: datetime,
+    run_note: str = "",
 ) -> bytes:
     profile = plan.profile or {}
     options = plan.options
@@ -991,6 +1057,8 @@ def build_report_docx(
             f"Started {started:%Y-%m-%d %H:%M}, finished {finished:%Y-%m-%d %H:%M}. Prompt version {PROMPT_VERSION}."
         ),
     ]
+    if run_note:
+        elements.append(report_paragraph(run_note))
     if stopped:
         elements.append(
             report_paragraph(
@@ -1182,6 +1250,129 @@ def _remove(paths: list[Path]) -> None:
             pass
 
 
+def write_translation_outputs(
+    plan: Plan,
+    source_name: str,
+    names: OutputNames,
+    model: str,
+    translations: dict[str, dict[str, str]],
+    cwr_translations: dict[str, dict[str, str]],
+    failures: dict[str, str],
+    stopped: bool,
+    tokens: dict[str, int],
+    started: datetime,
+    entry_count: int,
+    run_note: str = "",
+    summary_prefix: str = "",
+) -> None:
+    """Assemble the translated document, publish the .docx/.md/report set,
+    and point the Progress Console's downloads at it. Shared by the
+    real-time and off-peak runs."""
+    profile = plan.profile or {}
+    body = assemble(plan, translations, cwr_translations, failures)
+    finished = datetime.now()
+
+    def build(paths):
+        docx_path, md_path, report_path = paths
+        report = build_report_docx(
+            plan, source_name, docx_path.name, model, translations, cwr_translations, failures,
+            stopped, tokens, started, finished, run_note,
+        )
+        return [
+            (md_path, lambda temp: temp.write_text(body, encoding="utf-8")),
+            (
+                docx_path,
+                lambda temp: write_docx(
+                    temp,
+                    body,
+                    native_language=plan.native_language,
+                    translation_languages=plan.final_languages(translations),
+                    record_type=record_type_for(plan.parsed, plan.profile),
+                    model=plan.parsed.header.get("AI model", ""),
+                    profile_label=str(profile.get("label", "") or plan.parsed.header.get("Prompt profile", "")),
+                ),
+            ),
+            (report_path, lambda temp: temp.write_bytes(report)),
+        ]
+
+    docx_path, _md_path, report_path = publish_outputs(names, build)
+    add_log(f"Done. Output: {docx_path}")
+    add_log(f"Report: {report_path}")
+    unit = "pages" if plan.line_structure else "entries"
+    summary = (
+        summary_prefix
+        + f"Translated {len(translations)} of {entry_count} {unit}"
+        + (f", {len(failures)} with a problem" if failures else "")
+        + (" (stopped)" if stopped else "")
+        + ". Download the document and the translation report."
+    )
+    with lock:
+        state["summary"] = summary
+        state["download"] = str(docx_path)
+        state["report_download"] = str(report_path)
+        state["untranslated"] = len(failures)
+        state["untranslated_unit"] = unit
+
+
+# Pause before the end-of-run retry pass: long enough for a provider's
+# temporary 5xx to clear (the per-request retries wait only seconds).
+RETRY_PASS_DELAY_SECONDS = 30
+
+
+def retry_failed_entries(
+    plan: Plan,
+    failures: dict[str, str],
+    translations: dict[str, dict[str, str]],
+    cwr_translations: dict[str, dict[str, str]],
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    cached_content: str | None,
+    use_prompt_cache: bool,
+) -> bool:
+    """One more try for every entry that failed, after a pause, one image at
+    a time. Updates the three dicts in place; returns True if Stop was
+    pressed. Entries that fail again keep their (new) reason."""
+    if not failures:
+        return False
+    failed = [e for e in plan.entries_to_translate if e.entry_id in failures]
+    groups: list[list[Entry]] = []
+    for entry in failed:
+        if groups and groups[-1][0].record_index == entry.record_index:
+            groups[-1].append(entry)
+        else:
+            groups.append([entry])
+    unit = ("page" if len(failed) == 1 else "pages") if plan.line_structure else ("entry" if len(failed) == 1 else "entries")
+    add_log(f"Retrying {len(failed)} {unit} that failed, in {RETRY_PASS_DELAY_SECONDS} seconds...")
+    if stop_event.wait(RETRY_PASS_DELAY_SECONDS):
+        add_log("Stopped before the retry pass.")
+        return True
+    recovered = 0
+    for number, group in enumerate(groups, start=1):
+        if stop_event.is_set():
+            add_log("Stopped during the retry pass.")
+            return True
+        first = group[0]
+        add_log(f"[retry {number}/{len(groups)}] {first.record}, {progress_span(group, plan)}")
+        with usage_ledger.image_context(first.record):
+            done, cwr_done, again = _translate_chunk(
+                group, plan, api_key, model, system_prompt, cached_content, use_prompt_cache
+            )
+        for entry_id, langs in done.items():
+            translations.setdefault(entry_id, {}).update(langs)
+        for entry_id, langs in cwr_done.items():
+            cwr_translations.setdefault(entry_id, {}).update(langs)
+        for entry in group:
+            if entry.entry_id in again:
+                failures[entry.entry_id] = again[entry.entry_id]
+                add_log(f"Still a problem with {entry_label(entry)}: {again[entry.entry_id]}")
+            else:
+                failures.pop(entry.entry_id, None)
+                recovered += 1
+    add_log(f"Retry pass: {recovered} of {len(failed)} now translated.")
+    return False
+
+
 def run_translation_job(
     text: str,
     source_name: str,
@@ -1213,7 +1404,8 @@ def run_translation_job(
             add_log("No saved prompt profile was found; translating without background on the register.")
         entries = plan.entries_to_translate
         chunks = _chunks(entries, plan)
-        add_log(f"Translating {len(entries)} entries into {', '.join(plan.languages)} with {model} ({len(chunks)} request(s)).")
+        unit = "pages" if plan.line_structure else "entries"
+        add_log(f"Translating {len(entries)} {unit} into {', '.join(plan.languages)} with {model} ({len(chunks)} request(s)).")
         add_log("Checking API key...")
         validate_api_key_with_retry(PROJECT_DIR, model, api_key, progress=add_log)
         add_log("API key validated.")
@@ -1246,9 +1438,8 @@ def run_translation_job(
                     stopped = True
                     add_log("Stopped before the next request.")
                     break
-                first, last = chunk[0], chunk[-1]
-                span = f"entry {first.position}" if first is last else f"entries {first.position}-{last.position}"
-                add_log(f"[{number}/{len(chunks)}] {first.record}, {span}")
+                first = chunk[0]
+                add_log(f"[{number}/{len(chunks)}] {first.record}, {progress_span(chunk, plan)}")
                 with usage_ledger.image_context(first.record):
                     done, cwr_done, failed = _translate_chunk(
                         chunk, plan, api_key, model, system_prompt, cached_content, use_prompt_cache
@@ -1259,6 +1450,11 @@ def run_translation_job(
                 labels = {entry.entry_id: entry_label(entry) for entry in chunk}
                 for entry_id, reason in failed.items():
                     add_log(f"Problem with {labels.get(entry_id, entry_id)}: {reason}")
+            if failures and not stopped:
+                stopped = retry_failed_entries(
+                    plan, failures, translations, cwr_translations,
+                    api_key, model, system_prompt, cached_content, use_prompt_cache,
+                )
         finally:
             if cached_content and cache_client is not None:
                 delete_gemini_prompt_cache(cache_client, cached_content)
@@ -1267,45 +1463,10 @@ def run_translation_job(
             usage_ledger.deactivate(token)
             usage_ledger.end_run(ledger_run, translated=len(translations), failures=len(failures), stopped=stopped)
 
-        body = assemble(plan, translations, cwr_translations)
-        finished = datetime.now()
-
-        def build(paths):
-            docx_path, md_path, report_path = paths
-            report = build_report_docx(
-                plan, source_name, docx_path.name, model, translations, cwr_translations, failures,
-                stopped, ledger_tokens, started, finished,
-            )
-            return [
-                (md_path, lambda temp: temp.write_text(body, encoding="utf-8")),
-                (
-                    docx_path,
-                    lambda temp: write_docx(
-                        temp,
-                        body,
-                        native_language=plan.native_language,
-                        translation_languages=plan.final_languages(translations),
-                        record_type=record_type_for(plan.parsed, plan.profile),
-                        model=plan.parsed.header.get("AI model", ""),
-                        profile_label=str(profile.get("label", "") or plan.parsed.header.get("Prompt profile", "")),
-                    ),
-                ),
-                (report_path, lambda temp: temp.write_bytes(report)),
-            ]
-
-        docx_path, _md_path, report_path = publish_outputs(names, build)
-        add_log(f"Done. Output: {docx_path}")
-        add_log(f"Report: {report_path}")
-        summary = (
-            f"Translated {len(translations)} of {len(entries)} entries"
-            + (f", {len(failures)} with a problem" if failures else "")
-            + (" (stopped)" if stopped else "")
-            + ". Download the document and the translation report."
+        write_translation_outputs(
+            plan, source_name, names, model, translations, cwr_translations, failures,
+            stopped, ledger_tokens, started, len(entries),
         )
-        with lock:
-            state["summary"] = summary
-            state["download"] = str(docx_path)
-            state["report_download"] = str(report_path)
     except Exception as exc:
         message = humanize_provider_error(exc, model)
         add_log(f"Fatal error: {message}")

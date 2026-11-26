@@ -654,6 +654,10 @@ class Handler(
             self.run_translation()
             return
 
+        if urllib.parse.urlparse(self.path).path == "/api/translate-transcript/run-offpeak":
+            self.run_translation_off_peak()
+            return
+
         if urllib.parse.urlparse(self.path).path == "/api/pick-source-folder":
             self.pick_source_folder()
             return
